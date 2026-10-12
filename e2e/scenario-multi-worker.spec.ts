@@ -207,11 +207,13 @@ test.describe('multi-worker-sweep', () => {
         'EmailWorkerService',
         'ImportWorkerService',
       ]);
+      // One family per workload, unique to this installation.
       expect(afterAutoDeploy.map((service) => service.family)).toEqual([
-        'DeployzAppWeb',
-        'DeployzAppEmailWorker',
-        'DeployzAppImportWorker',
+        relay.account.taskFamily('web'),
+        relay.account.taskFamily('email-worker'),
+        relay.account.taskFamily('import-worker'),
       ]);
+      for (const service of afterAutoDeploy) expect(service.family).toMatch(/^DeployzApp[A-Za-z]+[a-z0-9]+$/);
       for (const service of afterAutoDeploy) {
         expect(service.desiredCount).toBe(1);
         expect(service.healthy).toBe(true);

@@ -1,5 +1,6 @@
 import { normalizeDeploymentManifest } from '@deployz/analysis';
 import {
+  applyEnvironmentBindings,
   environmentSettingsSchema,
   evaluateEnvironmentSetup,
   type EnvironmentSetting,
@@ -37,11 +38,11 @@ export async function evaluateForApplication(
   db: RuntimeDb,
   application: EnvironmentSetupApplicationRow,
 ): Promise<EnvironmentSetupEvaluation> {
-  const manifest = normalizeDeploymentManifest(
-    { metadata: application.detectedMetadata ?? {} },
-    applicationToManifestOverrides(application),
-  );
   const settings = readEnvironmentSettings(application);
+  const manifest = applyEnvironmentBindings(
+    normalizeDeploymentManifest({ metadata: application.detectedMetadata ?? {} }, applicationToManifestOverrides(application)),
+    settings,
+  );
   const vendorValueKeys = new Set(await listProvidedConfigKeys(db, application.id, null));
   return evaluateEnvironmentSetup({
     variables: manifest.environment.variables,

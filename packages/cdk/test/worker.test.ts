@@ -816,6 +816,36 @@ describe('worker handler', () => {
     expect(row?.imageDigest).toBe(DIGEST_A);
   });
 
+  it('a redelivered BUILD_RELEASE never rebuilds a READY release', async () => {
+    const release = await insertRelease('v3.7.0');
+    await db
+      .update(schema.releases)
+      .set({ buildStatus: 'SUCCEEDED', releaseStatus: 'READY', imageDigest: DIGEST_A, currentBuildId: 'build-done' })
+      .where(eq(schema.releases.id, release.id));
+    const startedBefore = started.length;
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release.id }, 'msg-redelivered');
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(started.length).toBe(startedBefore);
+    expect(row?.releaseStatus).toBe('READY');
+    expect(row?.imageDigest).toBe(DIGEST_A);
+    expect(row?.currentBuildId).toBe('build-done');
+  });
+
+  it('a redelivered BUILD_RELEASE does not start a second build for a running one', async () => {
+    const release = await insertRelease('v3.8.0');
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release.id }, 'msg-first');
+    const [first] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    const startedAfterFirst = started.length;
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release.id }, 'msg-first');
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(started.length).toBe(startedAfterFirst);
+    expect(row?.currentBuildId).toBe(first?.currentBuildId);
+  });
+
   // ── DZ-AUDIT-007: deployment state after build ──────────────────────────────
 
   it('DZ-AUDIT-007: build failure does NOT flip HEALTHY→UPDATE_AVAILABLE (no READY release)', async () => {
@@ -913,6 +943,50 @@ describe('worker handler', () => {
     const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment!.id));
     // The build succeeded: HEALTHY deployments of this app become UPDATE_AVAILABLE.
     expect(dep?.state).toBe('UPDATE_AVAILABLE');
+  });
+
+  it('an older release that finishes building late never flips a deployment already on a newer one', async () => {
+    const [older] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: `old-v-${randomUUID().slice(0, 4)}`,
+        gitSha: 'abc',
+        releaseStatus: 'BUILDING',
+        buildStatus: 'BUILDING',
+        currentBuildId: 'build-late',
+        createdAt: new Date(Date.now() - 3_600_000),
+      })
+      .returning();
+    const [newer] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: `new-v-${randomUUID().slice(0, 4)}`,
+        gitSha: 'def',
+        releaseStatus: 'READY',
+        buildStatus: 'SUCCEEDED',
+        imageDigest: DIGEST_B,
+      })
+      .returning();
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'HEALTHY',
+        currentReleaseId: newer!.id,
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+      })
+      .returning();
+
+    await recordBuildResult(db, buildEvent(older!.id, 'SUCCEEDED', DIGEST_A, 'build-late'));
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment!.id));
+    expect(dep?.state).toBe('HEALTHY');
   });
 });
 

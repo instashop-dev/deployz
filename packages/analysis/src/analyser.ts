@@ -33,6 +33,8 @@ import {
   detectStartupMigrationEvidence,
   detectDeclaredWorkerCommands,
   hasPreDeployMigration,
+  isRuntimeSourcePath,
+  detectDockerfileMissingCopySources,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -57,15 +59,19 @@ import {
   checkAzure,
   checkGcp,
   checkGpu,
+  checkNoBuildableDockerfile,
   checkExplicitPersistentDataDir,
+  checkRequiredConfigFileMount,
+  checkMultiProcessImage,
   checkRequiredThirdPartyService,
+  listIgnoredDeploymentFiles,
 } from './rejection.js';
 
-import { classifyEnvVariables } from './env-classification.js';
+import { classifyEnvVariables, MANAGED_DATABASE_ENV_VARS } from './env-classification.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis, resolveRedisEnvBindings } from './redis.js';
 import { deriveAmbiguities } from './evidence.js';
-import { deriveInfrastructureBindings } from './bindings.js';
+import { deriveInfrastructureBindings, prismaDatasourceEnvNames } from './bindings.js';
 import { detectAsyncWorkloads } from './async-detection.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -139,7 +145,10 @@ const REJECTION_CHECKS = [
   checkAzure,
   checkGcp,
   checkGpu,
+  checkNoBuildableDockerfile,
   checkExplicitPersistentDataDir,
+  checkRequiredConfigFileMount,
+  checkMultiProcessImage,
   checkRequiredThirdPartyService,
 ] as const;
 
@@ -373,6 +382,7 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // straight after analysis.
   const detectedRejections = rejections.filter((r) => r.detected);
   metadata['unsupportedReasons'] = detectedRejections.map((r) => r.reason);
+  metadata['ignoredDeploymentFiles'] = listIgnoredDeploymentFiles(tree).slice(0, 5);
 
   // Phase 4A — every declared worker process (Procfile non-web process,
   // compose worker service) rides the metadata so the deployment manifest's
@@ -402,16 +412,20 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // Phase 4 — who supplies each value, decided from the requirements above.
   // A required MySQL database manages the same generic DATABASE_* names as
   // PostgreSQL, so both engines mark the managed-database env vars.
+  const databaseRequired = postgresMeta?.required === true || mysql.required;
+  const storageRequired = findings.find((f) => f.detector === 's3')?.detected === true;
   metadata['envVarModel'] = classifyEnvVariables(
     detectEnvVarModel(
       tree,
       serviceRequirements.map((r) => r.service),
+      { database: mysql.required ? 'mysql' : databaseRequired ? 'postgres' : null, storage: storageRequired },
     ),
     {
-      postgresRequired: postgresMeta?.required === true || mysql.required,
+      postgresRequired: databaseRequired,
+      databaseBindingNames: prismaDatasourceEnvNames(tree),
       redisRequired: redis.required,
       redisBindingNames: resolveRedisEnvBindings(redis.connectionEnvVars).map((binding) => binding.name),
-      storageRequired: findings.find((f) => f.detector === 's3')?.detected === true,
+      storageRequired,
       externalServices: serviceRequirements.map((r) => r.service),
       queueBindingNames,
     },
@@ -429,6 +443,15 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // under (MEMOS_DSN, PAPERLESS_DBHOST, CELERY_BROKER_URL, …). Purely derived
   // read-model over the env-var model — never feeds back into a verdict.
   metadata['infrastructureBindings'] = deriveInfrastructureBindings(tree, result);
+  metadata['dockerfileMissingSources'] = detectDockerfileMissingCopySources(tree);
+  // A standard database name written in a runtime file (a Go `case "DATABASE_URL":`,
+  // a compose `environment:` entry) is evidence that the app reads it, even
+  // when the read shape is not one the env-var model parses.
+  metadata['databaseNamesMentioned'] = MANAGED_DATABASE_ENV_VARS.filter((name) =>
+    Object.entries(tree).some(
+      ([path, content]) => Boolean(content) && isRuntimeSourcePath(path) && new RegExp(`\\b${name}\\b`).test(content!),
+    ),
+  );
   return result;
 }
 

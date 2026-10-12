@@ -81,6 +81,13 @@ test.describe('migration workloads (phase 4c)', () => {
     const firstUpdateIndex = relay!.account.operationLog.findIndex((entry) => entry.startsWith('update:'));
     expect(migrationIndex).toBeGreaterThanOrEqual(0);
     expect(firstUpdateIndex).toBeGreaterThan(migrationIndex);
+    // The migration ran an EXACT revision of this installation's own family —
+    // never a bare family, never the shared `DeployzAppMigration`.
+    const migrationFamily = relay!.account.taskFamily('migration');
+    expect(migrationFamily).not.toBe('DeployzAppMigration');
+    expect(relay!.account.operationLog[migrationIndex]).toMatch(
+      new RegExp(`^migration:arn:aws:ecs:[^:]+:\\d+:task-definition/${migrationFamily}:\\d+$`),
+    );
 
     // ── A NEW release = a new migration identity → the migration runs again.
     const v1ReleaseId = await createRelease(request, (await getApplicationId(request, deploymentId)), '1.0.0');

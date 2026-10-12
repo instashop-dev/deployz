@@ -108,6 +108,26 @@ status page, not a console. Top to bottom:
    the only failure text at the top level; the relay's raw error stays inside
    the row's disclosure.
 
+## Create deployment
+
+The create page (`app/dashboard/deployments/new`, `?test=true` for the free
+test deployment) is one flat form, at most 960px wide, with no cards:
+
+1. Back link and title.
+2. Configuration — Customer full width, then Application and AWS region
+   side by side (stacked on mobile).
+3. A divider, then readiness as status lines: `PreflightSummary` ("11 checks
+   passed" with the passed checks behind "View details"; blocked and
+   recommended checks always show under the line) and the release line
+   (checking, "Building release …", ready, failed with Build / Review
+   build failure actions, or unavailable with Try again).
+4. The primary action. A test deployment is enabled only when the preflight
+   is ready and the release is built; while disabled, one short hint beside
+   the button says why. An invitation is not gated on the preflight — the
+   customer supplies their own values first. A new customer or application
+   re-runs the checks (the preflight does not depend on the region); any
+   selection change clears the previous submit error.
+
 ## Application page
 
 The vendor application page (`app/dashboard/applications/[id]`) has three

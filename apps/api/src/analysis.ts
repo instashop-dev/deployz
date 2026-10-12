@@ -11,13 +11,16 @@ import {
   buildApplicationAnalysis,
   buildReadinessReport,
   collectScripts,
-  collectScriptsWithDir,
   collectUnresolvedQuestions,
   deriveAmbiguities,
   detectDeclaredWorkerCommands,
+  dockerfileWorkdirs,
+  isDevToolCommand,
   listDockerfileCandidates,
+  mainCommandRunsWorker,
   mergeAiAnalysis,
   selectAiContextFiles,
+  selectMigrationScript,
   verdictFromReadiness,
 } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
@@ -250,7 +253,86 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // throws without is required; a zod member built by a helper is a read; an
 // optional internal secret with a generatable name is deployz_generated.
 // Stored v37 models over-require sibling keys and miss boot-required ones.
-export const ANALYSIS_VERSION = 38;
+// Version 39 (MVP compatibility hardening, phase 1): the app's own names for
+// managed values (SQLALCHEMY_DATABASE_URI, SPRING_DATASOURCE_URL, Prisma
+// datasource env names, *_REDIS_URI, config-file reads) become bindings; an
+// engine or storage selector whose default keeps data on the container disk
+// is required; and an unsafe migration script (create/generate/push, test,
+// copy, devDependency-only CLI, workspace filter) is never frozen into the
+// pre-deploy task. Stored v38 rows miss bindings and selectors and can carry
+// an unsafe migration command.
+// Version 40 (MVP compatibility hardening, phase 2): only the production
+// Compose file counts, a same-build or same-image service is a worker, and
+// infrastructure/dev-tool services are not app services; a VOLUME counts only
+// from the selected Dockerfile, a SQLite-only or S3-capable uploads volume is
+// not local state; Helm/k8s/Terraform/Pulumi samples under deployment
+// directories are a warning, not a rejection. Stored v39 rows can carry a
+// false NOT_COMPATIBLE verdict.
+// Version 41 (MVP compatibility hardening, phase 3): the health path comes
+// from the selected Dockerfile/Compose HEALTHCHECK, then a dedicated health
+// route with its global prefix and URI version, then a framework route, and
+// otherwise the vendor is asked (no feature route ending in status, no route
+// of another binary, no silent /health); a production Dockerfile outranks
+// dev/base/sidecar images and a symlinked Dockerfile is resolved; the port
+// comes from the runtime stage; a dev script or a process the CMD already
+// starts is never a worker. Stored v40 rows can carry a wrong health path,
+// port or Dockerfile.
+// Version 42 (MVP compatibility hardening, phase 4): Valkey is provisioned
+// only on strong required Redis evidence (an optional cache, a README or a
+// Compose service alone no longer provisions it); MySQL is detected from
+// Laravel config defaults, pdo_mysql, Django ENGINE, jdbc:mysql and ORM
+// dialects; a tuning value, an optional integration credential, a client
+// build-time name or a non-runtime read is no longer required config; and a
+// required public URL variable (PUBLIC_URL, APP_URL, BASE_URL, …) is managed
+// with the deployment's default HTTPS URL. Stored v41 rows over-provision
+// Redis and over-ask.
+// Version 43 (MVP compatibility hardening, phase 5): migrations an app runs
+// from its own code at boot are startup mode; PostgreSQL is provisioned next to
+// a SQLite default when a postgres dialect is configured; a provisioned
+// database whose connection names the app never shows blocks with
+// `database-connection-unverified` (the vendor maps the variable); a
+// Dockerfile that copies files the repository lacks blocks with
+// `dockerfile-missing-sources`; the DB_* names are standard database
+// bindings; a compose volume of a service that builds another Dockerfile is
+// not this image's state; a workspace-root, build-first or out-of-image
+// start script is not the container command; config classes, ini env
+// overrides and S3 name shapes feed bindings and selectors; and a mandatory
+// ClickHouse repo, a required config-file mount, an image data dir and a
+// hard-coded RabbitMQ host reject. Stored v42 rows can carry silent fallbacks.
+// Version 44 (memos AWS canary): a Dockerfile in a subdirectory whose COPY
+// source exists only at the repository root (`COPY go.mod go.sum ./` in
+// `scripts/Dockerfile`) builds with the root as its context. Stored v43 rows
+// build such a Dockerfile from its own directory and the build fails.
+// Version 45 (repository AI thinking off): the AI fallback now answers inside
+// REPO_AI_TIMEOUT_MS. Stored v44 rows never received an AI answer (every
+// attempt spent its output budget on reasoning and timed out), so an open
+// question was left to deterministic metadata only.
+// Version 46 (fresh-100 F1): a repository whose only Dockerfiles are
+// development-only files or templates, that has no Dockerfile at all, or whose
+// single Dockerfile copies sources the repository lacks is NOT_COMPATIBLE when
+// the full tracked path list proves it. Stored v45 rows answer
+// NEEDS_CONFIGURATION for these repositories.
+// Version 47 (fresh-100 F4): a Pulumi package in a deployment sample
+// directory and a rediss:// URL that an env sample only mentions in a comment
+// no longer reject the repository. Stored v46 rows answer NOT_COMPATIBLE for
+// these repositories.
+// Version 48 (fresh-100 F2): a Rails app whose database.yml names only the
+// sqlite3 adapter, and an image started with a --config file that no
+// instruction creates, are NOT_COMPATIBLE. Stored v47 rows answer
+// NEEDS_CONFIGURATION or READY for these repositories.
+// Version 49 (fresh-100 F3): an image with no default server command (a bare OS
+// base with no CMD or ENTRYPOINT, or a launcher-only ENTRYPOINT with no CMD) has
+// no start command, and an image that runs several supervised processes
+// (s6-overlay, supervisord) is NOT_COMPATIBLE. Stored v48 rows answer READY or
+// NEEDS_CONFIGURATION for these repositories.
+// Version 50 (fresh-100 F6): a migration script that runs a development-only tool
+// (vite-node, babel-node, ts-node-dev, esno) is not selected for the pre-deploy task
+// when the final image prunes dev dependencies. Stored v49 rows can carry such a
+// command.
+// Version 51 (fresh-100 F5): the repository AI answer is no longer rejected when an
+// architecture requirement carries an `explanation`. Stored v50 rows can lack the AI
+// signal because that answer was discarded.
+export const ANALYSIS_VERSION = 51;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -793,24 +875,7 @@ export interface UnsupportedCheck {
 // (shared with the §18 detectors) reads every workspace package's scripts,
 // not just the root manifest's — a monorepo's migration/worker script
 // usually lives in the app package, not the workspace root.
-const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
 const WORKER_SCRIPT_KEY_REGEX = /^worker$|worker[:-]?start|start[:-]?worker/i;
-
-// A dev-mode migration command must never reach `migrationCommand` — it runs
-// unattended against the production database on every deploy (the relay's
-// DEPLOY_RELEASE executor runs it), and a dev-mode command is built to prompt
-// interactively / reset data, not to run unattended. Matches "migrate dev",
-// "migrate-dev", and "migrate:dev" (which also covers a ":migrate-dev"
-// script-key form, since that substring contains "migrate-dev").
-const DEV_MIGRATION_REGEX = /migrate[\s:-]dev\b/i;
-
-// The deploy-safe subset of MIGRATION_PATTERNS' vocabulary (detectors.ts) —
-// commands that apply already-generated migrations non-interactively, as
-// opposed to a codegen step (`drizzle-kit generate`) or an ambiguous bare
-// `prisma migrate` that could resolve to either deploy or dev depending on
-// the rest of the command.
-const DEPLOY_MIGRATION_REGEX =
-  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
 
 // The vendor's package.json script is written to run via npm/pnpm/yarn's own
 // script runner (developer machine, CI) or by a Dockerfile's start script
@@ -859,34 +924,6 @@ function selectedDockerfileContent(tree: FileTree): string | undefined {
 }
 
 /**
- * The image's runtime working directory and the directory the repository was
- * copied into, read from the LAST build stage of a Dockerfile (an earlier
- * stage's WORKDIR never survives into the runtime image): the first WORKDIR
- * in that stage is where the repo lands (e.g. `/app`), and the last WORKDIR
- * is where `CMD`/the relay's `sh -c <command>` actually runs from — they
- * differ whenever the final stage `WORKDIR`s into a subdirectory afterwards
- * (Documenso's `docker/Dockerfile` sets `WORKDIR /app` then later `WORKDIR
- * /app/apps/remix`). Relative WORKDIRs chain off the previous one, as Docker
- * itself resolves them. No WORKDIR at all means both default to the same
- * directory, so no relative adjustment is needed.
- */
-function dockerfileWorkdirs(content: string): { imageRoot: string; runtimeCwd: string } {
-  const lastStageStart = [...content.matchAll(/^\s*FROM\s+\S+/gim)].at(-1)?.index ?? 0;
-  const finalStage = content.slice(lastStageStart);
-
-  const dirs: string[] = [];
-  let current = '/';
-  for (const match of finalStage.matchAll(/^\s*WORKDIR\s+(\S+)/gim)) {
-    const raw = match[1]!.replace(/^["']|["']$/g, '');
-    current = raw.startsWith('/') ? raw : posixPath.join(current, raw);
-    dirs.push(current);
-  }
-  const imageRoot = dirs[0] ?? '/';
-  const runtimeCwd = dirs.at(-1) ?? imageRoot;
-  return { imageRoot, runtimeCwd };
-}
-
-/**
  * If `command` (after the npx-prefix rewrite) is a Prisma `migrate deploy`
  * invocation with no explicit `--schema`, append one computed from the
  * schema's real location relative to the image's runtime WORKDIR. Prisma's
@@ -925,15 +962,12 @@ function withPrismaSchemaFlag(command: string, packageDir: string, tree: FileTre
  * unattended against the production database on every deploy, so this picks
  * defensively:
  *
- *   0. A candidate is a script whose KEY mentions migrations, or whose VALUE
- *      is already a deploy-shaped command under any key (`update-db: prisma
- *      migrate deploy` — Stage A COMP-006).
- *   1. Drop every dev-shaped candidate outright (`DEV_MIGRATION_REGEX`) —
- *      never a candidate for this field, regardless of what else exists.
- *   2. Among what is left, prefer a deploy-shaped command
- *      (`DEPLOY_MIGRATION_REGEX`) over an ambiguous one.
- *   3. If nothing survives step 1, return undefined — an absent migration
- *      command is safer than a dev-mode one running unattended.
+ *   The script comes from `selectMigrationScript` (@deployz/analysis): only a
+ *   safe, deploy-shaped migration script of the deployed app's own package —
+ *   never a create/generate/push/reset, test, copy/build step, chain with an unsafe step, or
+ *   workspace-filtered command, and never a devDependency-only CLI. When
+ *   nothing qualifies this returns undefined — an absent migration command is
+ *   safer than a wrong one running unattended.
  *
  * The selected script's literal value is then rewritten into a command that
  * is actually runnable where the relay executes it: `sh -c <command>` inside
@@ -943,13 +977,9 @@ function withPrismaSchemaFlag(command: string, packageDir: string, tree: FileTre
  * not the relay's.
  */
 function resolveMigrationCommand(tree: FileTree): string | undefined {
-  const candidates = collectScriptsWithDir(tree).filter(
-    ([key, command]) => MIGRATION_SCRIPT_KEY_REGEX.test(key) || DEPLOY_MIGRATION_REGEX.test(command),
-  );
-  const safeCandidates = candidates.filter(([, command]) => !DEV_MIGRATION_REGEX.test(command));
-  if (safeCandidates.length === 0) return undefined;
-  const deployShaped = safeCandidates.find(([, command]) => DEPLOY_MIGRATION_REGEX.test(command));
-  const [, command, packageDir] = (deployShaped ?? safeCandidates[0])!;
+  const script = selectMigrationScript(tree);
+  if (!script) return undefined;
+  const [, command, packageDir] = script;
   return withPrismaSchemaFlag(applyNpxPrefix(command), packageDir, tree);
 }
 
@@ -957,7 +987,9 @@ function resolveMigrationCommand(tree: FileTree): string | undefined {
  * Resolve EVERY declared worker start command (Phase 4A: one workload per
  * declared process): a Procfile/Compose-declared process leads (each keeps
  * its own slug id and source), then one `worker` entry from a package.json
- * worker script in any workspace package. Empty when nothing resolves —
+ * worker script in any workspace package. A dev or watch script is never a
+ * worker, nor is a script the image's start command already runs next to the
+ * web process. Empty when nothing resolves—
  * worker-like code without a command never produces a workload here.
  */
 export interface ResolvedWorkerCommand {
@@ -974,8 +1006,8 @@ export function resolveWorkerCommands(tree: FileTree): ResolvedWorkerCommand[] {
     seen.add(declared.id);
     workers.push({ id: declared.id, command: declared.command, source: declared.source });
   }
-  if (workers.length === 0) {
-    const match = collectScripts(tree).find(([key]) => WORKER_SCRIPT_KEY_REGEX.test(key));
+  if (workers.length === 0 && !mainCommandRunsWorker(tree)) {
+    const match = collectScripts(tree).find(([key, command]) => WORKER_SCRIPT_KEY_REGEX.test(key) && !isDevToolCommand(command));
     if (match?.[1] !== undefined) {
       workers.push({ id: 'worker', command: match[1], source: 'package.json' });
     }

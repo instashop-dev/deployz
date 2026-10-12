@@ -250,7 +250,7 @@ describe('InstallLinkControls actions', () => {
       click(container.querySelector('[data-testid="public-install-link-copy-url"]'));
     });
     await flush();
-    expect(toast.error).toHaveBeenCalledWith('We could not copy the text. Copy it by hand.');
+    expect(toast.error).toHaveBeenCalledWith('Couldn\'t copy. Copy it manually.');
   });
 
   it('copies the HTML snippet from the overflow menu', async () => {
@@ -342,7 +342,7 @@ describe('InstallLinkControls actions', () => {
     await flush();
 
     expect(container.querySelector('[data-testid="public-install-link-error"]')?.textContent).toBe(
-      'A live install link already exists for this application.',
+      'An install link already exists.',
     );
     expect(onChanged).toHaveBeenCalledTimes(1);
   });

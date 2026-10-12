@@ -145,6 +145,9 @@ export const repositoryAiSchema = z
             requirement: z.enum(['required', 'optional', 'integration_only', 'development_only', 'unknown']),
             confidence: z.number().min(0).max(1),
             evidencePaths: z.array(z.string()),
+            // Models echo the per-field `explanation` here although the prompt
+            // does not ask for it; rejecting it discarded the whole answer.
+            explanation: z.string().max(200).optional(),
           })
           .strict(),
       )
@@ -348,10 +351,15 @@ export async function analyseRepositoryWithAi(
 ): Promise<RepositoryAiAnalysis> {
   const prompt = truncateToTokens(buildRepositoryAiPrompt(input), REPO_AI_MAX_PROMPT_TOKENS);
 
+  // Thinking off: measured live 2026-10-08 against the production model, a
+  // reasoning attempt spent all REPO_AI_MAX_OUTPUT_TOKENS on reasoning
+  // (`finish_reason: length`, no JSON) and took 33-38 s, past
+  // REPO_AI_TIMEOUT_MS, in 6 of 6 attempts. Off, it answered in 9-16 s.
   const response = await gateway.generate(prompt, repositoryAiSchema, {
     abortSignal: options.abortSignal,
     label: 'repository-analysis',
     maxOutputTokens: REPO_AI_MAX_OUTPUT_TOKENS,
+    reasoning: false,
   });
 
   const usedTokens = response.usage.promptTokens + response.usage.completionTokens;

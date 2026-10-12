@@ -493,6 +493,9 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     get stackName() {
       return stackNameOrDefault();
     },
+    // The simulated CONFIG_UPDATE below applies nothing, so a first start
+    // has no configuration to wait for.
+    unappliedConfiguration: async () => [],
   };
 
   // The real CONFIG_UPDATE executor over the simulated account. The

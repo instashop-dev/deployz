@@ -334,6 +334,24 @@ describe('analyseRepositoryWithAi', () => {
     expect(result).toEqual(validAiObject);
   });
 
+  it('accepts an explanation on an architecture requirement', async () => {
+    const withExplanation = structuredAi({
+      architectureRequirements: {
+        postgres: {
+          requirement: 'required',
+          confidence: 0.9,
+          evidencePaths: ['package.json'],
+          explanation: 'pg is a runtime dependency',
+        },
+      },
+    });
+    const result = await analyseRepositoryWithAi(
+      baseAiInput,
+      fixtureGateway({ object: withExplanation, usage: { promptTokens: 500, completionTokens: 100 } }),
+    );
+    expect(result.architectureRequirements?.['postgres']?.explanation).toBe('pg is a runtime dependency');
+  });
+
   it('rejects a response with an extra field (strict schema)', async () => {
     await expect(
       analyseRepositoryWithAi(
@@ -373,6 +391,22 @@ describe('analyseRepositoryWithAi', () => {
     await analyseRepositoryWithAi(baseAiInput, capturingGateway);
 
     expect(seenOptions?.maxOutputTokens).toBe(REPO_AI_MAX_OUTPUT_TOKENS);
+  });
+
+  it('switches the model thinking off so the JSON fits the output budget and the timeout', async () => {
+    // Verified live: with thinking on, every attempt spent the whole output
+    // budget on reasoning (no JSON) and outlasted REPO_AI_TIMEOUT_MS.
+    let seenOptions: AiGenerateOptions | undefined;
+    const capturingGateway: AiGateway = {
+      async generate(_prompt, _schema, options) {
+        seenOptions = options;
+        return { object: validAiObject, usage: { promptTokens: 500, completionTokens: 100 } };
+      },
+    };
+
+    await analyseRepositoryWithAi(baseAiInput, capturingGateway);
+
+    expect(seenOptions?.reasoning).toBe(false);
   });
 });
 

@@ -33,6 +33,7 @@ export function emitCloudFormation(graph: ResolvedAwsGraph): Record<string, unkn
       Type: param.type,
       ...(param.defaultValue !== undefined ? { Default: param.defaultValue } : {}),
       ...(param.description !== undefined ? { Description: param.description } : {}),
+      ...(param.allowedPattern !== undefined ? { AllowedPattern: param.allowedPattern } : {}),
       NoEcho: param.noEcho,
     };
   }

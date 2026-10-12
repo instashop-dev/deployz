@@ -106,16 +106,51 @@ export function workloadServicesFromSpec(spec: DeploymentSpecV2): readonly Workl
     .map((check) => ({ id: check.componentId, serviceLogicalId: check.logicalId }));
 }
 
+/**
+ * CFN logical id of the compiled template's task-family suffix parameter.
+ * The control plane passes `taskFamilySuffix(installationId)` at INSTALL, so
+ * every task family the stack creates is unique to its installation.
+ */
+export const TASK_FAMILY_SUFFIX_PARAMETER = 'paramTaskFamilySuffix';
+
+/**
+ * Compiler versions that named every task family `DeployzApp<Pascal>` with no
+ * suffix — one family shared by every installation in an AWS account and
+ * Region. Their frozen artifacts keep those names.
+ */
+const SHARED_TASK_FAMILY_COMPILER_VERSIONS: ReadonlySet<string> = new Set([
+  'dynamic-compiler-v2-1',
+  'dynamic-compiler-v2-2',
+]);
+
+/** An installation's task-family suffix: its id's letters and digits, lower-cased. */
+export function taskFamilySuffix(installationId: string): string {
+  return installationId.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * The suffix a deployment's compiled stack appends to every task family:
+ * empty for a shared-family compiler version (and an uncompiled spec, which
+ * has no task family), the installation's suffix otherwise. Null when the
+ * stack needs a suffix and no installation is known — no family can be named.
+ */
+export function taskFamilySuffixForSpec(spec: DeploymentSpecV2, installationId: string | null): string | null {
+  if (spec.compilerVersion === null || SHARED_TASK_FAMILY_COMPILER_VERSIONS.has(spec.compilerVersion)) return '';
+  const suffix = installationId === null ? '' : taskFamilySuffix(installationId);
+  return suffix.length > 0 ? suffix : null;
+}
+
 /** The ECS task-definition family the compiler bakes for a component id
- *  (`DeployzApp${Pascal(componentId)}` — mirrors compile.ts's Family field;
- *  pinned equal by both packages' golden tests). */
-export function deployzTaskFamily(componentId: string): string {
+ *  (`DeployzApp${Pascal(componentId)}` + the stack's task-family suffix —
+ *  mirrors compile.ts's Family field; pinned equal by both packages' golden
+ *  tests). */
+export function deployzTaskFamily(componentId: string, suffix: string): string {
   const pascal = componentId
     .split(/[^A-Za-z0-9]+/)
     .filter((word) => word.length > 0)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join('');
-  return `DeployzApp${pascal}`;
+  return `DeployzApp${pascal}${suffix}`;
 }
 
 /** The frozen one-shot migration the spec compiled, with the CloudFormation
@@ -125,23 +160,24 @@ export function deployzTaskFamily(componentId: string): string {
  *  The migration is the IR's `migration` workload (Phase 5: a scheduled job
  *  is ALSO a one-shot task definition without a compute check, so the kind —
  *  never subtraction — decides), proven compiled by its ownership record. */
-export function migrationTaskFromSpec(spec: DeploymentSpecV2): {
+export function migrationTaskFromSpec(spec: DeploymentSpecV2, familySuffix: string): {
   id: string;
   taskLogicalId: string;
   family: string;
 } | null {
-  return oneShotTasksFromSpec(spec, 'migration')[0] ?? null;
+  return oneShotTasksFromSpec(spec, 'migration', familySuffix)[0] ?? null;
 }
 
 /**
  * The compiled one-shot task definitions of one workload kind (`migration`,
  * `scheduled-job`), each with its CloudFormation logical id and the ECS
- * family the relay registers release images into. Empty on an uncompiled
- * spec.
+ * family the relay registers release images into (`familySuffix` from
+ * `taskFamilySuffixForSpec`). Empty on an uncompiled spec.
  */
 export function oneShotTasksFromSpec(
   spec: DeploymentSpecV2,
   kind: 'migration' | 'scheduled-job',
+  familySuffix: string,
 ): { id: string; taskLogicalId: string; family: string }[] {
   if (spec.ownershipRecords === null || spec.verificationContract === null) return [];
   const records = spec.ownershipRecords;
@@ -153,7 +189,7 @@ export function oneShotTasksFromSpec(
       );
       return record === undefined
         ? []
-        : [{ id: workload.componentId, taskLogicalId: record.logicalResourceId, family: deployzTaskFamily(workload.componentId) }];
+        : [{ id: workload.componentId, taskLogicalId: record.logicalResourceId, family: deployzTaskFamily(workload.componentId, familySuffix) }];
     });
 }
 

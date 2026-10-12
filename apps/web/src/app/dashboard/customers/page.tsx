@@ -96,7 +96,7 @@ export default function CustomersPage() {
         if (!cancelled) {
           setState({
             status: 'error',
-            message: "We couldn't load your customers. Try again in a moment.",
+            message: "Couldn't load customers. Try again.",
           });
         }
       } finally {
@@ -174,12 +174,7 @@ export default function CustomersPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage customers who deploy your applications.
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
         {state.status === 'loaded' && customers.length === 0 ? null : (
           <Button asChild size="sm">
             <Link href="/dashboard/deployments/new">Invite customer</Link>
@@ -520,8 +515,7 @@ function EmptyState() {
         Add your first customer
       </h2>
       <p className="max-w-md text-sm text-muted-foreground">
-        Create a customer and send them a secure link to deploy your application into their AWS
-        account.
+        Send a secure link to deploy your application into their AWS account.
       </p>
       <Button asChild>
         <Link href="/dashboard/deployments/new">Invite customer</Link>

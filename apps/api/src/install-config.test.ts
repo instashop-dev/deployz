@@ -67,6 +67,8 @@ function manifest(variables: unknown[] = MANIFEST_ENV) {
 }
 
 /** The completed spec createDeploymentRecord persists for a manifest. */
+const INSTALLATION_ID = 'Inst-0001-ABCD';
+
 function completedSpecFor(variables: unknown[] = MANIFEST_ENV) {
   return compileDeploymentIntent({
     manifest: manifest(variables) as unknown as DeploymentManifest,
@@ -165,10 +167,12 @@ describe('post-install configuration', () => {
       })
       .returning();
 
-    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db));
+    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db), INSTALLATION_ID);
 
     expect(payload['startAfterConfig']).toBe(true);
     expect((payload['parameters'] as Record<string, string>)['paramDesiredCount']).toBe('0');
+    // Every task family the stack creates is unique to this installation.
+    expect((payload['parameters'] as Record<string, string>)['paramTaskFamilySuffix']).toBe('inst0001abcd');
     expect(payload['redisRequired']).toBe(false);
     expect(payload['databaseRequired']).toBe(true);
     // The INSTALL points at the frozen compiled artifact, not a template variant.
@@ -188,6 +192,14 @@ describe('post-install configuration', () => {
       'deployz:vendor-id': organizationId,
       'deployz:release-id': release!.id,
       'deployz:environment': 'production',
+    });
+  });
+
+  it('refuses the INSTALL payload of an installation-scoped stack without a registered installation', async () => {
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    await expect(buildInstallPayload(db, deployment!, createConfigStore(db), null)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'RELAY_NOT_CONNECTED',
     });
   });
 
@@ -219,7 +231,7 @@ describe('post-install configuration', () => {
       })
       .returning();
 
-    await expect(buildInstallPayload(db, deployment!, createConfigStore(db))).rejects.toMatchObject({
+    await expect(buildInstallPayload(db, deployment!, createConfigStore(db), INSTALLATION_ID)).rejects.toMatchObject({
       statusCode: 409,
       code: 'RELEASE_NOT_PUBLISHED',
     });
@@ -258,7 +270,7 @@ describe('post-install configuration', () => {
       })
       .returning();
 
-    await expect(buildInstallPayload(db, deployment!, createConfigStore(db))).rejects.toMatchObject({
+    await expect(buildInstallPayload(db, deployment!, createConfigStore(db), INSTALLATION_ID)).rejects.toMatchObject({
       statusCode: 422,
       code: 'DEPLOYMENT_SPEC_MISSING',
     });
@@ -298,7 +310,7 @@ describe('post-install configuration', () => {
       })
       .returning();
 
-    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db));
+    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db), INSTALLATION_ID);
 
     expect(payload['startAfterConfig']).toBeUndefined();
     expect((payload['parameters'] as Record<string, string>)['paramDesiredCount']).toBeUndefined();
@@ -553,6 +565,56 @@ describe('post-install configuration', () => {
       .returning();
     const none = await buildRelayConfigEntries(db, noStorage!, createConfigStore(db));
     expect(none.some((entry) => entry.source === 'derived')).toBe(false);
+  });
+
+  it('derives the application public URL from the default HTTPS URL, below any explicit value', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Wiki',
+        repoFullName: 'acme/wiki',
+        repoUrl: 'https://github.com/acme/wiki',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    const read = ['read in src/server.ts'];
+    const variables = [
+      { key: 'APP_URL', required: true, secret: false, source: read, classification: 'deployz_managed' },
+      { key: 'NEXTAUTH_URL', required: true, secret: false, source: read, classification: 'deployz_managed' },
+      { key: 'OPENAI_BASE_URL', required: true, secret: false, source: read, classification: 'customer_required' },
+      { key: 'NEXT_PUBLIC_APP_URL', required: true, secret: false, source: read, classification: 'customer_required' },
+    ];
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'eu-west-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest(variables) },
+        enrollmentCode: 'enrol-wiki',
+      })
+      .returning();
+
+    const url = `https://d-${deployment!.id}.deployz.dev`;
+    const derived = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
+    expect([...derived].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: 'APP_URL', isSecret: false, value: url, source: 'derived' },
+      { key: 'NEXTAUTH_URL', isSecret: false, value: url, source: 'derived' },
+    ]);
+
+    // An explicit vendor value always wins over the derived one.
+    await db
+      .insert(schema.applicationConfigs)
+      .values({ applicationId: application!.id, customerId: null, key: 'APP_URL', value: 'https://wiki.example', isSecret: false });
+    const explicit = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
+    expect([...explicit].sort((a, b) => a.key.localeCompare(b.key))).toMatchObject([
+      { key: 'APP_URL', value: 'https://wiki.example', source: 'vendor' },
+      { key: 'NEXTAUTH_URL', value: url, source: 'derived' },
+    ]);
   });
 });
 

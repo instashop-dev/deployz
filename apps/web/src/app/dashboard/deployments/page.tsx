@@ -102,7 +102,7 @@ export default function DeploymentsPage() {
         if (!cancelled) {
           setState({
             status: 'error',
-            message: "We couldn't load your deployments. Try again in a moment.",
+            message: "Couldn't load deployments. Try again.",
           });
         }
       } finally {
@@ -182,12 +182,7 @@ export default function DeploymentsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Monitor every customer deployment and its health.
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
         {/* The empty state owns the sole call to action; a header copy of it
             would show the same button twice on one screen. */}
         {state.status === 'empty' ? null : (
@@ -343,7 +338,7 @@ function EmptyState() {
         No customer deployments yet
       </h2>
       <p className="max-w-md text-sm text-muted-foreground">
-        Invite a customer to give them their own deployment in their AWS account.
+        Invite a customer to deploy into their AWS account.
       </p>
       <Button asChild className="mt-2">
         <Link href="/dashboard/deployments/new">Invite customer</Link>

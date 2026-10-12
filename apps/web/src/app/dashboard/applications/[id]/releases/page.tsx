@@ -87,7 +87,7 @@ export default function ReleasesPage() {
         if (!cancelled) {
           setState({
             status: 'error',
-            message: "We couldn't load releases. Try again in a moment.",
+            message: "Couldn't load releases. Try again.",
           });
         }
       }
@@ -134,12 +134,12 @@ export default function ReleasesPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground" data-testid="release-install-summary">
-          {state.status === 'loaded'
-            ? installSummaryLine(state.releases)
-            : 'Each release is built from one commit.'}
-        </p>
-        <Button className="shrink-0" onClick={() => setFormOpen((open) => !open)}>
+        {state.status === 'loaded' ? (
+          <p className="text-sm text-muted-foreground" data-testid="release-install-summary">
+            {installSummaryLine(state.releases)}
+          </p>
+        ) : null}
+        <Button className="ml-auto shrink-0" onClick={() => setFormOpen((open) => !open)}>
           {formOpen ? 'Cancel' : 'Create release'}
         </Button>
       </div>
@@ -222,7 +222,7 @@ function CreateReleaseForm({
         setError(`Set these build values before you build a release: ${err.keys.join(', ')}.`);
         setMissingBuildKeys(err.keys);
       } else {
-        setError("We couldn't create this release. Try again in a moment.");
+        setError("Couldn't create this release. Try again.");
       }
     } finally {
       setPending(false);
@@ -234,8 +234,7 @@ function CreateReleaseForm({
       <CardHeader>
         <CardTitle>New release</CardTitle>
         <CardDescription>
-          Records an immutable version. This does not update any customer — deploy it from a
-          deployment&apos;s page, or to several customers at once from the fleet dashboard.
+          Records an immutable version. It does not update any customer.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -267,9 +266,8 @@ function CreateReleaseForm({
                 placeholder={data?.application.migrationCommand ?? "npm run migrate"}
               />
               <p className="text-xs text-muted-foreground">
-                Runs inside the customer&apos;s account before this release starts, as a
-                one-off task. Leave empty to use the command Deployz detected for this
-                application.
+                Runs in the customer&apos;s account before this release starts. Leave empty to use the
+                detected command.
               </p>
             </div>
           <div className="flex items-center gap-3">
@@ -368,9 +366,6 @@ function EmptyState() {
       <h2 id="empty-releases" className="text-lg font-semibold">
         No releases yet
       </h2>
-      <p className="max-w-md text-sm text-muted-foreground">
-        When you create a release, it appears here with its version, status, and creation date.
-      </p>
     </section>
   );
 }

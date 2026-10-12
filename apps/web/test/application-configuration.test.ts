@@ -212,7 +212,7 @@ describe('Vocabulary', () => {
     const storage = rows.find((row) => row.id === 'storage')!;
     expect(storage.value).toBe('Bucket created, not connected');
     expect(storage.help).toBe(
-      'Every deployment gets a storage bucket, kept if the deployment is uninstalled. This setting controls whether Deployz passes the bucket name to your app.',
+      'Every deployment gets a storage bucket, kept after uninstall. This setting controls whether the bucket name is passed to your app.',
     );
 
     const connected = deriveConfigurationRows(

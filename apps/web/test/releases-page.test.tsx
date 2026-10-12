@@ -281,7 +281,7 @@ describe('Releases table', () => {
       return el;
     });
 
-    expect(container.textContent).toContain("We couldn't load releases");
+    expect(container.textContent).toContain("Couldn't load releases");
   });
 });
 

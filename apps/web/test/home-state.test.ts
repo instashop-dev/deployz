@@ -322,7 +322,7 @@ describe('firstDeploymentCopy', () => {
     const copy = firstDeploymentCopy({ state: 'WAITING_FOR_RELAY', customerName: 'Acme' });
     expect(copy.title).toContain('Connecting');
     expect(copy.body).not.toContain('install link');
-    expect(copy.body).toContain('approved');
+    expect(copy.body).toContain('Approved');
   });
 
   it('falls back to deploying for every state past the connector', () => {

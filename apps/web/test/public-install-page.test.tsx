@@ -445,7 +445,7 @@ describe('PublicInstallFlow', () => {
     renderFlow(resolveFixture({ recommendedRegion: 'us-west-2' }));
 
     expect(document.body.textContent).toContain(
-      'Acme Inc recommends US West (Oregon). You make the final choice.',
+      'Acme Inc recommends US West (Oregon).',
     );
 
     const trigger = document.querySelector('[data-slot="select-trigger"]') as HTMLElement;

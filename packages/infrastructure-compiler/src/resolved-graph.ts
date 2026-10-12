@@ -56,6 +56,7 @@ export interface ResolvedParameter {
   readonly noEcho: boolean;
   readonly defaultValue?: unknown;
   readonly description?: string;
+  readonly allowedPattern?: string;
 }
 
 /** One CloudFormation output. */

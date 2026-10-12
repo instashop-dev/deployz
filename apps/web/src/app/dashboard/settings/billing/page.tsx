@@ -24,12 +24,7 @@ export default async function BillingPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {billing.subscription ? 'Your current monthly rate.' : 'You are evaluating Deployz.'}
-        </p>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
 
       {billing.subscription ? (
         <SubscribedCard billing={billing} />
@@ -48,12 +43,9 @@ function EvaluationCard({ billing }: { billing: BillingSummary }) {
       <Card>
         <CardHeader>
           <CardTitle>Evaluation — free</CardTitle>
-          <CardDescription>
-            No card, no time limit, and nothing to cancel. Take as long as you need.
-          </CardDescription>
+          <CardDescription>No card and no time limit.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm">
-          <p className="text-muted-foreground">Free for as long as you are evaluating:</p>
           <ul className="flex list-disc flex-col gap-1 pl-5 text-muted-foreground">
             <li>Connecting applications, analysis and configuration</li>
             <li>One test deployment of your own app, per application</li>
@@ -65,9 +57,7 @@ function EvaluationCard({ billing }: { billing: BillingSummary }) {
       <Card>
         <CardHeader>
           <CardTitle>What starts billing</CardTitle>
-          <CardDescription>
-            Your first customer deployment. Nothing is charged before then.
-          </CardDescription>
+          <CardDescription>Your first customer deployment.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="flex items-center justify-between text-sm">
@@ -92,10 +82,10 @@ function EvaluationCard({ billing }: { billing: BillingSummary }) {
             </div>
           ) : null}
           <p className="text-xs text-muted-foreground">
-            A test deployment of your own app is always free. A customer deployment is charged only
-            once it is live, and the charge stops as soon as it is removed.
+            A test deployment of your own app is free. A customer deployment is charged only while it
+            is live.
             {included > 0
-              ? ` ${included} production ${included === 1 ? 'deployment is' : 'deployments are'} included with your account: the platform fee still starts with your first customer deployment, and the per-deployment fee applies only to live deployments beyond the included ones.`
+              ? ` ${included} production ${included === 1 ? 'deployment is' : 'deployments are'} included. The platform fee starts with your first customer deployment; the per-deployment fee applies only to live deployments beyond the included ones.`
               : ''}
           </p>
         </CardContent>
@@ -161,9 +151,6 @@ function SubscribedCard({ billing }: { billing: BillingSummary }) {
           ) : (
             <p className="text-sm text-muted-foreground">
               No customer deployments are live yet.
-              {counts.included > 0
-                ? ` Your account includes ${counts.included}; each one beyond that is ${formatDollars(billing.deploymentPrice)}/month once it is live.`
-                : ` Each one is ${formatDollars(billing.deploymentPrice)}/month once it is live.`}
             </p>
           )}
           <Separator />
@@ -178,8 +165,7 @@ function SubscribedCard({ billing }: { billing: BillingSummary }) {
         <CardHeader>
           <CardTitle>Manage billing</CardTitle>
           <CardDescription>
-            Invoices, payment details and cancellation are handled on our billing partner’s secure
-            portal. You will be signed in automatically.
+            Invoices, payment details and cancellation are on our billing partner’s portal.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
@@ -193,8 +179,8 @@ function SubscribedCard({ billing }: { billing: BillingSummary }) {
       <p className="text-xs text-muted-foreground">
         A test deployment of your own app is not charged.
         {counts.included > 0
-          ? ` Your account includes ${counts.included} production ${counts.included === 1 ? 'deployment' : 'deployments'}; the ${formatDollars(billing.deploymentPrice)}/month fee applies to each live customer deployment beyond that, and your billing adjusts automatically as deployments go live or are removed.`
-          : ` The ${formatDollars(billing.deploymentPrice)}/month fee applies once a customer deployment is live, and stops as soon as that deployment is removed.`}
+          ? ` ${counts.included} production ${counts.included === 1 ? 'deployment is' : 'deployments are'} included; ${formatDollars(billing.deploymentPrice)}/month applies to each live deployment beyond that.`
+          : ` ${formatDollars(billing.deploymentPrice)}/month applies to each live customer deployment and stops when it is removed.`}
       </p>
     </>
   );

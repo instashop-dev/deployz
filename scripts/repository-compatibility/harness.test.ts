@@ -259,7 +259,7 @@ const EXPRESS_POSTGRES_APP: Record<string, string> = {
   'package.json': JSON.stringify({
     name: 'acme-api',
     scripts: { start: 'node dist/index.js', build: 'tsc', 'db:migrate': 'prisma migrate deploy' },
-    dependencies: { express: '^4.19.0', pg: '^8.12.0', '@prisma/client': '^5.0.0' },
+    dependencies: { express: '^4.19.0', pg: '^8.12.0', '@prisma/client': '^5.0.0', prisma: '^5.0.0' },
   }),
   'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url = env("DATABASE_URL")\n}\n',
   '.env.example': 'PORT=3000\nDATABASE_URL=postgresql://localhost:5432/app\n',

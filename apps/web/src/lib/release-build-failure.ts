@@ -67,9 +67,9 @@ export const BUILD_FAILURE_OWNER_LABEL: Record<BuildFailureOwner, string> = {
 
 export const BUILD_LOG_STATUS_COPY: Record<Exclude<BuildLogStatus, 'available'>, string> = {
   no_build:
-    'No build log exists for this release. It failed before the image build started, so the reason above is the only evidence.',
+    'No build log. The release failed before the image build started; the reason above is the only evidence.',
   unavailable:
-    'Deployz could not read the build log for this release. The log may have expired, or reading it failed. The reason above is the only evidence.',
+    'Could not read the build log. It may have expired. The reason above is the only evidence.',
 };
 
 function releasePath(applicationId: string, releaseId: string): string {
@@ -89,7 +89,7 @@ export async function fetchBuildFailure(applicationId: string, releaseId: string
     credentials: 'include',
     cache: 'no-store',
   });
-  return readJson(response, "We couldn't load the failure details. Try again in a moment.");
+  return readJson(response, "Couldn't load the failure details. Try again.");
 }
 
 export async function fetchBuildLog(applicationId: string, releaseId: string): Promise<BuildLogLines> {
@@ -97,7 +97,7 @@ export async function fetchBuildLog(applicationId: string, releaseId: string): P
     credentials: 'include',
     cache: 'no-store',
   });
-  return readJson(response, "We couldn't load the build log. Try again in a moment.");
+  return readJson(response, "Couldn't load the build log. Try again.");
 }
 
 export async function explainBuildFailure(applicationId: string, releaseId: string): Promise<BuildExplanation> {
@@ -105,7 +105,7 @@ export async function explainBuildFailure(applicationId: string, releaseId: stri
     method: 'POST',
     credentials: 'include',
   });
-  return readJson(response, 'The AI explanation is not available right now. The failure details and build logs are not affected.');
+  return readJson(response, 'The AI explanation is unavailable. Failure details and build logs are not affected.');
 }
 
 // ── Copied text ─────────────────────────────────────────────────────────────

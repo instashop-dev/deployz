@@ -373,7 +373,7 @@ describe('Deployment size and estimate', () => {
     });
 
     expect(byTestId('deployment-size-small')?.textContent).toContain('Current');
-    expect(byTestId('deployment-size-small')?.getAttribute('data-profile')).toBe('small-v1');
+    expect(byTestId('deployment-size-small')?.getAttribute('data-profile')).toBe('small-v2');
     expect(byTestId('deployment-size-medium')?.textContent).toContain('Not available yet');
     expect(byTestId('deployment-size-large')?.textContent).toContain('Not available yet');
     expect(byTestId('deployment-size-gap')).not.toBeNull();

@@ -5,7 +5,7 @@
 // `evaluateEnvironmentSetup` (from @deployz/contracts) turns that into the
 // rows the table renders. Saving never re-runs analysis.
 
-import type { EnvironmentSetting } from '@deployz/contracts';
+import type { EnvironmentBinding, EnvironmentSetting } from '@deployz/contracts';
 
 import { apiUrl } from '@/lib/api-url';
 import type { DetectedApplication } from '@/lib/readiness';
@@ -16,6 +16,8 @@ export interface EnvironmentSettingsResponse {
   variables: DetectedApplication['environmentVariables'];
   /** Keys a vendor may set `provider: 'deployz'` for. */
   deployzKeys: string[];
+  /** Which managed resources this application gets. */
+  provisioned: Record<EnvironmentBinding['resource'], boolean>;
   /** Vendor-default keys with a deliverable value today. */
   vendorValueKeys: string[];
 }

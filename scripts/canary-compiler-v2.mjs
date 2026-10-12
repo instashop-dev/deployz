@@ -77,6 +77,8 @@ async function main() {
       `ParameterKey=paramImageReference,ParameterValue=${IMAGE}`,
       'ParameterKey=paramContainerPort,ParameterValue=80',
       'ParameterKey=paramHealthCheckPath,ParameterValue=/',
+      // Task families unique to this throwaway stack.
+      `ParameterKey=paramTaskFamilySuffix,ParameterValue=${STACK_NAME.replace(/[^a-z0-9]/g, '')}`,
     ]);
   } catch (e) {
     // Already-exists or a validation error is a real failure; cleanup below.

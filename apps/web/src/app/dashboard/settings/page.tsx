@@ -3,7 +3,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { OrganizationDangerZone } from '@/components/organization-danger-zone';
 import { OrganizationForm } from '@/components/organization-form';
@@ -20,12 +20,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your organization details and billing status.
-        </p>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 
       <Card>
         <CardHeader>
@@ -33,7 +28,6 @@ export default async function SettingsPage() {
             <Building2 className="size-5 text-muted-foreground" aria-hidden />
             <CardTitle>Organization</CardTitle>
           </div>
-          <CardDescription>Your organization identity in Deployz.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -67,9 +61,7 @@ export default async function SettingsPage() {
             <div className="flex flex-col gap-2">
               <Label>Organization name</Label>
               <p className="text-sm font-medium">{org.name}</p>
-              <p className="text-xs text-muted-foreground">
-                Only an owner or admin can rename the organization.
-              </p>
+              <p className="text-xs text-muted-foreground">Only an owner or admin can rename.</p>
             </div>
           )}
         </CardContent>

@@ -107,8 +107,7 @@ function ConnectGitHubEmptyState({ connectUrl }: { connectUrl: string | null }) 
         Connect your code
       </h2>
       <p className="max-w-md text-sm text-muted-foreground">
-        Link your GitHub account to choose the repositories you want to deploy. We only ask for
-        read-only access to your code.
+        Link GitHub to choose a repository. Deployz requests read-only access to your code.
       </p>
       {connectUrl ? (
         <Button asChild>
@@ -119,7 +118,7 @@ function ConnectGitHubEmptyState({ connectUrl }: { connectUrl: string | null }) 
       )}
       {!connectUrl ? (
         <p className="text-xs text-muted-foreground">
-          GitHub isn&apos;t set up for this workspace yet.
+          GitHub isn&apos;t configured for this workspace.
         </p>
       ) : null}
     </section>
@@ -170,8 +169,7 @@ function RepositoryList({
           No repositories available
         </h2>
         <p className="max-w-md text-sm text-muted-foreground">
-          Deployz can&apos;t see any repositories yet. Grant it access to the repository you want
-          to deploy in GitHub.
+          Grant Deployz access to a repository in GitHub.
         </p>
         <ManageGithubAccess connectUrl={connectUrl} />
       </section>
@@ -216,7 +214,7 @@ function RepositoryList({
               </h3>
               <span className="text-xs text-muted-foreground">
                 {failed
-                  ? "We couldn't reach GitHub for this account"
+                  ? "Couldn't reach GitHub"
                   : `${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'}`}
               </span>
             </div>
@@ -237,8 +235,8 @@ function RepositoryList({
                 className="text-sm text-muted-foreground"
                 data-testid={`repos-unavailable-${installation.id}`}
               >
-                We couldn&apos;t load the repositories for {installation.accountLogin}. Try again
-                in a moment, or check that Deployz is still installed on GitHub.
+                Couldn&apos;t load repositories for {installation.accountLogin}. Try again, or check
+                that Deployz is still installed on GitHub.
               </p>
             ) : null}
             {!failed && repos.length === 0 ? (
@@ -258,7 +256,7 @@ function RepositoryList({
             No repositories found
           </h3>
           <p className="max-w-md text-sm text-muted-foreground">
-            Try another search or check whether Deployz has access to the repository in GitHub.
+            Try another search, or check Deployz has access in GitHub.
           </p>
           <ManageGithubAccess connectUrl={connectUrl} />
         </section>
@@ -375,7 +373,7 @@ function RepositoryRow({
             {pending ? (
               <>
                 <Spinner aria-hidden="true" className="size-3.5" />
-                Setting up application…
+                Setting up…
               </>
             ) : (
               <>

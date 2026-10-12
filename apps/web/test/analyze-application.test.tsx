@@ -226,7 +226,7 @@ describe('Analysis in progress', () => {
     expect(container.querySelector('[data-testid="readiness-analyze"]')).toBeNull();
 
     const heading = container.querySelector('[data-testid="application-state-heading"]') as HTMLElement;
-    expect(heading.textContent).toBe('Analysing your application');
+    expect(heading.textContent).toBe('Analysing application');
     expect(heading.querySelector('[data-slot="spinner"]')).not.toBeNull();
     expect(heading.getAttribute('aria-live')).toBe('polite');
 
@@ -256,8 +256,8 @@ describe('Analysis in progress', () => {
       expect(restart.textContent).toBe('Re-analyse application');
       expect(restart.disabled).toBe(false);
       const heading = container.querySelector('[data-testid="application-state-heading"]') as HTMLElement;
-      expect(heading.textContent).toBe('Analysing your application');
-      expect(container.textContent).toContain('This is taking longer than usual');
+      expect(heading.textContent).toBe('Analysing application');
+      expect(container.textContent).toContain('Taking longer than usual');
 
       await act(async () => {
         restart.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

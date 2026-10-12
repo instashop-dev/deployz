@@ -45,12 +45,14 @@ import {
   buildUpdatePlan,
   compareInfrastructureExpectations,
   applicationStackNameForInstallation,
+  applyEnvironmentBindings,
   deployzProvidableKeys,
   deploymentPlanSchema,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
   environmentSettingsSchema,
   failureCodeSchema,
+  provisionedResources,
   validateEnvironmentSettings,
   failureEvidenceSchema,
   healthComponentsSchema,
@@ -183,7 +185,7 @@ import {
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { createDrizzlePendingSecretStore, createSecretCipherFromEnv } from './pending-secrets.js';
 import { retryEligibilityFor } from './retry-eligibility.js';
-import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig, requireTaskFamilySuffix } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
   confirmPublicInstall,
@@ -773,7 +775,8 @@ interface DeployPayload {
   migrationTask?: { family: string; identity: string };
   /**
    * Scheduled-job ECS task-definition families (Phase 5) — derived ONLY from
-   * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job')`. The
+   * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job', …)` and
+   * the installation's task-family suffix. The
    * relay registers the release image into each of them once the rollout
    * settles; it never runs them (`AWS::Scheduler::Schedule` does). Sent on
    * both DEPLOY_RELEASE and ROLLBACK payloads — unlike the migration seat,
@@ -791,7 +794,11 @@ function scheduledJobFamiliesFor(deployment: DeploymentRow | undefined): string[
   if (deployment === undefined) return undefined;
   const spec = readStoredDeploymentSpec(deployment.specV2);
   if (!spec) return undefined;
-  const families = oneShotTasksFromSpec(spec, 'scheduled-job').map((task) => task.family);
+  const families = oneShotTasksFromSpec(
+    spec,
+    'scheduled-job',
+    requireTaskFamilySuffix(spec, deployment.installationId),
+  ).map((task) => task.family);
   return families.length > 0 ? families : undefined;
 }
 
@@ -864,7 +871,9 @@ async function requireDeployableRelease(
     // SUCCEEDED deploy already confirming the same migration identity.
     // ROLLBACK builds its payload WITHOUT the deployment row, so a rollback
     // (and RESTART, whose payload is empty) can never carry the seat.
-    const migration = spec ? migrationTaskFromSpec(spec) : null;
+    const migration = spec
+      ? migrationTaskFromSpec(spec, requireTaskFamilySuffix(spec, deployment.installationId))
+      : null;
     const frozenCommand =
       spec?.graph.workloads.find((workload) => workload.kind === 'migration')?.command ?? null;
     if (migration !== null && frozenCommand !== null) {
@@ -1358,10 +1367,10 @@ async function computeReadiness(
  * The application's current effective manifest — the single construction
  * computeApplicationRequirements and computeDeploymentRequirementDrift share.
  */
-function effectiveApplicationManifest(app: ManifestApplicationRow): DeploymentManifest {
-  return normalizeDeploymentManifest(
-    { metadata: app.detectedMetadata ?? {} },
-    applicationToManifestOverrides(app),
+function effectiveApplicationManifest(app: ManifestApplicationRow & { environmentSettings?: unknown }): DeploymentManifest {
+  return applyEnvironmentBindings(
+    normalizeDeploymentManifest({ metadata: app.detectedMetadata ?? {} }, applicationToManifestOverrides(app)),
+    readEnvironmentSettings(app),
   );
 }
 
@@ -1440,6 +1449,34 @@ function computeDeploymentRequirementDrift(
     }
   }
   return summary;
+}
+
+/**
+ * Fail closed on an unsupported infrastructure change: the application now
+ * needs a database or cache that this deployment's frozen stack does not
+ * have. A new release on that stack would run with no binding, and an app
+ * that falls back to local storage would look healthy while it loses data.
+ * A dropped requirement stays deployable (the resource is only unused).
+ */
+async function requireNoAddedRequirement(
+  db: RuntimeDb,
+  deployment: Pick<DeploymentRow, 'id' | 'applicationId' | 'state' | 'desiredState' | 'specV2'>,
+): Promise<void> {
+  const [app] = await db
+    .select()
+    .from(schema.applications)
+    .where(eq(schema.applications.id, deployment.applicationId))
+    .limit(1);
+  if (!app) return;
+  const [summary] = computeDeploymentRequirementDrift(app, [{ ...deployment, customerName: '' }]);
+  const added = (summary?.drift ?? []).filter((entry) => entry.desired && !entry.deployed);
+  if (added.length === 0) return;
+  const names = added.map((entry) => (entry.kind === 'database' ? 'a database' : 'a cache')).join(' and ');
+  throw new ApiError(
+    409,
+    'INFRASTRUCTURE_CHANGE_REQUIRED',
+    `The application now needs ${names}, which this deployment does not have. Create a new deployment for this customer, or change the application's requirements back.`,
+  );
 }
 
 // §25 "deploy to all compatible customers" — deployable means the fleet
@@ -3247,6 +3284,7 @@ export async function buildServer({
       settings: readEnvironmentSettings(app),
       variables: manifest.environment.variables,
       deployzKeys: [...deployzProvidableKeys(manifest.environment.variables)],
+      provisioned: provisionedResources(manifest),
       vendorValueKeys,
     };
   }
@@ -3272,6 +3310,7 @@ export async function buildServer({
     const problems = validateEnvironmentSettings(
       parsedBody.data.settings,
       deployzProvidableKeys(manifest.environment.variables),
+      provisionedResources(manifest),
     );
     if (problems.length > 0) {
       throw new ApiError(422, 'ENVIRONMENT_SETTINGS_INVALID', problems.join(' '), { problems });
@@ -5267,6 +5306,7 @@ export async function buildServer({
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
     await requireDeployableState(db, deployment);
+    await requireNoAddedRequirement(db, deployment);
     const idempotencyKey =
       clientIdempotencyKey(request, deployment.id, 'DEPLOY_RELEASE') ??
       (await retryAwareIdempotencyKey(
@@ -5356,6 +5396,13 @@ export async function buildServer({
           status: 'SKIPPED',
           reason: 'The relay for this deployment has not connected yet — install it before deploying.',
         });
+        continue;
+      }
+      try {
+        await requireNoAddedRequirement(db, deployment);
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        results.push({ deploymentId: deployment.id, status: 'SKIPPED', reason: error.message });
         continue;
       }
       const idempotencyKey = await retryAwareIdempotencyKey(
@@ -6234,7 +6281,7 @@ export async function buildServer({
       idempotencyKey,
       payload: {
         recovery: { neverInstalled: true },
-        ...(await buildInstallPayload(db, deployment, configStore)),
+        ...(await buildInstallPayload(db, deployment, configStore, deployment.installationId)),
       },
       requestedBy: actorId,
     });
@@ -7412,7 +7459,7 @@ export async function buildServer({
               deploymentId: deployment.id,
               type: 'INSTALL',
               idempotencyKey: await retryAwareIdempotencyKey(db, deployment.id, 'INSTALL', `${deployment.id}:INSTALL`),
-              payload: await buildInstallPayload(db, deployment, configStore),
+              payload: await buildInstallPayload(db, deployment, configStore, body.installationId!),
               requestedBy: null,
             })
           ).job
@@ -7793,7 +7840,12 @@ export async function buildServer({
     if (typeof body.error === 'string') {
       body.error = redactSecrets(body.error);
     }
-    const state = body.success === false ? 'FAILED' : 'SUCCEEDED';
+    // Every relay version sends a boolean; a malformed report never settles a
+    // job as SUCCEEDED by default.
+    if (typeof body.success !== 'boolean') {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'A relay result must say whether the command succeeded');
+    }
+    const state = body.success ? 'SUCCEEDED' : 'FAILED';
     const failureCodeParsed = state === 'FAILED' ? failureCodeSchema.safeParse(body.failureCode) : undefined;
     // A code the enum does not know used to be dropped on the floor, which
     // left the vendor looking at "Unknown issue" with no trace of what the

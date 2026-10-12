@@ -1,6 +1,6 @@
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
-import { REMOVED_PROGRESS } from './deployment-progress';
+import { isTerminalStage, REMOVED_PROGRESS } from './deployment-progress';
 import type { DeploymentState } from './deployment-vocabulary';
 import { everInstalled } from './deployment-vocabulary';
 import { isAppOwnedStartupFailure, STARTUP_FAILURE_TITLE } from './diagnostic-vocabulary';
@@ -87,6 +87,15 @@ export function operationInFlight(jobs: DeploymentJob[]): DeploymentJob | null {
     jobs,
     (job) => EXCLUSIVE_JOB_TYPES.has(job.type) && ACTIVE_JOB_STATES.has(job.state),
   );
+}
+
+/**
+ * Whether the detail page may slow its status poll. A live deployment keeps
+ * a terminal stage through an update, so a running operation keeps the
+ * fast cadence until it settles.
+ */
+export function statusPollSettled(detail: Pick<FleetDeploymentDetail, 'jobs' | 'deploymentStatus'>): boolean {
+  return isTerminalStage(detail.deploymentStatus.stage) && operationInFlight(detail.jobs) === null;
 }
 
 /**
@@ -333,7 +342,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
       kind: 'not-installed',
       tone: 'neutral',
       title: 'Waiting for your customer to install',
-      description: `Send ${detail.customerName} the install link below. Progress appears here as soon as they start.`,
+      description: `Send ${detail.customerName} the install link below.`,
       liveReleaseNote: null,
       showSteps: false,
     };

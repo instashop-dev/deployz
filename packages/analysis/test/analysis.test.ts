@@ -399,12 +399,20 @@ describe('§18 detectors', () => {
 
     it('prefers an exact Dockerfile name over a suffixed variant at the same depth', () => {
       const tree: FileTree = {
-        'a/Dockerfile.prod': 'FROM node:20\n',
+        'a/Dockerfile.server': 'FROM node:20\n',
         'a/Dockerfile': 'FROM node:20\n',
       };
       const result = detectDockerfile(tree);
       expect(result.detected).toBe(true);
       expect(result.value).toBe('a/Dockerfile');
+    });
+
+    it('prefers a production-named Dockerfile over a plain one at the same depth', () => {
+      const tree: FileTree = {
+        'Dockerfile': 'FROM node:20\n',
+        'Dockerfile.production': 'FROM node:20\n',
+      };
+      expect(detectDockerfile(tree).value).toBe('Dockerfile.production');
     });
   });
 
@@ -574,23 +582,21 @@ describe('§18 detectors', () => {
     it('prefers a literal route registration over a same-repo file-based route path when both are present', () => {
       const tree: FileTree = {
         'app/api/health/route.ts': 'export function GET() {}\n',
-        'src/legacy-server.ts': "app.get('/legacy/health', (_req, res) => res.json({ ok: true }));\n",
+        'src/legacy-server.ts': "app.get('/api/healthz', (_req, res) => res.json({ ok: true }));\n",
       };
       const result = detectHealthEndpoint(tree);
       expect(result.detected).toBe(true);
-      expect(result.path).toBe('/legacy/health');
+      expect(result.path).toBe('/api/healthz');
     });
 
-    it('does not let a Dockerfile HEALTHCHECK path override a real /api/health route (stale HEALTHCHECK case)', () => {
-      // Mirrors the audited repo: the Dockerfile still curls /health while
-      // the app-router route actually serving traffic is /api/health.
+    it('lets the selected Dockerfile HEALTHCHECK path outrank a route registration', () => {
       const tree: FileTree = {
         'Dockerfile': 'FROM node:20-alpine\nHEALTHCHECK CMD curl -f http://localhost:3000/health\n',
         'app/api/health/route.ts': 'export function GET() {}\n',
       };
       const result = detectHealthEndpoint(tree);
       expect(result.detected).toBe(true);
-      expect(result.path).toBe('/api/health');
+      expect(result.path).toBe('/health');
     });
 
     it('detects healthcheck script in package.json', () => {

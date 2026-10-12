@@ -63,7 +63,7 @@ export default function CustomerDetailPage() {
         if (!cancelled) {
           setState({
             status: 'error',
-            message: "We couldn't load this customer. Try again in a moment.",
+            message: "Couldn't load this customer. Try again.",
           });
         }
       } finally {
@@ -240,7 +240,7 @@ export default function CustomerDetailPage() {
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No deployments yet — invite {customer.name} to install this application.
+              No deployments yet.
             </p>
           )}
         </CardContent>

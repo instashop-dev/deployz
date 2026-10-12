@@ -409,6 +409,20 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
     expect(events).toHaveLength(1);
   });
 
+  it('refuses a result that does not say whether the command succeeded (never a default success)', async () => {
+    const v1 = await seedRelease('5.2.0', new Date(Date.now() - 60_000));
+    const v2 = await seedRelease('5.3.0', new Date());
+    const deployment = await seedDeployment({ state: 'UPDATING', currentReleaseId: v1 });
+    const jobId = await seedJob(deployment.id, 'DEPLOY_RELEASE', 'RUNNING', { releaseId: v2 });
+
+    const response = await postResult(jobId, deployment.token, { output: {} });
+    expect(response.statusCode).toBe(400);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('RUNNING');
+    expect((await getDeploymentRow(deployment.id)).state).toBe('UPDATING');
+  });
+
   it('ignores a late result for a CANCELLED (force-completed) job', async () => {
     const deployment = await seedDeployment({ state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE' });
     const jobId = await seedJob(deployment.id, 'DESTROY', 'CANCELLED');

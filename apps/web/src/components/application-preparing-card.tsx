@@ -43,11 +43,7 @@ export function ApplicationPreparingCard({ application }: { application: Applica
         ))}
       </ul>
 
-      {action === null ? (
-        <p className="text-sm text-muted-foreground">
-          Deployz is preparing your application for private deployment.
-        </p>
-      ) : (
+      {action === null ? null : (
         <div className="flex flex-col items-start gap-3 rounded-xl border p-4">
           <div>
             <h2 className="text-base font-semibold">{action.heading}</h2>
@@ -83,18 +79,18 @@ function CheckIcon({ state }: { state: PreparationCheck['state'] }) {
 function requiredAction(application: Application): { heading: string; detail: string } | null {
   if (application.analysisStatus === 'FAILED') {
     return {
-      heading: 'We could not finish preparing this application',
+      heading: 'Preparation failed',
       detail:
         application.compatibilityReason ??
-        'Check the repository we analysed, then try preparing it again.',
+        'Check the repository, then try again.',
     };
   }
   if (application.analysisStatus !== 'COMPLETE') return null;
   if (application.compatibilityStatus === 'READY') return null;
   return {
-    heading: 'We need a few details',
+    heading: 'Input needed',
     detail:
       application.compatibilityReason ??
-      'A few things about this application need your input before a customer can be deployed.',
+      'Complete the setup before deploying to a customer.',
   };
 }

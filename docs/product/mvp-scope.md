@@ -61,8 +61,8 @@ account:
 
 | Component | What Deployz provisions | Notes |
 | --- | --- | --- |
-| Compute | One build artifact on ECS Fargate: a web service behind an Application Load Balancer, plus one private service per declared background worker, plus a one-shot migration task when the app has a migration command | Needs a Dockerfile. `small-v1`: 0.25 vCPU / 512 MiB per task. The web desired count comes from the profile; each worker runs one task. Workers have no URL and no load-balancer route. |
-| Database (optional) | RDS PostgreSQL 16 or RDS MySQL 8.0, `db.t4g.micro`, 20 GB (autoscaling to 100 GB), 7-day backups, deletion protection | Provisioned only when the analysis manifest requires PostgreSQL or MySQL. **Retained** on disconnect. |
+| Compute | One build artifact on ECS Fargate: a web service behind an Application Load Balancer, plus one private service per declared background worker, plus a one-shot migration task when the app has a migration command | Needs a Dockerfile that builds a production image: a repository with none (or only development or template Dockerfiles) is `NOT_COMPATIBLE` when the full file list proves it. `small-v1`: 0.25 vCPU / 512 MiB per task. The web desired count comes from the profile; each worker runs one task. Workers have no URL and no load-balancer route. |
+| Database (optional) | RDS PostgreSQL 16 or RDS MySQL 8.0, `db.t3.micro`, 20 GB (autoscaling to 100 GB), gp3, 7-day backups, deletion protection | Provisioned only when the analysis manifest requires PostgreSQL or MySQL. **Retained** on disconnect. |
 | Cache (optional) | ElastiCache Valkey (Redis-compatible), single `cache.t4g.micro` node, no TLS, no cluster mode | Provisioned only when the manifest requires Redis. Deleted on disconnect. |
 | Storage | One S3 bucket, always created | **Retained** on disconnect. |
 | Network | Dedicated VPC, public/private subnets, NAT, security groups | Plus isolated DB-only subnets in the remaining available AZs when a database is present. Deleted on disconnect. |
@@ -77,7 +77,8 @@ migration) shares the one build artifact; there is exactly one image per
 deployment. Sizing is
 frozen per deployment in an immutable profile registry
 ([`../infrastructure-profiles.md`](../infrastructure-profiles.md)); today
-only `small-v1` exists and the customer is not offered a choice.
+`small-v2` is the current Small default (`small-v1` stays frozen for
+existing deployments) and the customer is not offered a choice.
 
 Plan and status payloads may also name `worker`, `queue` and `schedule`
 component kinds. All three are real, provisioned components: a `queue` is
@@ -174,10 +175,12 @@ Rejected at analysis time, with evidence, never silently adapted:
   Elasticsearch/OpenSearch, ClickHouse, embedded JVM databases.
 - Redis Cluster, Redis Stack modules, TLS Redis.
 - Compose application services beyond the web service and declared
-  workers (extra long-running application services), Kubernetes,
+  workers (extra long-running application services), an image that runs
+  several supervised processes (s6-overlay, supervisord), Kubernetes,
   Serverless/SAM, the
   repository's own Terraform/Pulumi/CloudFormation, Azure, GCP.
-- Persistent volumes or local disk state, GPUs, Windows, ARM64 or privileged
+- Persistent volumes or local disk state (including a data directory or a
+  configuration file that the image expects to be mounted), GPUs, Windows, ARM64 or privileged
   containers.
 
 Not provided by the platform:
@@ -192,6 +195,10 @@ Not provided by the platform:
   environments.
 - Customer-selectable size profiles, changing the topology of an existing
   deployment (a new requirement means a new deployment), per-customer builds.
+  A deploy to a deployment whose application now needs a database or cache
+  that the deployment does not have is refused (`409
+  INFRASTRUCTURE_CHANGE_REQUIRED`); a bulk deploy skips that deployment with
+  the reason.
 - Customer-side controls inside Deployz: the customer approves the Quick
   Create and can only uninstall through the AWS console.
 - Deployment notifications by email or Slack, vendor-branded install pages,

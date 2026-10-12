@@ -65,7 +65,7 @@ async function copyText(text: string, success: string): Promise<void> {
     await navigator.clipboard.writeText(text);
     toast.success(success);
   } catch {
-    toast.error("We couldn't copy automatically. Your browser blocked access to the clipboard.");
+    toast.error("Couldn't copy. Your browser blocked clipboard access.");
   }
 }
 
@@ -93,7 +93,7 @@ export function ReleaseFailureDetails({
       .catch((error: unknown) =>
         setState({
           status: 'error',
-          message: error instanceof Error ? error.message : "We couldn't load the failure details.",
+          message: error instanceof Error ? error.message : "Couldn't load the failure details.",
         }),
       );
   }, [applicationId, release.id]);
@@ -107,7 +107,7 @@ export function ReleaseFailureDetails({
       .catch((error: unknown) =>
         setExplanation({
           status: 'error',
-          message: error instanceof Error ? error.message : 'The AI explanation is not available right now.',
+          message: error instanceof Error ? error.message : 'The AI explanation is unavailable.',
         }),
       );
   }
@@ -189,8 +189,8 @@ export function ReleaseFailureDetails({
 
             {deployzIssue ? null : (
               <p className="text-xs text-muted-foreground">
-                The prompt is an investigation prompt: it asks your agent to find the cause before it
-                changes code. Copying it starts nothing and gives no access to Deployz or AWS.
+                The prompt asks your agent to find the cause before changing code. Copying it grants
+                no access to Deployz or AWS.
               </p>
             )}
 
@@ -319,7 +319,7 @@ function ExplanationResult({ state }: { state: ExplanationState }) {
   if (explanation.status === 'no_evidence') {
     return (
       <p className="text-sm text-muted-foreground" data-testid="release-ai-no-evidence">
-        The AI needs build log lines, and none are available for this release.
+        No build log lines are available for the AI to read.
       </p>
     );
   }
@@ -353,7 +353,7 @@ function ExplanationResult({ state }: { state: ExplanationState }) {
         className="rounded-md border"
       />
       <p className="text-xs text-muted-foreground">
-        Written by AI from the redacted log lines above. The lines shown are the log&apos;s own text.
+        Written by AI from the redacted log lines above.
       </p>
     </div>
   );
@@ -397,14 +397,14 @@ function BuildLogDialog({
           <DialogTitle>Build log · {release.version}</DialogTitle>
           <DialogDescription>
             {typeof log === 'object' && log.truncated
-              ? `The last ${lines.length} lines of the log. Earlier lines are not shown.`
-              : 'The full build log.'}{' '}
-            Deployz removed secrets and its own infrastructure details.
+              ? `Last ${lines.length} lines only.`
+              : 'Full build log.'}{' '}
+            Secrets and Deployz infrastructure details are removed.
           </DialogDescription>
         </DialogHeader>
         {log === 'loading' ? <Skeleton className="h-64 w-full" /> : null}
         {log === 'error' ? (
-          <p className="text-sm text-muted-foreground">We couldn&apos;t load the build log. Try again in a moment.</p>
+          <p className="text-sm text-muted-foreground">Couldn&apos;t load the build log. Try again.</p>
         ) : null}
         {typeof log === 'object' && log.status !== 'available' ? (
           <p className="text-sm text-muted-foreground">{BUILD_LOG_STATUS_COPY[log.status]}</p>

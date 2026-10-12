@@ -90,8 +90,13 @@ that ever touches the customer's AWS account.
    newest READY release.
 7. **Deploy** — DEPLOY_RELEASE runs the frozen migration (if the spec has a
    migration workload) as a one-shot ECS task — the compiler baked the
-   command into a single task definition (family `DeployzAppMigration`) — and
-   then updates every service to the pinned digest. The migration always runs
+   command into a single task definition (family `DeployzAppMigration<suffix>`,
+   unique to the installation) — and
+   then updates every service to the pinned digest. The migration and the
+   scheduled jobs run with the same effective application configuration as
+   the configured web service: compiler-managed bindings, vendor and customer
+   values, Deployz-generated secret references and binding aliases
+   (`docs/deployment-resilience.md`). The migration always runs
    after the infrastructure and the database are ready and before any service
    updates; its identity (sha256 over the frozen command plus the image
    digest) makes it run exactly once per release — a retry of an
@@ -191,9 +196,11 @@ that would replace or delete managed resources fail closed.
 The compiled stack contains: a VPC (two public and two private subnets, one
 NAT gateway, plus isolated DB-only subnets in the remaining available AZs when
 a database is present), an ECS cluster, and one Fargate service per persistent
-workload (`small-v1`: 0.25 vCPU / 512 MiB per task, deployment circuit
+workload (`small-v2`: 0.25 vCPU / 512 MiB per task, deployment circuit
 breaker with rollback). The web workload runs behind the internet-facing
-ALB (one HTTP listener, a target group, an unhealthy-target alarm); each
+ALB (one HTTP listener, a target group, an unhealthy-target alarm, and a
+300-second health-check grace period, so an app that migrates at boot is not
+stopped before it listens); each
 declared worker runs its own private service — one task, its own log group
 and security group, no ALB target, no HTTP health check. Every workload
 gets a task definition with the same frozen image and its own frozen
@@ -207,8 +214,8 @@ execution role. Optional resources are composed from the IR:
 
 | Capability adds | Lifecycle on destroy |
 | --- | --- |
-| RDS PostgreSQL 16 instance (`db.t4g.micro`, 20→100 GB, 7-day backups, deletion protection), subnet group, master secret + URL secret | **Retain** |
-| RDS MySQL 8.0 instance (same class, storage, backup and protection settings), subnet group, master secret + URL secret | **Retain** |
+| RDS PostgreSQL 16 instance (`db.t3.micro`, 20→100 GB, gp3, 7-day backups, deletion protection), subnet group, master secret + URL secret | **Retain** |
+| RDS MySQL 8.0 instance (same class, storage type, backup and protection settings), subnet group, master secret + URL secret | **Retain** |
 | ElastiCache Valkey replication group (one `cache.t4g.micro` node, no Multi-AZ, TLS off), cache subnet group and security group | Delete |
 | SQS Standard queue (SSE-managed, TLS-only queue policy), plus an optional dead-letter queue (same capability, reached by a queue → queue redrive edge) | Delete |
 | EventBridge Scheduler schedule (cron or rate expression, optional IANA timezone, bounded retry policy) invoking one scheduled-job task definition — no ECS service, no ALB, no verification check; the task definition targets the same Fargate task family the relay updates on every release, so a schedule always runs the latest deployed image | Delete |
@@ -218,8 +225,8 @@ health-check path, and the generated application secrets. Each worker
 service runs one task.
 
 Redis details: the app receives `REDIS_URL` (`redis://<endpoint>:6379`),
-`REDIS_HOST` and `REDIS_PORT`; other detected alias names are bound after
-install by the relay. `REDIS_PASSWORD` is never resolved (no AUTH in the
+`REDIS_HOST` and `REDIS_PORT`; other detected alias names are in the
+compiled task definitions too (see "Alias bindings" below). `REDIS_PASSWORD` is never resolved (no AUTH in the
 MVP). The cache security group allows 6379 from the whole VPC CIDR, wider
 than the database rule. Detection tiers and the supported/unsupported
 matrix are in [`ai-analysis.md`](ai-analysis.md).
@@ -233,6 +240,30 @@ so workers and the migration task verify TLS the same way. MySQL also
 binds `MYSQL_URL` and the `DB_*` aliases. Aliases such as `DB_HOST` /
 `DB_USER` are bound from
 the analysis manifest.
+
+Alias bindings: the compiler writes every alias name in the manifest's
+database, cache and storage `envBindings` (for example `MEMOS_DSN`,
+`SQLALCHEMY_DATABASE_URI`, `BACKEND_CACHE_REDIS_URI`,
+`S3_ATTACHMENTS_BUCKET`) into every task definition: web, workers, the
+migration task and the scheduled jobs. An alias copies the value of the
+standard name. It never replaces a standard or platform name. The
+`jdbc_url` kind (`SPRING_DATASOURCE_URL`) gets
+`jdbc:postgresql://<host>:5432/deployz?sslmode=require` (or the
+`jdbc:mysql://…?sslMode=REQUIRED` form). The relay's post-install alias step
+stays for artifacts that an earlier compiler version made.
+
+Vendor-mapped names join the manifest bindings. A vendor can map any
+variable name to a managed value in Configuration (a setting with a
+`binding`, see `docs/environment-variables.md`), also a name that analysis
+did not detect. `applyEnvironmentBindings`
+(`packages/contracts/src/environment-setup.ts`) appends each mapped name to
+the `envBindings` of the matching resource, and it skips a name that is
+already bound. Preflight and the manifest that a new deployment freezes both
+use it, so the compiler binds the mapped name as it binds a detected alias.
+When analysis finds no evidence that the app reads a database connection
+variable, the manifest has `database.connectionUnverified`. The readiness
+gate then blocks with `database-connection-unverified` until the vendor maps
+a database value.
 
 The database is a **Single-AZ database with automatic placement**. The
 compiler emits a DB subnet group that covers all available, enabled
@@ -300,7 +331,7 @@ derivation, so the vendor page and the customer page can never disagree.
 - The Region is chosen at deployment creation and is immutable
   ([`product/user-flows.md#who-chooses-the-aws-region`](product/user-flows.md#who-chooses-the-aws-region)).
 - Sizing is frozen per deployment from the immutable profile registry
-  (`small-v1` today) — [`infrastructure-profiles.md`](infrastructure-profiles.md).
+  (`small-v2` today) — [`infrastructure-profiles.md`](infrastructure-profiles.md).
 
 ## Installation invitations and links
 

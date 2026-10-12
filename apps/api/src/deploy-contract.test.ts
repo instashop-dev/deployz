@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
-import type { DeploymentManifest, DeploymentSpecV2 } from '@deployz/contracts';
+import { deployzTaskFamily, taskFamilySuffix, type DeploymentManifest, type DeploymentSpecV2 } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
@@ -234,11 +234,43 @@ describe('deploy contract, busy gate and restart', () => {
     // command itself stays frozen in the spec, never on the wire.
     expect(job?.payload).toMatchObject({
       migrationTask: {
-        family: 'DeployzAppMigration',
+        family: deployzTaskFamily('migration', taskFamilySuffix(deployment.installationId)),
         identity: migrationIdentity('npm run db:migrate', digestOf('v0.11.0')),
       },
     });
     expect(job?.payload).not.toHaveProperty('migrationCommand');
+  });
+
+  it('names a different migration family for each installation of the same spec and image', async () => {
+    const a = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const b = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.11.1');
+    const families: string[] = [];
+    for (const deployment of [a, b]) {
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode, response.body).toBe(202);
+      const [job] = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+      families.push((job?.payload as { migrationTask: { family: string } }).migrationTask.family);
+    }
+    expect(families[0]).not.toBe(families[1]);
+    for (const family of families) expect(family).toMatch(/^DeployzApp[A-Za-z0-9]+$/);
+  });
+
+  it('keeps the shared family name of an artifact compiled before installation-scoped families', async () => {
+    const legacy = { ...migratingSpec(), compilerVersion: 'dynamic-compiler-v2-2' };
+    const deployment = await seedDeployment({ specV2: legacy as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.11.2');
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job?.payload).toMatchObject({ migrationTask: { family: 'DeployzAppMigration' } });
   });
 
   it('skips the migration seat once the same identity has a SUCCEEDED deploy', async () => {
@@ -275,7 +307,7 @@ describe('deploy contract, busy gate and restart', () => {
       .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
     const deployJob = jobs.find((job) => job.type === 'DEPLOY_RELEASE' && job.state === 'REQUESTED');
     expect(deployJob?.payload).toMatchObject({
-      migrationTask: { family: 'DeployzAppMigration' },
+      migrationTask: { family: deployzTaskFamily('migration', taskFamilySuffix(deployment.installationId)) },
     });
   });
 
@@ -337,6 +369,63 @@ describe('deploy contract, busy gate and restart', () => {
     const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: { code: 'RELEASE_NOT_READY' } });
+  });
+
+  it('refuses a deploy when the application now needs a database the frozen stack lacks (INFRASTRUCTURE_CHANGE_REQUIRED)', async () => {
+    const statelessSpec = compileDeploymentIntent({
+      manifest: { ...MIGRATING_MANIFEST, database: { postgres: false }, migration: { command: null } },
+      region: 'us-east-1',
+    }).spec;
+    const [needsDb] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Needs DB',
+        repoFullName: `acme/dc-db-${crypto.randomUUID().slice(0, 8)}`,
+        repoUrl: 'https://github.com/acme/dc-db',
+        defaultBranch: 'main',
+        databaseRequired: true,
+      })
+      .returning();
+    const deployment = await seedDeployment({
+      applicationId: needsDb!.id,
+      specV2: statelessSpec as unknown as Record<string, unknown>,
+    });
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId: needsDb!.id,
+        version: 'v1.0.0',
+        gitSha: 'abc123',
+        imageDigest: digestFor('needs-db-v1'),
+        buildStatus: 'SUCCEEDED',
+        releaseStatus: 'READY',
+      })
+      .returning();
+
+    const single = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId: release!.id });
+    expect(single.statusCode, single.body).toBe(409);
+    expect(single.json()).toMatchObject({ error: { code: 'INFRASTRUCTURE_CHANGE_REQUIRED' } });
+
+    const bulk = await post(`/api/applications/${needsDb!.id}/deploy-bulk`, { releaseId: release!.id });
+    expect(bulk.statusCode, bulk.body).toBe(200);
+    expect((bulk.json() as { results: unknown[] }).results).toEqual([
+      expect.objectContaining({ deploymentId: deployment.id, status: 'SKIPPED', reason: expect.stringContaining('a database') }),
+    ]);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs).toEqual([]);
+  });
+
+  it('still deploys when the application dropped a database the frozen stack has', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v9.6.0');
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
   });
 
   it('refuses every mutating command while one is active (DEPLOYMENT_BUSY)', async () => {

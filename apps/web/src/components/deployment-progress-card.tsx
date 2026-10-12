@@ -140,7 +140,7 @@ export function DeploymentProgressCard({
 
         {status.statusUpdatesUnavailable ? (
           <p className="text-sm text-muted-foreground">
-            Status updates temporarily unavailable — showing last confirmed state.
+            Status updates unavailable — showing the last confirmed state.
           </p>
         ) : null}
 

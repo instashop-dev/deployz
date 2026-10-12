@@ -99,15 +99,19 @@ live(
         // explicit record of the gates that matter to callers.
         const result = await analyseRepositoryWithAi(input, gateway);
 
-        expect(typeof result.workingDirectory).toBe('string');
-        expect(result.buildCommand === null || typeof result.buildCommand === 'string').toBe(true);
-        expect(result.startCommand === null || typeof result.startCommand === 'string').toBe(true);
-        expect(result.port === null || typeof result.port === 'number').toBe(true);
-        expect(typeof result.postgres.required).toBe('boolean');
-        expect(Array.isArray(result.postgres.evidence)).toBe(true);
-        expect(typeof result.redis.required).toBe('boolean');
-        expect(Array.isArray(result.redis.evidence)).toBe(true);
-        expect(result.migrationCommand === null || typeof result.migrationCommand === 'string').toBe(true);
+        const stringOrNull = (value: unknown) => value === null || typeof value === 'string';
+        const booleanOrNull = (value: unknown) => value === null || typeof value === 'boolean';
+        expect(stringOrNull(result.workingDirectory.value)).toBe(true);
+        expect(stringOrNull(result.buildCommand.value)).toBe(true);
+        expect(stringOrNull(result.startCommand.value)).toBe(true);
+        expect(result.port.value === null || typeof result.port.value === 'number').toBe(true);
+        expect(booleanOrNull(result.postgresRequired.value)).toBe(true);
+        expect(booleanOrNull(result.redisRequired.value)).toBe(true);
+        for (const field of [result.workingDirectory, result.startCommand, result.postgresRequired]) {
+          expect(field.confidence).toBeGreaterThanOrEqual(0);
+          expect(field.confidence).toBeLessThanOrEqual(1);
+          expect(Array.isArray(field.evidencePaths)).toBe(true);
+        }
         expect(Array.isArray(result.warnings)).toBe(true);
       },
       30_000,

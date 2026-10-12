@@ -6,7 +6,6 @@ import { useCallback, useState } from 'react';
 
 import { ApplicationPreparingCard } from '@/components/application-preparing-card';
 import { ApplicationReadyCard } from '@/components/application-ready-card';
-import { EvaluationNotice } from '@/components/evaluation-notice';
 import { FirstDeploymentCard } from '@/components/first-deployment-card';
 import { FleetSummary } from '@/components/fleet-summary';
 import { GetStartedCard } from '@/components/get-started-card';
@@ -48,11 +47,8 @@ export default function HomePage() {
   if (poll.loading && poll.data === null) return <LoadingState />;
   if (poll.data === null) return <ErrorState onRetry={poll.refresh} />;
 
-  // Paddle migration Phase 11 — the evaluation line rides above whichever
-  // homepage state is showing, and disappears once a subscription exists.
   return (
     <>
-      <EvaluationNotice />
       {poll.stale ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <AlertTriangle aria-hidden className="size-4 shrink-0" />
@@ -83,12 +79,7 @@ function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operation
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your customer infrastructure at a glance.
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
         <Button asChild size="sm">
           <Link href="/dashboard/deployments/new">Invite customer</Link>
         </Button>

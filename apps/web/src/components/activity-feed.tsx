@@ -35,7 +35,7 @@ export function ActivityFeed({
 
   if (ordered.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">No activity yet for this deployment.</p>
+      <p className="text-sm text-muted-foreground">No activity yet.</p>
     );
   }
 

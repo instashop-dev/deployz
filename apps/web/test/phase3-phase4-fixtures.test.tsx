@@ -305,6 +305,15 @@ describe('customer progress renders specComponents (composition A + future capab
     );
     await flush();
 
+    expect(byTestId('deployment-resources')).toBeNull();
+    const trigger = Array.from(container.querySelectorAll('[data-slot="collapsible-trigger"]')).find((element) =>
+      element.textContent?.includes('Deployment details'),
+    ) as HTMLElement;
+    expect(trigger).toBeDefined();
+    await act(async () => {
+      trigger.click();
+    });
+
     expect(byTestId('deployment-resources')).not.toBeNull();
     // The redesigned resource table renders one row per spec component,
     // each with its own testid. The test below asserts the Resources

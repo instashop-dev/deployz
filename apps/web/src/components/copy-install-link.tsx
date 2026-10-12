@@ -11,6 +11,6 @@ export async function copyInstallLink(url: string): Promise<void> {
     await navigator.clipboard.writeText(url);
     toast.success('Install link copied.');
   } catch {
-    toast.error("We couldn't copy the link. Select it and copy it by hand.");
+    toast.error("Couldn't copy the link. Copy it manually.");
   }
 }

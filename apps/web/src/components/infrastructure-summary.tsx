@@ -44,7 +44,7 @@ const SUMMARY_LINE: Record<InfrastructureSummaryStatus, string> = {
   failed: 'A service failed.',
   deleting: 'Services are being removed.',
   retained: 'Retained services remain in the customer AWS account.',
-  unknown: 'Service status is not available right now.',
+  unknown: 'Service status unavailable.',
 };
 
 const SUMMARY_ICON: Record<InfrastructureSummaryStatus, ReactNode> = {
@@ -97,9 +97,9 @@ export function InfrastructureSummary({
       <SummaryCard>
         <p className="text-sm text-muted-foreground">
           {state === 'NOT_INSTALLED' || state === 'WAITING_FOR_RELAY'
-            ? 'This deployment has not been installed yet.'
+            ? 'Not installed yet.'
             : state === 'FAILED'
-              ? "This deployment isn't running, so there's nothing to report."
+              ? "This deployment isn't running."
               : 'This deployment has been removed.'}
         </p>
         {relay}
@@ -112,9 +112,9 @@ export function InfrastructureSummary({
       <div className="flex flex-col gap-3">
         <Alert>
           <AlertTriangle aria-hidden />
-          <AlertTitle>Infrastructure details are unavailable right now</AlertTitle>
+          <AlertTitle>Infrastructure details unavailable</AlertTitle>
           <AlertDescription>
-            The deployment itself is unaffected. This section refreshes automatically.
+            The deployment is unaffected. Refreshes automatically.
           </AlertDescription>
         </Alert>
         <SummaryCard>{relay}</SummaryCard>
@@ -155,7 +155,7 @@ export function InfrastructureSummary({
           // "details appear as they are created" line instead.
           <p className="text-sm text-muted-foreground">
             {state === 'FAILED'
-              ? "This deployment isn't running, so there's nothing to report."
+              ? "This deployment isn't running."
               : 'Service details appear as they are created.'}
           </p>
         ) : (

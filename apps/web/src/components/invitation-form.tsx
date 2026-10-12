@@ -121,8 +121,7 @@ export function InvitationDialog({
             <DialogHeader>
               <DialogTitle>Invite customer</DialogTitle>
               <DialogDescription>
-                The invitation does not create a deployment. Your customer selects the final AWS
-                region and confirms before anything is installed.
+                Creating an invitation does not deploy anything. Your customer confirms the install.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">
@@ -177,8 +176,7 @@ export function InvitationDialog({
             <DialogHeader>
               <DialogTitle>Invitation created</DialogTitle>
               <DialogDescription>
-                Send the install link to your customer — it carries the one-time token, so
-                nothing else is needed. The token is shown only once and cannot be retrieved again.
+                Send the install link to your customer. The token is shown only once.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">

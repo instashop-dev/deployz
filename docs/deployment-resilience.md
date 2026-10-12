@@ -43,6 +43,13 @@ known state, and provides a deterministic path forward.
   pointer, so after any failure it still names what is really running. There
   is no separate lastHealthyRelease column because `currentReleaseId` IS that
   pointer by construction.
+  A release is built once. A redelivered `BUILD_RELEASE` message for a
+  release that is READY, or whose build already started, does nothing
+  (`buildRelease` in the worker), so a READY digest is never rebuilt,
+  replaced or marked FAILED. Only a failure before any build started is
+  retried. A release that becomes READY flips a HEALTHY deployment to
+  `UPDATE_AVAILABLE` only when it is newer than that deployment's current
+  release.
 - **Customer** (`customers` row) — who the deployment is for. `name`, `email`
   and `company` are contact metadata the vendor edits freely; the immutable
   `id` is the only thing anything is anchored to (`deployments.customer_id`,
@@ -88,6 +95,15 @@ watchdog, and the stack-event progress route's settlement backstop):
   (queued first) registers the configured task-definition revision, and the
   auto-deploy of the newest READY release scales the service up and waits
   for the rollout (`packages/relay/src/deploy.ts`, `FIRST_START_DESIRED_COUNT`).
+  The configured task definition must be attached before first scale-up.
+  Command order alone does not guarantee this: two relay invocations can
+  run the two commands at the same time, and a failed CONFIG_UPDATE does not
+  stop the deploy. So the deploy scales a zero-task service only when its
+  revision already carries the effective configuration
+  (`unappliedConfigurationKeys`, `packages/relay/src/config-update.ts`). If
+  not, it changes nothing, keeps zero tasks, and stays in progress until a
+  CONFIG_UPDATE attaches the configured revision. The scale-up then sets
+  that revision and the task count in one `UpdateService`.
   Such an install counts as a running workload only once a deploy has
   started it (`hasStartedInstall`), so a failed first deploy marks the
   deployment `FAILED` like a failed install would; the relay scales the
@@ -131,8 +147,9 @@ pipeline's own image-pull failure and the circuit breaker stay honest
 ## Migrations run once, before the rollout, and never on rollback
 
 A deployment whose frozen spec carries a migration workload compiles one
-`AWS::ECS::TaskDefinition` (family `DeployzAppMigration`) with the
-migration command baked in at compile time. DEPLOY_RELEASE then runs a
+`AWS::ECS::TaskDefinition` (family `DeployzAppMigration<suffix>`, see
+"Task families belong to one installation" below) with the migration command
+baked in at compile time. DEPLOY_RELEASE then runs a
 fixed order:
 
 ``` text
@@ -168,6 +185,16 @@ install / database ready
   names. The payload carries `{family, identity}`; a payload with a
   command string is rejected and dropped — the relay can never execute
   an arbitrary command.
+- **Analysis freezes only a safe command.** `selectMigrationScript`
+  (`packages/analysis`) accepts only a script of the deployed app's own
+  package that applies pending migrations. It rejects create, generate,
+  push, reset, rollback and seed steps, test runs, copy/build/rename steps,
+  chains with an unsafe step, workspace-filter or `../` commands, and a CLI
+  that is only a devDependency (unless the final Dockerfile stage keeps dev
+  dependencies). If the image already migrates at boot (CMD/ENTRYPOINT
+  chain, uwsgi hook, binary flag, or `RUN_MIGRATIONS`-style ENV), the mode
+  is `startup` and no command is frozen. If nothing is safe, no command is
+  frozen and the "no migration command" warning stays.
 - **ROLLBACK and RESTART never run migrations.** Application rollback
   restores the image and service configuration only; it never reverses
   database migrations, and no down-migration orchestration exists. Every
@@ -183,15 +210,51 @@ ROLLBACK never touch CloudFormation, so a family's latest revision would
 otherwise keep running whatever image the last stack operation set — never
 the new release. `registerReleaseImageIntoFamily`
 (`packages/relay/src/deploy.ts`) is the one generic, bounded step that keeps
-a named family current: it reads the family's latest ACTIVE revision, skips
-registration when that revision already runs the target digest (idempotent
-and retry-safe), and otherwise registers a new revision carrying the release
-image.
+a named family current. It copies the revision the deployment's own stack
+created (the `AWS::ECS::TaskDefinition` stack resource of that family),
+replacing only the release image, so no configuration is lost. It reuses
+that revision, or the family's latest revision, only when it is exactly that
+copy (idempotent and retry-safe); otherwise it registers the copy. It
+returns the exact revision ARN.
+
+**One-shot release tasks use the same effective application configuration
+as the configured runtime workload.** The stack's one-shot revision has only
+the compiler-managed bindings; vendor and customer values, Deployz-generated
+secret references and binding aliases reach the services through later
+revisions (CONFIG_UPDATE, the alias step), never the one-shot families. So
+each copy takes three sources:
+
+- **Structure** from the stack's one-shot revision: family, roles, sizing,
+  command, entry point, mounts, logging, container dependencies and the
+  init container stay as compiled.
+- **Environment and secret references** from the configured revision of the
+  `web` workload's service: the service its workload seat names, else the
+  compiled `WebService` (a ROLLBACK payload has no seats), else the stack's
+  only service. Only the entries delivered after install are copied: the
+  entries that differ from the service's own stack-created revision. A
+  vendor value that replaces a compiler-managed name (an external
+  `DATABASE_URL`) is delivered, so it wins. A binding compiled for the web
+  workload only (its queue) is not, so the one-shot keeps its own compiled
+  bindings. The application container is the one container that runs an
+  image from the release repository, matched by name, never by position;
+  init and sidecar containers are never a source or a target. Secrets stay
+  `valueFrom` references; the relay resolves no value.
+- **Image** from the requested release digest.
+
+This fails closed. If no runtime service, its stack-created revision or
+the application container can be identified, the migration fails before RunTask (`MIGRATION_FAILED`) and a
+scheduled-job family stays in progress. While that service revision does not
+carry the effective configuration yet (`unappliedConfigurationKeys`, the
+first-start guard), the migration does not start and the command stays in
+progress. Scheduled-job families copy the settled service revision. A later
+CONFIG_UPDATE does not change the one-shot families; the next deploy brings
+them current.
 
 - **The migration family** is brought current right before RunTask, on every
-  DEPLOY_RELEASE and ROLLBACK. This fixed a real Phase 4 defect: the
-  migration used to run whatever image the stack was installed with, never
-  the release image being deployed.
+  DEPLOY_RELEASE. RunTask runs the exact revision ARN that returns — never
+  the bare family, which another registration could move in between. This
+  fixed a real Phase 4 defect: the migration used to run whatever image the
+  stack was installed with, never the release image being deployed.
 - **Every scheduled-job family** is brought current only once a
   DEPLOY_RELEASE or ROLLBACK has otherwise **settled** — never before, never
   interleaved with the service rollout. A failed update must leave scheduled
@@ -208,7 +271,36 @@ image.
   `TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/` is a trust-boundary
   check on every family name the control plane sends (the migration family
   and every scheduled-job family alike) — the relay can never be pointed at
-  an arbitrary family from a payload.
+  an arbitrary family from a payload. The family must also be one its own
+  stack created; any other family is refused before anything is copied.
+
+### Task families belong to one installation
+
+Every task-definition family a stack creates (each service, the migration,
+each scheduled job) is `DeployzApp<Pascal(componentId)><suffix>`. The suffix
+is the installation id's letters and digits, lower-cased
+(`taskFamilySuffix` in `@deployz/contracts`). It is stable for the stack's
+life for the same reason as the stack name `deployz-app-<id>`: a relay reset
+re-enrolls the same installation. The control plane passes it as the stack
+parameter `paramTaskFamilySuffix` at INSTALL (no default; only `[a-z0-9]+`),
+and computes the same family names for the DEPLOY_RELEASE and ROLLBACK
+payloads. Two installations in one AWS account and Region, even of
+the same application and image, therefore never share a family: the
+scheduler's revisionless target and its IAM scope name only this
+installation's family. A deploy of an installation-scoped stack without a
+registered installation is refused (409 `RELAY_NOT_CONNECTED`, the same
+refusal as any deploy without a connected relay).
+
+Stacks compiled before this change (`dynamic-compiler-v2-1`/`-2`) keep the
+shared names `DeployzApp<Pascal>`: their artifacts are frozen. On them the
+relay still copies only its own stack's revision (another installation's
+revision has other roles, so it is never reused), and RunTask runs the exact
+copy. A schedule on such a stack still targets the shared family's latest
+revision. If another installation registers last, that run fails on the
+scheduler role's PassRole scope, so it never runs as the other installation.
+The schedule picks up its own revision at this installation's next settled
+deploy. Moving such a stack to installation-scoped names needs a new
+deployment (post-MVP: no stack-update path exists).
 
 Scheduled-job task runs sit outside health and readiness semantics entirely.
 No ECS service backs a scheduled job, so nothing verifies it the way a
@@ -283,7 +375,9 @@ completed its rollout (`packages/relay/src/config-update.ts`):
   UPDATE … RETURNING), so overlapping polls cannot hand the same command
   out twice; `POST /api/relay/commands/:id/result` ignores results for
   settled jobs (`alreadySettled`), so a relay retry or a late report after
-  force-complete cannot flip state twice or recompute release pointers.
+  force-complete cannot flip state twice or recompute release pointers. A
+  result without a boolean `success` gets `400` and settles nothing; a
+  malformed report is never a default success.
 - AWS-side, every relay executor reads before it writes
   (describe-before-create/delete, running-digest short-circuit), so a
   re-delivered or re-offered command converges on real AWS state instead of

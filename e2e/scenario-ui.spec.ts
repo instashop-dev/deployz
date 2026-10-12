@@ -135,7 +135,7 @@ test.describe('scenario-ui browser suite', () => {
       page.getByRole('heading', { name: 'Checking your application' }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(
-      page.getByText(/The last step is a secure address — set up a custom domain below to finish\./),
+      page.getByText(/Set up a custom domain below for a secure address\./),
     ).toBeVisible();
     // The grouped step list reflects real progress, not a percentage: every
     // rung through health is done, https is the one still active. Completed
@@ -148,6 +148,7 @@ test.describe('scenario-ui browser suite', () => {
     // The legacy wire-step list shares labels with the redesigned rung text
     // (same source: STEP_LABEL.done), so the assertions are scoped to its
     // own testid to keep Playwright strict mode from matching both.
+    await page.getByRole('button', { name: 'Deployment details' }).click();
     await page.getByTestId('step-list-done-toggle').click();
     const doneList = page.getByTestId('step-list-done-list');
     await expect(doneList.getByText(/^Network created/)).toBeVisible();
@@ -160,8 +161,11 @@ test.describe('scenario-ui browser suite', () => {
     // by construction — the done-list only contains steps the deployment
     // has finished. The awaiting-domain detail is the customer-facing
     // proof that the TLS step is the one still active.
-    await expect(page.getByText('Waiting for a custom domain to be added.')).toBeVisible();
+    await expect(
+      page.getByTestId('tracker-current-detail').getByText('Waiting for a custom domain to be added.'),
+    ).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
+    await page.getByRole('button', { name: 'Deployment details' }).click();
     const customerBodyText = await page.locator('body').innerText();
     expect(customerBodyText).not.toMatch(JARGON);
 
@@ -544,7 +548,7 @@ test.describe('update-failure then rollback-success (browser)', () => {
     const rollbackAfter = page.getByRole('menuitem', { name: /Rollback/ });
     await expect(rollbackAfter).toBeDisabled();
     await expect(rollbackAfter).toContainText(
-      'The previous successful release is the version running now, so there is nothing to roll back to.',
+      'The previous release is already running.',
     );
     await page.keyboard.press('Escape');
   });

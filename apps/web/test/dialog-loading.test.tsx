@@ -181,7 +181,7 @@ describe('InstallRetryButton loading', () => {
     expect(button.textContent).toBe('Retry connection');
     expect(routerMocks.refresh).not.toHaveBeenCalled();
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "We couldn't start the retry. Try again in a moment.",
+      "Couldn't start the retry. Try again.",
     );
   });
 });

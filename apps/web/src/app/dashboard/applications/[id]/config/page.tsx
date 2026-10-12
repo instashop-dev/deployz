@@ -73,7 +73,7 @@ function ConfigScreen() {
         if (!cancelled) {
           setState({
             status: 'error',
-            message: "We couldn't load this configuration. Try again in a moment.",
+            message: "Couldn't load the configuration. Try again.",
           });
         }
       }
@@ -161,7 +161,7 @@ function ConfigBody({
         <ConfigSection
           title="Customer overrides"
           description={customerScopeDescription(data)}
-          helpText="Saved overrides reach this customer's running deployment within a few minutes."
+          helpText="Reaches this customer's running deployment within minutes."
           testId="config-customer-overrides"
           applicationId={data.applicationId}
           customerId={data.customerId}
@@ -181,7 +181,7 @@ function ConfigBody({
 // customer" rather than leaking the id.
 function customerScopeDescription(data: ApplicationConfig): string {
   const customer = data.customerName ?? 'this customer';
-  return `Apply to ${customer} only. They take precedence over the defaults.`;
+  return `For ${customer} only. Overrides the defaults.`;
 }
 
 /** A value being added but not yet saved. Secrets carry no stored value yet. */
@@ -261,7 +261,7 @@ function ConfigSection({
         return;
       }
       if (writes.some((write) => write.key === key)) {
-        setDraftError(`${key} is already in this group. Edit the existing one instead.`);
+        setDraftError(`${key} already exists. Edit it instead.`);
         return;
       }
       if (draft.isSecret && value.length === 0) {
@@ -387,7 +387,7 @@ function ConfigSection({
                   ) : null}
                   {saveState === 'error' ? (
                     <p role="alert" className="text-sm text-destructive">
-                      We couldn&apos;t save these values. Try again in a moment.
+                      Couldn&apos;t save. Try again.
                     </p>
                   ) : null}
                 </div>
@@ -444,7 +444,7 @@ function ConfigField({
       </div>
       {removed ? (
         <p className="text-xs text-muted-foreground">
-          Removed when you save. {entry.isSecret ? 'The value is deleted from the customer’s own secret store too.' : ''}
+          Removed on save.{entry.isSecret ? ' Also deleted from the customer’s secret store.' : ''}
         </p>
       ) : entry.isSecret ? (
         <>
@@ -455,7 +455,7 @@ function ConfigField({
             disabled={disabled}
           />
           <p className="text-xs text-muted-foreground">
-            Secret set — enter a new value to replace it.
+            Secret set. Enter a new value to replace it.
           </p>
           {entry.needsReentry ? (
             <p className={cn('text-xs', TONE_TEXT.attention)}>Re-enter this secret.</p>

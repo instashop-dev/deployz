@@ -10,22 +10,22 @@ const FEATURES = [
   {
     icon: GitBranch,
     title: 'Connect GitHub',
-    description: 'Link your repository. We analyse it and check it is ready to deploy.',
+    description: 'Link your repository for analysis.',
   },
   {
     icon: CheckCircle2,
     title: 'Ready',
-    description: 'We verify your app has what it needs — a Dockerfile, a health endpoint, and a supported database.',
+    description: 'We check for a Dockerfile, a health endpoint and a supported database.',
   },
   {
     icon: Cloud,
     title: 'Deploy to Customer AWS',
-    description: 'Your customer opens an install link and signs in to their own cloud account. Their credentials never touch us.',
+    description: 'Your customer opens an install link and signs in to their own AWS account. We never see their credentials.',
   },
   {
     icon: HeartPulse,
     title: 'Healthy',
-    description: 'We keep every customer deployment healthy and up to date, all from one dashboard.',
+    description: 'Monitor and update every customer deployment from one dashboard.',
   },
 ] as const;
 
@@ -58,8 +58,7 @@ export default function LandingPage() {
             Deploy your SaaS into customer AWS
           </h1>
           <p className="max-w-xl text-lg text-muted-foreground">
-            Stop wrestling with per-customer infrastructure. Connect your repo, send your customer an
-            install link, and we handle the rest — their cloud, their data, your dashboard.
+            Connect your repo, send an install link, and manage every deployment from one dashboard.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button asChild size="lg">
@@ -94,9 +93,8 @@ export default function LandingPage() {
             Customer infrastructure and data stay in customer AWS
           </p>
           <p className="max-w-lg text-sm text-muted-foreground">
-            Your customer connects their own cloud account through a unique install link. We never see
-            their credentials, and their data never touches our infrastructure. You get visibility and
-            control; they get security and ownership.
+            Customers connect through a unique install link. We never see their credentials, and
+            their data never touches our infrastructure.
           </p>
         </section>
 
