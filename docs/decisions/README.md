@@ -31,6 +31,7 @@ Three decisions with substantial detail have their own files:
 | 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 | 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
+| 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -458,3 +459,30 @@ accepted.
 
 What would change it: running several processes of one image as one Deployz
 service, or a declared-workers import from a supervisor configuration.
+
+## A deploy fails closed on a newly required database or cache (2026-10-12)
+
+The stored manifest decision says a requirement change is reported as drift
+and never applied. The deploy routes did not read that drift, so a release
+of an application that now needs a database or cache was deployed onto a
+stack that has neither. The task then runs with no `DATABASE_URL` or cache
+binding. An application that falls back to local storage (for example
+SQLite) when the binding is missing looks healthy while it writes customer
+data to a disposable container.
+
+`POST /api/deployments/:id/deploy` now refuses with `409
+INFRASTRUCTURE_CHANGE_REQUIRED` when the deployment's frozen spec lacks a
+database or cache that the application's effective manifest requires (the
+same comparison as the readiness drift report). `deploy-bulk` skips that
+deployment with the reason. A requirement that the application dropped
+stays deployable, because the retained resource is only unused. Rollback,
+restart and the post-install auto-deploy are not changed. The vendor fixes
+the refusal with a new deployment, or by changing the requirement back
+(a vendor override).
+
+The check compares the frozen spec with the application's current analysis,
+not with the release being deployed, because a release stores no spec.
+
+What would change it: a stack-update path that adds a database or cache to an
+existing deployment, or a per-release spec.
+

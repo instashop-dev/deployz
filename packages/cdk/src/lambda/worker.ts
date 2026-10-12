@@ -298,6 +298,16 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
   if (!row) return; // The release was deleted between enqueue and pickup.
 
   const { release, application } = row;
+  // A redelivered message must never rebuild a release: a READY release is
+  // immutable (customers run its digest), and a started build settles
+  // through its own event. Only a failure before any build started retries.
+  if (
+    release.releaseStatus === 'READY' ||
+    release.buildStatus === 'BUILDING' ||
+    release.currentBuildId !== null
+  ) {
+    return;
+  }
   const installationId = application.githubInstallationId;
   if (!installationId) {
     await failRelease(db, releaseId, 'No GitHub installation is linked to this application', 'build_failed');

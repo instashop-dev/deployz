@@ -135,21 +135,29 @@ export async function newerReadyReleaseExists(
 }
 
 /**
- * A release just became READY (DZ-AUDIT-007): every HEALTHY deployment of the
- * application is now behind — one newer READY release exists. Shared between
- * the worker's recordBuildResult and the API's fixture-mode build path so
- * both writers flip the fleet identically.
+ * A release just became READY (DZ-AUDIT-007): a HEALTHY deployment of the
+ * application is now behind when a READY release newer than its current one
+ * exists. An older release that finishes building late flips nothing.
+ * Shared between the worker's recordBuildResult and the API's fixture-mode
+ * build path so both writers flip the fleet identically.
  */
 export async function flipHealthyDeploymentsToUpdateAvailable(
   db: RuntimeDb,
   applicationId: string,
 ): Promise<void> {
-  await db
-    .update(schema.deployments)
-    .set({ state: 'UPDATE_AVAILABLE' })
+  const healthy = await db
+    .select({ id: schema.deployments.id, currentReleaseId: schema.deployments.currentReleaseId })
+    .from(schema.deployments)
     .where(
       and(eq(schema.deployments.applicationId, applicationId), eq(schema.deployments.state, 'HEALTHY')),
     );
+  for (const deployment of healthy) {
+    if (!(await newerReadyReleaseExists(db, applicationId, deployment.currentReleaseId))) continue;
+    await db
+      .update(schema.deployments)
+      .set({ state: 'UPDATE_AVAILABLE' })
+      .where(and(eq(schema.deployments.id, deployment.id), eq(schema.deployments.state, 'HEALTHY')));
+  }
 }
 
 /**

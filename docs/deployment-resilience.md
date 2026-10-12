@@ -43,6 +43,13 @@ known state, and provides a deterministic path forward.
   pointer, so after any failure it still names what is really running. There
   is no separate lastHealthyRelease column because `currentReleaseId` IS that
   pointer by construction.
+  A release is built once. A redelivered `BUILD_RELEASE` message for a
+  release that is READY, or whose build already started, does nothing
+  (`buildRelease` in the worker), so a READY digest is never rebuilt,
+  replaced or marked FAILED. Only a failure before any build started is
+  retried. A release that becomes READY flips a HEALTHY deployment to
+  `UPDATE_AVAILABLE` only when it is newer than that deployment's current
+  release.
 - **Customer** (`customers` row) — who the deployment is for. `name`, `email`
   and `company` are contact metadata the vendor edits freely; the immutable
   `id` is the only thing anything is anchored to (`deployments.customer_id`,
@@ -328,7 +335,9 @@ likewise proven only by its exit code, never by a long-lived service.
   UPDATE … RETURNING), so overlapping polls cannot hand the same command
   out twice; `POST /api/relay/commands/:id/result` ignores results for
   settled jobs (`alreadySettled`), so a relay retry or a late report after
-  force-complete cannot flip state twice or recompute release pointers.
+  force-complete cannot flip state twice or recompute release pointers. A
+  result without a boolean `success` gets `400` and settles nothing; a
+  malformed report is never a default success.
 - AWS-side, every relay executor reads before it writes
   (describe-before-create/delete, running-digest short-circuit), so a
   re-delivered or re-offered command converges on real AWS state instead of
