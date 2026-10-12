@@ -389,6 +389,15 @@ export function actionErrorMessage(caught: unknown, fallback: string): string {
   if (caught instanceof DeploymentActionError && caught.code === 'RELEASE_NOT_PUBLISHED') {
     return 'This application has no built release yet. Build a release on the Releases page, then try again.';
   }
+  if (
+    caught instanceof DeploymentActionError &&
+    (caught.code === 'RELAY_DISCONNECTED' || caught.code === 'RELAY_NOT_CONNECTED')
+  ) {
+    return "Deployz can't reach this deployment's connector. Ask the customer to reconnect it, then try again.";
+  }
+  if (caught instanceof DeploymentActionError && caught.code === 'INFRASTRUCTURE_CHANGE_REQUIRED') {
+    return 'This application now needs a database or cache that this deployment does not have. Create a new deployment for this customer, or change the requirements back.';
+  }
   return fallback;
 }
 

@@ -1438,6 +1438,34 @@ function computeDeploymentRequirementDrift(
   return summary;
 }
 
+/**
+ * Fail closed on an unsupported infrastructure change: the application now
+ * needs a database or cache that this deployment's frozen stack does not
+ * have. A new release on that stack would run with no binding, and an app
+ * that falls back to local storage would look healthy while it loses data.
+ * A dropped requirement stays deployable (the resource is only unused).
+ */
+async function requireNoAddedRequirement(
+  db: RuntimeDb,
+  deployment: Pick<DeploymentRow, 'id' | 'applicationId' | 'state' | 'desiredState' | 'specV2'>,
+): Promise<void> {
+  const [app] = await db
+    .select()
+    .from(schema.applications)
+    .where(eq(schema.applications.id, deployment.applicationId))
+    .limit(1);
+  if (!app) return;
+  const [summary] = computeDeploymentRequirementDrift(app, [{ ...deployment, customerName: '' }]);
+  const added = (summary?.drift ?? []).filter((entry) => entry.desired && !entry.deployed);
+  if (added.length === 0) return;
+  const names = added.map((entry) => (entry.kind === 'database' ? 'a database' : 'a cache')).join(' and ');
+  throw new ApiError(
+    409,
+    'INFRASTRUCTURE_CHANGE_REQUIRED',
+    `The application now needs ${names}, which this deployment does not have. Create a new deployment for this customer, or change the application's requirements back.`,
+  );
+}
+
 // §25 "deploy to all compatible customers" — deployable means the fleet
 // member is in a state where a new release can be rolled out. Deployments
 // that are still installing, mid-transition, or gone are skipped rather than
@@ -5265,6 +5293,7 @@ export async function buildServer({
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
     await requireDeployableState(db, deployment);
+    await requireNoAddedRequirement(db, deployment);
     const idempotencyKey =
       clientIdempotencyKey(request, deployment.id, 'DEPLOY_RELEASE') ??
       (await retryAwareIdempotencyKey(
@@ -5354,6 +5383,13 @@ export async function buildServer({
           status: 'SKIPPED',
           reason: 'The relay for this deployment has not connected yet — install it before deploying.',
         });
+        continue;
+      }
+      try {
+        await requireNoAddedRequirement(db, deployment);
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        results.push({ deploymentId: deployment.id, status: 'SKIPPED', reason: error.message });
         continue;
       }
       const idempotencyKey = await retryAwareIdempotencyKey(
@@ -7721,7 +7757,12 @@ export async function buildServer({
     if (typeof body.error === 'string') {
       body.error = redactSecrets(body.error);
     }
-    const state = body.success === false ? 'FAILED' : 'SUCCEEDED';
+    // Every relay version sends a boolean; a malformed report never settles a
+    // job as SUCCEEDED by default.
+    if (typeof body.success !== 'boolean') {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'A relay result must say whether the command succeeded');
+    }
+    const state = body.success ? 'SUCCEEDED' : 'FAILED';
     const failureCodeParsed = state === 'FAILED' ? failureCodeSchema.safeParse(body.failureCode) : undefined;
     // A code the enum does not know used to be dropped on the floor, which
     // left the vendor looking at "Unknown issue" with no trace of what the

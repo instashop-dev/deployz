@@ -128,7 +128,7 @@ behind each step is in [`../architecture.md`](../architecture.md).
 | Item | Who | When | Notes |
 | --- | --- | --- | --- |
 | Repository, application | Vendor | Before analysis | One application per repository; branch fixed at creation. |
-| Port, health path, migration command, DB/Redis/storage overrides | Vendor | Before install; later edits affect later installs and deploys | A requirement change on a live deployment is reported as drift, never applied; a new deployment is needed. |
+| Port, health path, migration command, DB/Redis/storage overrides | Vendor | Before install; later edits affect later installs and deploys | A requirement change on a live deployment is reported as drift, never applied; a new deployment is needed. A newly required database or cache blocks deploys to that deployment until then. |
 | Build settings (app root, Dockerfile, build context, build/start command) | Vendor | Before a release | API only. |
 | Environment-variable classification, labels, help text | Vendor | Before release / install | |
 | Vendor build-time values | Vendor | Before a release | Missing values block release creation. Values are baked into the image. |

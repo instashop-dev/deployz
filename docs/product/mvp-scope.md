@@ -195,6 +195,10 @@ Not provided by the platform:
   environments.
 - Customer-selectable size profiles, changing the topology of an existing
   deployment (a new requirement means a new deployment), per-customer builds.
+  A deploy to a deployment whose application now needs a database or cache
+  that the deployment does not have is refused (`409
+  INFRASTRUCTURE_CHANGE_REQUIRED`); a bulk deploy skips that deployment with
+  the reason.
 - Customer-side controls inside Deployz: the customer approves the Quick
   Create and can only uninstall through the AWS console.
 - Deployment notifications by email or Slack, vendor-branded install pages,

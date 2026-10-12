@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
-import { canRetryFirstInstall, deriveHero, operationInFlight, showApplicationUrl, type HeroInput } from '../src/lib/deployment-hero';
+import { canRetryFirstInstall, deriveHero, operationInFlight, showApplicationUrl, statusPollSettled, type HeroInput } from '../src/lib/deployment-hero';
 import { REMOVED_PROGRESS } from '../src/lib/deployment-progress';
 import type { DeploymentJob } from '../src/lib/deployments';
 
@@ -367,6 +367,23 @@ describe('operationInFlight', () => {
     for (const state of ['REQUESTED', 'QUEUED', 'WAITING']) {
       expect(operationInFlight([job({ type: 'DESTROY', state })])).not.toBeNull();
     }
+  });
+});
+
+describe('statusPollSettled', () => {
+  it('keeps the fast poll while an update runs on a live deployment', () => {
+    for (const type of ['DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'CONFIG_UPDATE']) {
+      expect(statusPollSettled({ deploymentStatus: status({ stage: 'READY' }), jobs: [job({ type, state: 'RUNNING' })] }), type).toBe(false);
+    }
+  });
+
+  it('slows down once the live deployment is idle', () => {
+    expect(statusPollSettled({ deploymentStatus: status({ stage: 'READY' }), jobs: [job({ type: 'DEPLOY_RELEASE', state: 'SUCCEEDED' })] })).toBe(true);
+    expect(statusPollSettled({ deploymentStatus: status({ stage: 'FAILED' }), jobs: [] })).toBe(true);
+  });
+
+  it('never slows down before a terminal stage', () => {
+    expect(statusPollSettled({ deploymentStatus: status({ stage: 'VERIFYING' }), jobs: [] })).toBe(false);
   });
 });
 

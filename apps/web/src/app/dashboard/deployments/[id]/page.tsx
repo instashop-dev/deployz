@@ -78,7 +78,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { fetchDeploymentPreflight, type PreflightResult } from '@/lib/preflight';
 import { errorMessage } from '@/lib/api-client';
 import { requirementDriftLine } from '@/lib/install-plan';
-import { canRetryFirstInstall, deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
+import { canRetryFirstInstall, deriveHero, operationInFlight, statusPollSettled, type HeroModel } from '@/lib/deployment-hero';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
   DeploymentActionError,
@@ -135,7 +135,6 @@ import {
   type Release,
 } from '@/lib/releases';
 import { formatReleaseVersion } from '@/lib/release-version';
-import { isTerminalStage } from '@/lib/deployment-progress';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 type DetailState =
@@ -294,7 +293,7 @@ export default function DeploymentDetailPage() {
     fetcher: () => fetchDeployment(id),
     intervalMs: 5000,
     terminalIntervalMs: 60000,
-    isTerminal: (detail) => isTerminalStage(detail.deploymentStatus.stage),
+    isTerminal: statusPollSettled,
     enabled: state.status === 'loaded',
   });
 
@@ -1389,8 +1388,8 @@ function RestartDialog({
       await restartDeployment(deploymentId);
       toast.success('Restart requested');
       onDone();
-    } catch {
-      setError("Couldn't restart this application. Try again.");
+    } catch (caught) {
+      setError(actionErrorMessage(caught, "Couldn't restart this application. Try again."));
     } finally {
       setPending(false);
     }
