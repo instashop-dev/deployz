@@ -30,6 +30,10 @@ Three decisions with substantial detail have their own files:
 | 2026-09-29 | The MVP boundary expands to SQS queues and scheduled jobs | Active |
 | 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
 | 2026-10-02 | A migration correction rides the migration seat as a new revision of the same family | Active |
+| 2026-10-02 | A configuration update settles on its rollout; service mutations never overlap | Active |
+| 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
+| 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
+| 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -156,11 +160,12 @@ Cloudflare edge. See [`../networking-and-https.md`](../networking-and-https.md).
 
 ## Infrastructure profiles are immutable and frozen per deployment (2026-09-03, registry 2026-09-22)
 
-Sizing lives in an immutable registry (`small-v1` today) and is frozen into
+Sizing lives in an immutable registry (`small-v2` today) and is frozen into
 `desired_state.infrastructureProfile` at creation. A new size is a new
-registry version plus republished templates; `small-v1` is never edited. A
-topology-changing `minimal` profile (no NAT, fewer AZs) needs a new
-infrastructure version and a security and cost review, not a registry row.
+registry version plus republished templates; `small-v1` and `small-v2` are
+never edited. A topology-changing `minimal` profile (no NAT, fewer AZs)
+needs a new infrastructure version and a security and cost review, not a
+registry row.
 See [`../infrastructure-profiles.md`](../infrastructure-profiles.md).
 
 ## Jev shadow analysis is not adopted (2026-09-20)
@@ -451,3 +456,101 @@ by instruction and did not waive it.
 
 What would change it: a vendor need for per-deployment migration
 commands, or relays that cannot be updated to read the seat's command.
+## A configuration update settles on its rollout (2026-10-02)
+
+CONFIG_UPDATE used to report success as soon as UpdateService returned. A
+configuration that broke the application was rolled back by the ECS
+circuit breaker while the job said it succeeded, and a pending secret was
+cleaned up as delivered.
+
+- Success now needs every changed service's rollout complete, with the
+  deploy executor's gates. The rollouts ride the relay's pending marker
+  and resume across invocations. A rollback fails the job; the lifecycle
+  state and release pointers stay, and the failure is surfaced.
+- The job error does not claim that the rollback restored secrets: a
+  secret value already written stays written. Automatic secret
+  restoration is out of scope.
+- Service mutations never overlap. The claim route holds service
+  mutations while one is running, and the relay hands back later
+  mutations of a batch once one defers. CONFIG_UPDATE stays outside the
+  unique index, so it can still be queued during an install; it is only
+  handed out after the install settles.
+- Without a queue (local development, simulated E2E) the API runs the
+  CONFIG_UPDATE fan-out inline, the documented `queue.ts` contract, so the
+  simulator covers the vendor configuration path.
+
+Rejected: putting CONFIG_UPDATE into the one-active-job index (it would
+lose secret values typed during an install); claiming one service
+mutation per poll (it would delay every configured first start by a full
+relay interval).
+
+Real-AWS qualification is recorded as pending in
+[`../testing/aws-e2e.md`](../testing/aws-e2e.md); the change deferred it
+by instruction and did not waive it.
+
+## A repository with no buildable Dockerfile is NOT_COMPATIBLE (2026-10-10)
+
+The gate answered NEEDS_CONFIGURATION for a repository with no Dockerfile that
+builds a production image. No Deployz setting adds a Dockerfile, so the answer
+told the vendor something false: 19 of 28 gate false acceptances in the
+fresh-100 run had this cause. The analyser now rejects (`no-buildable-dockerfile`)
+when the full tracked path list shows no Dockerfile, only development-only or
+template Dockerfiles, or a single Dockerfile that copies sources the repository
+does not contain.
+
+COMP-021 removed an earlier version of this check because the 200-file tree
+cap made an absent `COPY` source prove nothing. The new check reads the full
+tracked path list the fetch layer attaches, and it stays silent when that list
+is missing, a Dockerfile in it was not fetched, a second candidate Dockerfile
+exists, the repository has git submodules, or the source is a `COPY --from=` or
+a generated directory (`dist`, `build`, `target`, …). The vendor-facing report
+shows one blocking finding, "Has no Dockerfile that builds the app".
+
+What would change it: a Deployz setting to supply a prebuilt image or a
+Dockerfile path would turn the verdict back into configuration.
+
+## A multi-process supervised image is NOT_COMPATIBLE (2026-10-10)
+
+The gate accepted an image that runs several application processes under a
+supervisor (s6-overlay or supervisord), for example api, cron, web and worker
+in one container. The container starts and serves HTTP, but Deployz runs one web
+process plus declared workers, each as its own service from the same image, and
+it cannot split or scale the processes of one supervised container. The
+analyser now rejects (`multi-process-image`) when the selected Dockerfile
+installs s6-overlay or supervisord and copies two or more service definitions
+(s6 `run` paths, supervisord `[program:]` sections) into the image.
+
+A web-server front end (nginx, apache, httpd, caddy) and php-fpm count as one web
+service, not as extra processes. Service files that the Dockerfile does not copy
+(docs, examples, other images) do not count. A single supervised service stays
+accepted.
+
+What would change it: running several processes of one image as one Deployz
+service, or a declared-workers import from a supervisor configuration.
+
+## A deploy fails closed on a newly required database or cache (2026-10-12)
+
+The stored manifest decision says a requirement change is reported as drift
+and never applied. The deploy routes did not read that drift, so a release
+of an application that now needs a database or cache was deployed onto a
+stack that has neither. The task then runs with no `DATABASE_URL` or cache
+binding. An application that falls back to local storage (for example
+SQLite) when the binding is missing looks healthy while it writes customer
+data to a disposable container.
+
+`POST /api/deployments/:id/deploy` now refuses with `409
+INFRASTRUCTURE_CHANGE_REQUIRED` when the deployment's frozen spec lacks a
+database or cache that the application's effective manifest requires (the
+same comparison as the readiness drift report). `deploy-bulk` skips that
+deployment with the reason. A requirement that the application dropped
+stays deployable, because the retained resource is only unused. Rollback,
+restart and the post-install auto-deploy are not changed. The vendor fixes
+the refusal with a new deployment, or by changing the requirement back
+(a vendor override).
+
+The check compares the frozen spec with the application's current analysis,
+not with the release being deployed, because a release stores no spec.
+
+What would change it: a stack-update path that adds a database or cache to an
+existing deployment, or a per-release spec.
+

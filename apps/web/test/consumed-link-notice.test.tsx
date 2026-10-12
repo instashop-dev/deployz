@@ -88,8 +88,8 @@ describe('InstallPage — consumed-link notice', () => {
     // deployment status.
     const notice = doc.querySelector('[data-testid="consumed-link-notice"]');
     expect(notice).not.toBeNull();
-    expect(notice?.textContent).toContain('This installation link has been consumed');
-    expect(notice?.textContent).toContain('A new link is required only for another installation');
+    expect(notice?.textContent).toContain('This install link has been used');
+    expect(notice?.textContent).toContain('Another installation needs a new link');
 
     // The notice must not use alarming failure vocabulary.
     const noticeText = notice?.textContent ?? '';

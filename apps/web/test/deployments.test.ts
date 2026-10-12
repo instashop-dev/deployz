@@ -75,6 +75,20 @@ describe('actionErrorMessage', () => {
     );
   });
 
+  it('points a refused action at the offline connector', () => {
+    for (const code of ['RELAY_DISCONNECTED', 'RELAY_NOT_CONNECTED']) {
+      expect(actionErrorMessage(new DeploymentActionError(409, code), 'fallback'), code).toBe(
+        "Deployz can't reach this deployment's connector. Ask the customer to reconnect it, then try again.",
+      );
+    }
+  });
+
+  it('explains a deploy refused for an infrastructure change', () => {
+    expect(actionErrorMessage(new DeploymentActionError(409, 'INFRASTRUCTURE_CHANGE_REQUIRED'), 'fallback')).toBe(
+      'This application now needs a database or cache that this deployment does not have. Create a new deployment for this customer, or change the requirements back.',
+    );
+  });
+
   it('falls back for any other error', () => {
     expect(actionErrorMessage(new DeploymentActionError(500, 'REQUEST_FAILED'), 'fallback')).toBe(
       'fallback',

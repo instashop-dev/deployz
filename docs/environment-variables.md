@@ -52,12 +52,15 @@ pure evaluation: `packages/contracts/src/environment-setup.ts`.
 | Secret | yes / no |
 | Who provides | Managed by Deployz · Set by vendor · Set by customer · Optional / not needed |
 | Label, help | Customer-facing text, for "Set by customer" only |
+| Managed value | Only for "Managed by Deployz" at runtime: a `binding` with a `resource` (`database`, `cache`, `storage`) and a `kind` |
 
 Rules (server-validated):
 - **Managed by Deployz** is allowed only for keys that Deployz really
   supplies: managed bindings (database, cache, storage, port, a provisioned
-  queue and its dead-letter queue) and app-internal secrets that the relay
-  generates.
+  queue and its dead-letter queue), the application's own public URL, and
+  app-internal secrets that the relay generates. One exception: a setting
+  with a managed value (see "Map a variable to a managed value") can use any
+  valid variable name.
 - **Set by customer** and **Managed by Deployz** are runtime only.
 - A variable without a saved decision keeps the behaviour it had before
   this feature (legacy default). Existing applications keep working without
@@ -68,6 +71,37 @@ the service catalog) and show their source. Uncertain detections (sample
 file only, low confidence) are marked **Uncertain**. Build-time suggestions
 come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
 `REACT_APP_`, …). The vendor confirms them.
+
+## Map a variable to a managed value
+
+Some apps read their database connection through a name that analysis cannot
+see (for example `GF_DATABASE_URL` from an ini override, `MM_SQLSETTINGS_DATASOURCE`,
+or a name that a config library builds). When Deployz provisions a managed
+database and no standard or detected name has evidence of a read, the
+manifest has `database.connectionUnverified`. The readiness gate then reports
+`database-connection-unverified` and the state is **Needs configuration**.
+No deployment starts, because the app would connect to nothing or to an
+embedded default.
+
+To resolve it, in **Configuration → Environment variables**:
+
+1. Choose **Managed by Deployz** for the variable that the app reads, or use
+   **Add managed value** to enter a name that analysis did not detect.
+2. In **Value**, choose the managed value: Database URL, Database host,
+   Database port, Database name, Database user, Database password, JDBC URL,
+   Redis URL, Redis host, Redis port, or Bucket name. The list shows only the
+   resources that the application has.
+3. Save.
+
+The saved setting has `binding: { resource, kind }`. The kind must fit the
+resource: database `url`, `host`, `port`, `database`, `username`, `password`,
+`jdbc_url`; cache `url`, `host`, `port`; storage `bucket`. The server refuses
+a managed value for a non-Deployz provider, for the build stage, and for a
+resource that the application does not have. A mapped name counts as provided
+for the required-variable checks. The relay does not generate a value for it.
+A mapped database value clears `connectionUnverified`. The mapping applies
+to new deployments and to the next preflight. A running deployment keeps its
+frozen manifest.
 
 ## Defaults, derived values and precedence
 
@@ -80,11 +114,33 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   itself (`process.env.X = ...`), a `createEnv` `runtimeEnv` pass-through
   (`KEY: process.env.KEY`), and a key that a zod schema declares
   `.optional()` or `.default()` are not required, whatever other bare reads
-  exist.
-- **Compose build args.** A Dockerfile `ARG NAME` with no default that a compose
-  file sets under `build.args` is a required **build** variable. The compose
-  value is shown as evidence (not for secret-looking names); the vendor enters
-  the value.
+  exist. A read in a test, `e2e`, `playwright`, `storybook`, `docs` or
+  `examples` folder, and a read in a `client`, `frontend` or `ui` folder, is not
+  required. A Ruby `ENV.fetch("X") { default }` has a default. A key that the
+  same file tests for presence is not required. A zod schema that the code
+  parses only inside a function is checked when its feature runs, not at boot.
+- **Weak reads.** A bare read (an argument, a stored value, a config-file
+  lookup) only proves that the app reads the key. It does not make a key
+  required when the key is a tuning value (a name with `LIMIT`, `MAX`, `SIZE`,
+  `TIMEOUT`, `INTERVAL`, `ENABLED`, `LEVEL`, an `ALLOW_`, `SHOW_` or `USE_`
+  prefix, and similar), or when it is a credential of an optional integration
+  (mail, error and usage monitoring, chat, social login) that the repository
+  does not evidence as a service SDK. A key that a boot guard, a schema without
+  default, an `assert` helper, `ENV.fetch` without default, or a Go `required`
+  tag needs stays required. A throw guard inside a request handler, or on a
+  feature switch (`*_ENABLED`), is not a boot guard.
+- **Client build-time names.** `NEXT_PUBLIC_*`, `VITE_*`, `REACT_APP_*` and
+  `PUBLIC_*` names are inlined at build time. A bare read of one does not
+  make it required, unless it is the application's own address
+  (`NEXT_PUBLIC_BASE_URL`). That name stays a customer value and is never
+  derived.
+- **Compose build args.** A Dockerfile `ARG NAME` with no default that a
+  production compose file sets to a literal value under `build.args` is a
+  required **build** variable. The compose value is shown as evidence (not
+  for secret-looking names); the vendor enters the value. A Dockerfile `ARG`
+  that no compose file sets, a value that compose only forwards from the
+  environment (`${NAME}`), and an arg in a test or `e2e` compose file are not
+  required.
 - **Sibling apps are out of scope.** When the Dockerfile sits in `apps/<name>/`,
   reads in another `apps/<other>/` directory do not count, unless a production
   compose file (`docker-compose.yml`, `compose.yml`) or a Procfile points at it,
@@ -106,6 +162,46 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   `derived` plain value: the deployment Region, or
   `https://s3.<region>.amazonaws.com`. The template already injects
   `AWS_REGION` and the bucket names.
+- **App-specific binding names.** Deployz sets its managed database, cache
+  and bucket values under the names the app reads. Analysis finds these names
+  from code reads, `.env.example` files at any depth inside the selected app
+  (not in docs, examples or sibling apps), Prisma `datasource` blocks
+  (`url`, `directUrl`, `shadowDatabaseUrl`, whatever the variable is called),
+  and framework config files: Rails `config/*.yml`, Laravel `config/*.php` and
+  Spring `application*.properties|yml` (a `spring.datasource` property means
+  the app reads `SPRING_DATASOURCE_*`). A config-file read without a default
+  is required only for a secret name. JDBC names (`*_DATASOURCE_URL`,
+  `*_JDBC_URL`) get a JDBC URL. A Redis name that ends in `REDIS_URL`,
+  `REDIS_URI`, `REDIS_DSN`, `REDIS_HOST` or `REDIS_PORT` is bound only when
+  Redis is required. `REDIS_PASSWORD` is never bound.
+- **Selectors must be set.** A selector is an env variable that picks the
+  database engine (`DB_TYPE`, `DATABASE_CLIENT`, `DB_CONNECTION`,
+  `*_DBENGINE`, `<APP>_DRIVER` with an engine default) or the file storage
+  (`STORAGE_TYPE`, `ACTIVE_STORAGE_SERVICE`, `UPLOAD_PROVIDER`). When its
+  default (code, config file, sample or compose value) is an embedded engine
+  (`sqlite`, `h2`, …), a different engine, or local disk, and Deployz
+  provisions the managed resource, the selector is **required**. The app
+  would otherwise store data on the container disk. The source line shows the
+  value to use (`pg`, `s3`, …) when the code or a sample file shows it. A
+  selector whose default already names the provisioned engine, or whose
+  resource is not provisioned, is not required. The default can come from the
+  selected Dockerfile `ENV` (it wins over a code default), an env defaults map
+  (`env.ts`), a `@Env('X') field = 'sqlite'` config class, a typed viper key,
+  a NestJS `get('X', 'local')` or a Django-environ `env.str('X', …)` read. A
+  YAML `config.yml` that reads an engine selector as `$(DB_TYPE)` with no
+  default also makes it required.
+- **Deployz-derived public URL.** When the app reads its own public URL with
+  no default, the variable is **Managed by Deployz**. The names are
+  `PUBLIC_URL`, `APP_URL`, `BASE_URL`, `SITE_URL`, `ROOT_URL`, `WEB_URL`,
+  `APP_BASE_URL`, `PUBLIC_ORIGIN`, `ORIGIN`, `NEXTAUTH_URL`, `AUTH_URL`,
+  `SITE_ROOT`, and `<APP>_PUBLIC_URL`, `<APP>_BASE_URL`, `<APP>_APP_URL`,
+  `<APP>_SITE_URL`, `<APP>_ROOT_URL`, `<APP>_EXTERNAL_URL`.
+  `GET /api/relay/config` serves it as a `derived` plain value: the default
+  HTTPS URL of the deployment, `https://d-<deploymentId>.deployz.dev`. A
+  provider-prefixed name (`OPENAI_BASE_URL`, `S3_PUBLIC_URL`), a client
+  build-time name, a variable whose sample value is a path (`BASE_URL=/app`),
+  and a variable that only browser code reads are not derived. They stay
+  **Set by customer**. Any other URL variable also stays **Set by customer**.
 - **Precedence:** explicit vendor or customer value > Deployz-derived value >
   analysis evidence (sample values, suggestions). A derived value never
   replaces an explicit value.
@@ -168,7 +264,11 @@ ever returns plaintext from an API except the relay's own authenticated
   changes after it is built.
 - A saved vendor runtime value, or a removed one, reaches every running
   deployment of the application within a few minutes: one configuration
-  update per customer whose relay is connected. A removed vendor default
+  update per customer whose relay is connected. The update succeeds only
+  after the new tasks are running and healthy. If ECS rolls it back, the
+  previous configuration revision keeps serving and the update shows as
+  failed; secret values it already saved stay in the customer's secret
+  store and are not rolled back. Save the corrected value again to retry. A removed vendor default
   leaves a deployment only when that customer has no override for the key.
   Vendor secret values do not travel in the queue; the relay reads them
   through its authenticated config endpoint.

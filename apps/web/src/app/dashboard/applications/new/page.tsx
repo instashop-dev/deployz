@@ -37,12 +37,7 @@ export default function NewApplicationPage() {
           <ArrowLeft className="size-4" aria-hidden />
           Applications
         </Link>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Add application</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Choose the GitHub repository containing your application.
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Add application</h1>
       </div>
       <RepositoryPicker applications={applications} />
     </div>

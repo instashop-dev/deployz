@@ -173,7 +173,6 @@ test.describe('Deployments list', () => {
     await page.goto('/dashboard/deployments');
     const list = page.getByTestId('deployment-list');
     await expect(list).toBeVisible();
-    await expect(page.getByText('Monitor every customer deployment and its health.')).toBeVisible();
 
     await expect(list.getByRole('columnheader')).toHaveText([
       'Customer',
@@ -283,7 +282,6 @@ test.describe('Deployments list', () => {
 
     await choose(page, 'Filter by status', 'Failed or needs attention');
     await expect(page.getByRole('heading', { name: 'No deployments match these filters.' })).toBeVisible();
-    await expect(page.getByText('Try changing your search or clearing the filters.')).toBeVisible();
     await expect(page.getByTestId('deployment-list')).toHaveCount(0);
 
     // Two Clear filters buttons (toolbar and empty state) do the same thing.
@@ -423,7 +421,6 @@ test.describe('Customers list', () => {
     await page.goto('/dashboard/customers');
     const list = page.getByTestId('customer-list');
     await expect(list).toBeVisible();
-    await expect(page.getByText('Manage customers who deploy your applications.')).toBeVisible();
     await expect(list.getByRole('columnheader')).toHaveText([
       'Customer',
       'Applications',

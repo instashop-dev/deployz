@@ -63,7 +63,7 @@ export function FixInstructionsDialog({
         const message =
           error instanceof Error
             ? error.message
-            : "We couldn't generate the instructions right now. Try again in a moment.";
+            : "Couldn't generate instructions. Try again.";
         if (options.regenerate) {
           toast.error(message);
         } else {
@@ -95,9 +95,9 @@ export function FixInstructionsDialog({
       setCopied(true);
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopied(false), 2000);
-      toast.success('Instructions copied. Paste them into your coding agent.');
+      toast.success('Instructions copied.');
     } catch {
-      toast.error("We couldn't copy automatically — select the text and copy it manually.");
+      toast.error("Couldn't copy. Select the text and copy it manually.");
     }
   }
 
@@ -110,17 +110,15 @@ export function FixInstructionsDialog({
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogContent data-testid="fix-instructions-dialog" className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Fix these deployment issues with your coding agent</DialogTitle>
+          <DialogTitle>Fix deployment issues with your coding agent</DialogTitle>
           <DialogDescription>
-            Paste these instructions into your coding agent — Claude Code, Cursor, Codex, Copilot,
-            or another coding agent. Deployz doesn&apos;t change your repository; your agent makes
-            the changes.
+            Paste into your coding agent. Deployz doesn&apos;t change your repository.
           </DialogDescription>
         </DialogHeader>
 
         {state.status === 'generating' ? (
           <p role="status" className="py-6 text-center text-sm text-muted-foreground">
-            Generating instructions from the analysis…
+            Generating instructions…
           </p>
         ) : null}
 
@@ -154,8 +152,7 @@ export function FixInstructionsDialog({
               {state.result.cached ? ` · ${FIX_INSTRUCTIONS_REUSED_NOTE}` : ''}
             </p>
             <p className="text-sm text-muted-foreground">
-              After making the changes, test them, push them to GitHub, then return to Deployz and
-              analyse the latest commit.
+              Push the changes to GitHub, then re-analyse.
             </p>
           </div>
         ) : null}

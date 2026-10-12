@@ -3,7 +3,7 @@
 import type { DeploymentPlan } from '@deployz/contracts';
 
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { deriveSizeOptions, estimateKind, type EstimateKind } from '@/lib/configuration-inventory';
 import { formatMonthlyRange } from '@/lib/footprint';
 import { regionOptionLabel } from '@/lib/regions';
@@ -39,7 +39,6 @@ export function DeploymentSize({
     <Card id="deployment-size" className="scroll-mt-20" data-testid="deployment-size">
       <CardHeader>
         <CardTitle>Deployment size</CardTitle>
-        <CardDescription>Each customer deployment is created with this size.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <ul aria-label="Deployment sizes" className="grid gap-2 sm:grid-cols-3">
@@ -70,14 +69,14 @@ export function DeploymentSize({
         </ul>
         {options.some((option) => !option.available) ? (
           <p className="text-xs text-muted-foreground" data-testid="deployment-size-gap">
-            Deployz offers only the {options.filter((option) => option.available).map((option) => option.label).join(', ')}{' '}
-            size today. Other sizes need a published size profile before you can choose them.
+            Only the {options.filter((option) => option.available).map((option) => option.label).join(', ')} size is
+            available today.
           </p>
         ) : null}
 
         <div className="flex flex-col gap-1.5 border-t pt-4" data-testid="deployment-cost">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">Estimated AWS cost per customer deployment</span>
+            <span className="text-sm font-medium">Estimated AWS cost per deployment</span>
             <Badge variant={ESTIMATE_KIND_COPY[kind].variant} data-testid="deployment-cost-kind">
               {ESTIMATE_KIND_COPY[kind].label}
             </Badge>
@@ -89,7 +88,7 @@ export function DeploymentSize({
             <p className="text-sm text-muted-foreground">Some resources could not be priced. The real cost is higher.</p>
           ) : null}
           {unestimatedWorkload ? (
-            <p className="text-sm text-muted-foreground">The detected background worker is not in the plan, so it is not estimated.</p>
+            <p className="text-sm text-muted-foreground">The background worker is not estimated.</p>
           ) : null}
           <p className="text-xs text-muted-foreground" data-testid="deployment-cost-assumptions">
             {region ? `Region: ${regionOptionLabel(region)}` : 'Region: US East (N. Virginia) baseline. The customer’s region can change the price.'}{' '}
@@ -99,12 +98,12 @@ export function DeploymentSize({
             <p className="text-xs text-muted-foreground">Not included: {estimate.usageDependent.join(', ')}.</p>
           ) : null}
           <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground" data-testid="deployment-cost-charges">
-            <li>AWS charges go to the customer’s AWS account. This is the estimate above.</li>
+            <li>AWS charges go to the customer’s AWS account.</li>
             <li>Deployz fees are not included in this estimate.</li>
             <li>
               External services
-              {externalServices.length > 0 ? ` (${externalServices.join(', ')})` : ''} are billed separately by each
-              provider and are not estimated.
+              {externalServices.length > 0 ? ` (${externalServices.join(', ')})` : ''} are billed separately and not
+              estimated.
             </li>
           </ul>
         </div>

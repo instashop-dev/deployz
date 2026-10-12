@@ -45,12 +45,14 @@ import {
   buildUpdatePlan,
   compareInfrastructureExpectations,
   applicationStackNameForInstallation,
+  applyEnvironmentBindings,
   deployzProvidableKeys,
   deploymentPlanSchema,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
   environmentSettingsSchema,
   failureCodeSchema,
+  provisionedResources,
   validateEnvironmentSettings,
   failureEvidenceSchema,
   healthComponentsSchema,
@@ -183,7 +185,7 @@ import {
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { createDrizzlePendingSecretStore, createSecretCipherFromEnv } from './pending-secrets.js';
 import { retryEligibilityFor } from './retry-eligibility.js';
-import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig, requireTaskFamilySuffix } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
   confirmPublicInstall,
@@ -781,7 +783,8 @@ interface DeployPayload {
   migrationPolicy?: string;
   /**
    * Scheduled-job ECS task-definition families (Phase 5) — derived ONLY from
-   * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job')`. The
+   * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job', …)` and
+   * the installation's task-family suffix. The
    * relay registers the release image into each of them once the rollout
    * settles; it never runs them (`AWS::Scheduler::Schedule` does). Sent on
    * both DEPLOY_RELEASE and ROLLBACK payloads — unlike the migration seat,
@@ -799,7 +802,11 @@ function scheduledJobFamiliesFor(deployment: DeploymentRow | undefined): string[
   if (deployment === undefined) return undefined;
   const spec = readStoredDeploymentSpec(deployment.specV2);
   if (!spec) return undefined;
-  const families = oneShotTasksFromSpec(spec, 'scheduled-job').map((task) => task.family);
+  const families = oneShotTasksFromSpec(
+    spec,
+    'scheduled-job',
+    requireTaskFamilySuffix(spec, deployment.installationId),
+  ).map((task) => task.family);
   return families.length > 0 ? families : undefined;
 }
 
@@ -875,7 +882,9 @@ async function requireDeployableRelease(
     // or no separate migration. ROLLBACK builds its payload WITHOUT the
     // deployment row, so a rollback (and RESTART, whose payload is empty)
     // can never carry the seat.
-    const migration = spec ? migrationTaskFromSpec(spec) : null;
+    const migration = spec
+      ? migrationTaskFromSpec(spec, requireTaskFamilySuffix(spec, deployment.installationId))
+      : null;
     const frozenCommand =
       migration !== null
         ? (spec?.graph.workloads.find((workload) => workload.kind === 'migration')?.command ?? null)
@@ -997,6 +1006,19 @@ function deployReleaseKey(deploymentId: string, releaseId: string, payload: Depl
   const base = `${deploymentId}:DEPLOY_RELEASE:${releaseId}`;
   return payload.migrationPolicy === undefined ? base : `${base}:migration:${payload.migrationPolicy}`;
 }
+
+/** Job types that change the stack or its ECS services — the relay runs one at a time. */
+const SERVICE_MUTATING_JOB_TYPES: ReadonlySet<string> = new Set([
+  'INSTALL',
+  'DEPLOY_RELEASE',
+  'ROLLBACK',
+  'RESTART',
+  'CONFIG_UPDATE',
+  'DESTROY',
+  'PURGE',
+  'MIGRATION',
+  'INFRA_UPGRADE',
+]);
 
 /**
  * One mutating operation per deployment: before creating any mutating job,
@@ -1416,10 +1438,10 @@ async function computeReadiness(
  * The application's current effective manifest — the single construction
  * computeApplicationRequirements and computeDeploymentRequirementDrift share.
  */
-function effectiveApplicationManifest(app: ManifestApplicationRow): DeploymentManifest {
-  return normalizeDeploymentManifest(
-    { metadata: app.detectedMetadata ?? {} },
-    applicationToManifestOverrides(app),
+function effectiveApplicationManifest(app: ManifestApplicationRow & { environmentSettings?: unknown }): DeploymentManifest {
+  return applyEnvironmentBindings(
+    normalizeDeploymentManifest({ metadata: app.detectedMetadata ?? {} }, applicationToManifestOverrides(app)),
+    readEnvironmentSettings(app),
   );
 }
 
@@ -1498,6 +1520,34 @@ function computeDeploymentRequirementDrift(
     }
   }
   return summary;
+}
+
+/**
+ * Fail closed on an unsupported infrastructure change: the application now
+ * needs a database or cache that this deployment's frozen stack does not
+ * have. A new release on that stack would run with no binding, and an app
+ * that falls back to local storage would look healthy while it loses data.
+ * A dropped requirement stays deployable (the resource is only unused).
+ */
+async function requireNoAddedRequirement(
+  db: RuntimeDb,
+  deployment: Pick<DeploymentRow, 'id' | 'applicationId' | 'state' | 'desiredState' | 'specV2'>,
+): Promise<void> {
+  const [app] = await db
+    .select()
+    .from(schema.applications)
+    .where(eq(schema.applications.id, deployment.applicationId))
+    .limit(1);
+  if (!app) return;
+  const [summary] = computeDeploymentRequirementDrift(app, [{ ...deployment, customerName: '' }]);
+  const added = (summary?.drift ?? []).filter((entry) => entry.desired && !entry.deployed);
+  if (added.length === 0) return;
+  const names = added.map((entry) => (entry.kind === 'database' ? 'a database' : 'a cache')).join(' and ');
+  throw new ApiError(
+    409,
+    'INFRASTRUCTURE_CHANGE_REQUIRED',
+    `The application now needs ${names}, which this deployment does not have. Create a new deployment for this customer, or change the application's requirements back.`,
+  );
 }
 
 // §25 "deploy to all compatible customers" — deployable means the fleet
@@ -3192,7 +3242,7 @@ export async function buildServer({
   // PUT writes them through the relay to the customer's Secrets Manager
   // before persisting the masked placeholder in the control plane.
   const configStore = createConfigStore(db);
-  const configSecretWriter = createRelaySecretWriter();
+  const configSecretWriter = createRelaySecretWriter(db);
   // DEPLOY-027 (Phase 4): the cipher + the at-rest pending_secrets store +
   // the scope-deployments query, wired from env so production uses KMS and
   // local/test environments degrade to the cipher stub. In Lambda a missing
@@ -3305,6 +3355,7 @@ export async function buildServer({
       settings: readEnvironmentSettings(app),
       variables: manifest.environment.variables,
       deployzKeys: [...deployzProvidableKeys(manifest.environment.variables)],
+      provisioned: provisionedResources(manifest),
       vendorValueKeys,
     };
   }
@@ -3330,6 +3381,7 @@ export async function buildServer({
     const problems = validateEnvironmentSettings(
       parsedBody.data.settings,
       deployzProvidableKeys(manifest.environment.variables),
+      provisionedResources(manifest),
     );
     if (problems.length > 0) {
       throw new ApiError(422, 'ENVIRONMENT_SETTINGS_INVALID', problems.join(' '), { problems });
@@ -5334,6 +5386,7 @@ export async function buildServer({
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
     await requireDeployableState(db, deployment);
+    await requireNoAddedRequirement(db, deployment);
     const idempotencyKey =
       clientIdempotencyKey(request, deployment.id, 'DEPLOY_RELEASE') ??
       (await retryAwareIdempotencyKey(
@@ -5423,6 +5476,13 @@ export async function buildServer({
           status: 'SKIPPED',
           reason: 'The relay for this deployment has not connected yet — install it before deploying.',
         });
+        continue;
+      }
+      try {
+        await requireNoAddedRequirement(db, deployment);
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        results.push({ deploymentId: deployment.id, status: 'SKIPPED', reason: error.message });
         continue;
       }
       // Phase 4A/4C: each target resolves its own per-workload seats and
@@ -6308,7 +6368,7 @@ export async function buildServer({
       idempotencyKey,
       payload: {
         recovery: { neverInstalled: true },
-        ...(await buildInstallPayload(db, deployment, configStore)),
+        ...(await buildInstallPayload(db, deployment, configStore, deployment.installationId)),
       },
       requestedBy: actorId,
     });
@@ -7486,7 +7546,7 @@ export async function buildServer({
               deploymentId: deployment.id,
               type: 'INSTALL',
               idempotencyKey: await retryAwareIdempotencyKey(db, deployment.id, 'INSTALL', `${deployment.id}:INSTALL`),
-              payload: await buildInstallPayload(db, deployment, configStore),
+              payload: await buildInstallPayload(db, deployment, configStore, body.installationId!),
               requestedBy: null,
             })
           ).job
@@ -7623,23 +7683,60 @@ export async function buildServer({
     const { installationId } = request.query as { installationId?: string };
     const deployment = await requireRelayDeployment(installationId, token);
 
+    // Service mutations never overlap: while one is RUNNING (a rollout the
+    // relay is still waiting on) no other is handed out, and a CONFIG_UPDATE
+    // is handed out only as the first service mutation of a batch. A
+    // CONFIG_UPDATE queued during an install therefore waits, still queued,
+    // until the install settles.
+    const candidates = await db
+      .select({
+        id: schema.deploymentJobs.id,
+        type: schema.deploymentJobs.type,
+        state: schema.deploymentJobs.state,
+        createdAt: schema.deploymentJobs.createdAt,
+      })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        ),
+      );
+    const mutationRunning = candidates.some(
+      (job) => job.state === 'RUNNING' && SERVICE_MUTATING_JOB_TYPES.has(job.type),
+    );
+    const claimIds: string[] = [];
+    let mutationClaimed = false;
+    for (const job of candidates.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+      if (job.state === 'RUNNING') continue;
+      if (SERVICE_MUTATING_JOB_TYPES.has(job.type)) {
+        if (mutationRunning || (job.type === 'CONFIG_UPDATE' && mutationClaimed)) continue;
+        mutationClaimed = true;
+      }
+      claimIds.push(job.id);
+    }
+
     // Atomic claim: transition and read in one statement, so two overlapping
     // polls (a client retry racing the original) can never both receive the
     // same command — the second poll's UPDATE matches zero rows. WAITING jobs
     // are claimed back too: the watchdog parks a job there when the relay
     // goes quiet mid-operation, and this poll IS the relay returning.
-    const jobs = (
-      await db
-        .update(schema.deploymentJobs)
-        .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
-        .where(
-          and(
-            eq(schema.deploymentJobs.deploymentId, deployment.id),
-            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING']),
-          ),
-        )
-        .returning()
-    ).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const jobs =
+      claimIds.length === 0
+        ? []
+        : (
+            await db
+              .update(schema.deploymentJobs)
+              .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
+              .where(
+                and(
+                  eq(schema.deploymentJobs.deploymentId, deployment.id),
+                  inArray(schema.deploymentJobs.id, claimIds),
+                  inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING']),
+                ),
+              )
+              .returning()
+          ).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
     // Payload redaction rides the claim: the relay reads the value ONCE from
     // this response (built from the pre-redaction rows below); the stored row
@@ -7717,6 +7814,39 @@ export async function buildServer({
   // being torn down, or (INSTALL) that a later DESTROY superseded is no longer
   // safe to run. Auth mirrors the result route: the token must belong to the
   // JOB'S deployment.
+  // The relay hands back a command it claimed but did not start, because
+  // another service mutation of the same batch is still in flight. The job
+  // returns to REQUESTED and is offered again once that one settles. A job
+  // whose claimed payload was redacted (INSTALL parameters, CONFIG_UPDATE
+  // secret values) cannot be handed back: its values are gone.
+  app.post('/api/relay/commands/:id/release', async (request, reply) => {
+    const token = requireBearerToken(request);
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, id)).limit(1);
+    if (!job) {
+      throw new NotFoundError('Job not found');
+    }
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, job.deploymentId))
+      .limit(1);
+    if (!deployment || !verifyRelayTokenWithRotation(deployment.relayTokenHash, token, oldRelayToken(request))) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
+    }
+    if (job.type === 'INSTALL' || job.type === 'CONFIG_UPDATE') {
+      throw new ApiError(409, 'COMMAND_NOT_RELEASABLE', 'This command cannot be handed back after it was claimed.');
+    }
+    const released = await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'REQUESTED', startedAt: null, lastProgressAt: new Date() })
+      .where(and(eq(schema.deploymentJobs.id, job.id), eq(schema.deploymentJobs.state, 'RUNNING')))
+      .returning();
+    return reply.code(200).send({ released: released.length > 0 });
+  });
+
   app.get('/api/relay/commands/:id/authority', async (request, reply) => {
     const token = requireBearerToken(request);
     const { id } = request.params as { id: string };
@@ -7797,7 +7927,12 @@ export async function buildServer({
     if (typeof body.error === 'string') {
       body.error = redactSecrets(body.error);
     }
-    const state = body.success === false ? 'FAILED' : 'SUCCEEDED';
+    // Every relay version sends a boolean; a malformed report never settles a
+    // job as SUCCEEDED by default.
+    if (typeof body.success !== 'boolean') {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'A relay result must say whether the command succeeded');
+    }
+    const state = body.success ? 'SUCCEEDED' : 'FAILED';
     const failureCodeParsed = state === 'FAILED' ? failureCodeSchema.safeParse(body.failureCode) : undefined;
     // A code the enum does not know used to be dropped on the floor, which
     // left the vendor looking at "Unknown issue" with no trace of what the

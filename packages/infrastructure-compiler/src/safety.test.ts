@@ -41,7 +41,7 @@ function ir(overrides: Partial<DeployzIR> = {}): DeployzIR {
     metadata: {
       graphSchemaVersion: 1,
       capabilityRegistryVersion: 'test',
-      sizeProfileId: 'small-v1',
+      sizeProfileId: 'small-v2',
       region: 'us-east-1',
     },
     ...overrides,

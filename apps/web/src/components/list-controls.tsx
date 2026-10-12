@@ -127,14 +127,9 @@ export function NoMatchesState({
       aria-labelledby={headingId}
       className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center"
     >
-      <div className="flex flex-col gap-1">
-        <h2 id={headingId} className="text-sm font-medium">
-          {heading}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Try changing your search or clearing the filters.
-        </p>
-      </div>
+      <h2 id={headingId} className="text-sm font-medium">
+        {heading}
+      </h2>
       <Button variant="outline" size="sm" onClick={onClear}>
         Clear filters
       </Button>

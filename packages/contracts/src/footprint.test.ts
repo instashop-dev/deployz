@@ -63,7 +63,7 @@ describe('resolveDeploymentFootprint', () => {
     expect(database.configuration).toEqual({
       engine: 'postgres',
       engineVersion: '16',
-      instanceType: 'db.t4g.micro',
+      instanceType: 'db.t3.micro',
       storageGb: 20,
       maxStorageGb: 100,
     });

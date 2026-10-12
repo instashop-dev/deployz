@@ -39,7 +39,7 @@ export function InstallRetryButton({
       setError(
         caught instanceof InstallRetryError && caught.status === 409
           ? 'This deployment was already installed. Contact the vendor for help.'
-          : "We couldn't start the retry. Try again in a moment.",
+          : "Couldn't start the retry. Try again.",
       );
     } finally {
       setPending(false);

@@ -75,17 +75,89 @@ Repository (GitHub tree, bounded)
   selected Dockerfile builds or runs Node. A Python image does not get a
   sibling front end's `react-scripts build`. The Compose port comes from an
   application service, never from a database, cache or proxy service.
+- **Runtime precision:** the image is the production stage of the selected
+  Dockerfile. This stage is the last stage that is not a dev, test or build
+  stage, together with the stages it is built from. A Dockerfile in a test,
+  example or dev-container directory, a base image (system packages only, no
+  CMD, ENTRYPOINT, EXPOSE or COPY) and a Dockerfile that starts a dev server
+  are never selected. A Dockerfile named production or prod ranks first. An
+  arm or multi-process variant ranks last. The port is the ENV PORT or EXPOSE of the production stage. An
+  image with a front web server (nginx, caddy) publishes port 80. The health
+  path, in order: the URL that the HEALTHCHECK of the production stage or a
+  production Compose app service probes; a dedicated route that the app
+  registers, with the framework prefix and URI version; the Spring actuator
+  route. A dedicated route ends in a health word, and only an API root, a
+  version or one namespace (for example system) comes before it.
+  `status` is accepted only under an API root, or in a JS server. `readyz` and
+  `livez` are not taken from source. A route is not used when it is in
+  another language than the one the image starts, when two apps in the
+  repository register a route and the start command does not name one of
+  them, or when a front web server hides the app behind a prefix. In these
+  cases the detector reports no path and the vendor is asked. A Dockerfile
+  that is a git symlink is read from its target file. A package.json worker
+  script is not a worker when it is a dev or watch command, or when the
+  start command already runs the worker.
+- **Build and start checks:** when the selected Dockerfile copies a file or
+  directory that the repository does not contain (a build output that a CI
+  step makes before `docker build`), the gate blocks with
+  `dockerfile-missing-sources`. The vendor adds a Dockerfile that builds the
+  app from source, or selects another one. When the full repository path
+  list proves there is no Dockerfile that builds a production image (none,
+  only development or template files, or a single Dockerfile that copies
+  sources the repository lacks), the repository is NOT_COMPATIBLE
+  (`no-buildable-dockerfile`) instead. A capped or partial file list, a
+  second candidate Dockerfile, a git submodule, `COPY --from=` and a
+  generated directory never reject. A package.json `start` script is
+  the container command only when it belongs to a package that the image
+  runs (the root, the Dockerfile directory or the runtime WORKDIR), the
+  package is not a workspace root, and the script does not build first
+  (`tsc && node …`). Otherwise the vendor is asked for the start command.
+- **Migrations at boot:** a migration that the app runs from its own code at
+  boot (knex `migrate.latest()`, Umzug, Drizzle `migrate()`, TypeORM
+  `runMigrations()`, golang-migrate, Flask-Migrate `upgrade()`, Django
+  `call_command('migrate')`) sets the migration mode to `startup`. Then no
+  pre-deploy command is kept.
 - **One relational database:** a required MySQL database gets the same
   bindings (the `DATABASE_*` names plus the names the app reads, such as
   `DB_HOST`), migration mode and migration findings as PostgreSQL.
   `databaseState` names the engine that the manifest provisions.
+- **Database engine:** PostgreSQL wins when the app can run on it. The
+  engine is MySQL only when a MySQL driver and one independent signal are
+  present and PostgreSQL is not a runtime option. The independent signal
+  is a `mysql://` or `mysql+pymysql://` URL, a `MYSQL_*` variable, a
+  MySQL image in the production Compose file, a Prisma, Django, Spring
+  (`jdbc:mysql`), Sequelize or Knex setting, a Dockerfile that installs
+  `pdo_mysql`, or a Laravel default connection of `mysql`. A PostgreSQL
+  driver that only a Python dev group or a dev requirements file declares
+  does not count. A Laravel app that lists a `pgsql` connection keeps
+  PostgreSQL. A MariaDB-only client (`mariadb-java-client`, a Laravel
+  default of `mariadb`) stays unsupported. A MySQL driver next to a
+  MariaDB image or client is MySQL.
+- **Redis requirement:** Deployz provisions Redis only on strong
+  evidence: a Redis client that the app builds at boot from a configured
+  connection variable, or a queue library that needs Redis (BullMQ, Bull,
+  Sidekiq, RQ, Celery with the `redis` extra). A client library, a
+  connection variable, a Compose Redis service, or a README mention is
+  not enough alone. A client library plus a configured connection
+  variable is enough. Evidence that Redis is optional removes the
+  requirement: a switch such as `REDIS_ENABLED` or `USE_CELERY`, a
+  connection variable that an env sample comments out or calls optional,
+  a connection variable that the code tests before it uses it, a backend
+  selector whose default is not Redis (`CACHE_DRIVER=file`,
+  `JOBS_PROVIDER=local`), an image that installs its own Redis server, or
+  code that sets the connection itself. An env sample comment that says
+  Redis is required overrides this evidence. The result is then
+  `medium` confidence and the manifest does not request Redis.
 - **AI fallback** (`repository-ai.ts`): asked only when a real question is
   open (multiple Dockerfiles, monorepo target, unknown start/build command
   or port, unclear database or Redis requirement), with at most eight files
   / 24k characters of context, sample env files stripped to key names, and
   a strict output schema. `mergeAiAnalysis` lets the AI fill a gap, never
   overwrite; a required-database or Redis flip needs corroborating
-  deterministic evidence.
+  deterministic evidence. The call runs with model thinking off and a
+  30 s budget (`REPO_AI_TIMEOUT_MS`, two attempts inside it). With thinking
+  on, the production model spent the whole output budget on reasoning, so no
+  JSON came back and every attempt took longer than the budget.
 
 ## The canonical model
 
@@ -145,6 +217,35 @@ that is never provisioned from weak evidence such as a queue library
 alone. `reconcileReadiness` applies the vendor's
 container port, start command and migration choice as a view, so the page, the persisted
 verdict and the fix instructions agree without a re-analysis.
+
+Gate scoping. The architecture and storage blockers read only the files that
+describe the production deployment:
+
+- Compose: only the production Compose file counts. It is the root
+  `docker-compose.production.yml`/`docker-compose.yml`, not a file in a
+  `dev`, `test`, `docs`, `examples`, `contrib`, `build` or `demo` directory,
+  not an `override`/`dev`/`ci` variant, and not a file that mounts the
+  repository checkout (`.:/app`). Services on the same build or image are one
+  application: the extra services are workers or replicas. Infrastructure
+  images, bare runtime images (`node`), dev servers and database studios are
+  not application services. A service built from its own Dockerfile that the
+  app neither depends on nor names, next to an app that builds and tags its
+  own image, is an optional extra. Only two independent required
+  application services give `unsupported-multi-service`.
+- Local storage: `VOLUME` is read from the selected Dockerfile only, and a
+  Compose volume only from the production file and the application service.
+  Static, build, source, cache, log and socket mounts do not count. A volume
+  that holds only the SQLite file is not local state when PostgreSQL can be
+  selected. An uploads, media or attachments volume is not local state when
+  the app has an S3 SDK and a variable that selects it (`UPLOAD_PROVIDER`,
+  `ACTIVE_STORAGE_SERVICE`, `STORAGE_TYPE`, an `S3_*_BUCKET` name).
+- Deployment files: Helm charts, Kubernetes manifests, Kustomize, Terraform
+  and Pulumi files in `charts`, `helm`, `k8s`, `kubernetes`, `deploy`,
+  `deployments`, `infra`, `terraform`, `install`, `contrib` or `*-docker`
+  directories do not block. They give the `deployment-files-ignored`
+  warning and the manifest field `ignoredDeploymentFiles`. Root-level files,
+  files elsewhere, and the manifests of a Go module that imports
+  `client-go` or `controller-runtime` still block. Azure files still block.
 
 Adding a rule: add the finding in `readiness-report.ts` (id, copy, severity,
 confidence), a test in `readiness-report.test.ts`, and — when the deployment

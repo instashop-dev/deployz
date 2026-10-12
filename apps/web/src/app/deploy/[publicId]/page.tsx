@@ -7,7 +7,6 @@ import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-inva
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
-import { TechnicalDetails } from '@/components/technical-details';
 import { Button } from '@/components/ui/button';
 import {
   fetchDeployLinkData,
@@ -91,41 +90,43 @@ export default async function DeployPage({
           plan={data.plan}
           preinstall
           deployLink={deployLink}
+          notice={
+            data.relayStuck ? (
+              <section aria-labelledby="deploy-waiting" className="flex flex-col gap-3">
+                <h2 id="deploy-waiting" className="text-base font-semibold">
+                  Still connecting
+                </h2>
+                <div className="flex items-start gap-3">
+                  <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+                </div>
+                <InstallRetryButton installLinkId={publicId} deployLink={deployLink} />
+              </section>
+            ) : null
+          }
+          details={
+            <div className="flex flex-col gap-2">
+              {data.bootstrapStackName ? (
+                <p className="text-xs text-muted-foreground">
+                  Expected stack name:{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {data.bootstrapStackName}
+                  </code>
+                </p>
+              ) : null}
+              <a
+                className="w-fit text-sm font-medium underline underline-offset-4"
+                href={cloudFormationStacksUrl(data.region)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open AWS CloudFormation
+              </a>
+            </div>
+          }
         />
 
-        {data.relayStuck ? (
-          <section aria-labelledby="deploy-waiting" className="flex flex-col gap-3">
-            <h2 id="deploy-waiting" className="text-base font-semibold">
-              Still connecting
-            </h2>
-            <div className="flex items-start gap-3">
-              <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
-            </div>
-            <InstallRetryButton installLinkId={publicId} deployLink={deployLink} />
-          </section>
-        ) : null}
-
         {securityLink}
-
-        <TechnicalDetails>
-          {data.bootstrapStackName ? (
-            <p className="text-xs text-muted-foreground">
-              Expected stack name:{' '}
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                {data.bootstrapStackName}
-              </code>
-            </p>
-          ) : null}
-          <a
-            className="w-fit text-sm font-medium underline underline-offset-4"
-            href={cloudFormationStacksUrl(data.region)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open AWS CloudFormation
-          </a>
-        </TechnicalDetails>
 
         <PoweredBy />
       </div>
@@ -150,7 +151,6 @@ export default async function DeployPage({
 
         <CustomerInstallSections
           plan={data.plan}
-          applicationName={data.application.name}
           securityHref={securityHref}
         />
 
@@ -158,17 +158,10 @@ export default async function DeployPage({
           <h2 id="connect-aws" className="text-base font-semibold">
             Connect AWS account
           </h2>
-          <p className="text-sm text-muted-foreground">
-            {data.application.name} runs in your own AWS account. To set it up, you approve the
-            Deployz connector there.
-          </p>
           <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
             <li>Select Connect AWS account. The AWS console opens in a new tab.</li>
             <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
-            <li>
-              Deployz creates the infrastructure and starts the application. Progress shows on this
-              page.
-            </li>
+            <li>Deployz creates the infrastructure and starts the application. Progress shows here.</li>
           </ol>
           {data.quickCreateUrl ? (
             <InstallLaunchButton
@@ -183,14 +176,13 @@ export default async function DeployPage({
                 Connect AWS account
               </Button>
               <p className="text-sm text-muted-foreground">
-                The setup template isn&apos;t published for this Region yet. Ask the software provider
-                for a new link.
+                No setup template for this Region yet. Ask the software provider for a new link.
               </p>
             </>
           )}
           <p className="text-xs text-muted-foreground">
-            You need an AWS identity that can create CloudFormation stacks and the resources listed
-            above. You do not need a Deployz account.
+            Requires an AWS identity that can create CloudFormation stacks and the resources above.
+            No Deployz account needed.
           </p>
         </section>
 

@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { DeployLinkToken } from '@/lib/deploy-link-flow';
 import { launchDeployLink } from '@/lib/deploy-link-flow';
 import { launchInstall } from '@/lib/install-data';
@@ -18,6 +19,7 @@ export function InstallLaunchButton({
   quickCreateUrl,
   deployLink = null,
   label = 'Review setup in AWS',
+  className,
 }: {
   installLinkId: string;
   quickCreateUrl: string;
@@ -26,10 +28,11 @@ export function InstallLaunchButton({
   deployLink?: DeployLinkToken | null;
   /** CTA label — customer install/deploy pages pass "Connect AWS account". */
   label?: string;
+  className?: string;
 }) {
   const router = useRouter();
   return (
-    <Button asChild size="lg" className="w-fit">
+    <Button asChild size="lg" className={cn('w-fit', className)}>
       <a
         href={quickCreateUrl}
         target="_blank"

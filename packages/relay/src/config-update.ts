@@ -27,6 +27,18 @@
  * relay existed, whose value the control plane could not keep) is reported
  * as unbound rather than bound: binding a missing key would stop every task
  * from starting.
+ *
+ * Settlement: a pass that changed a running service reports success only
+ * after every affected service completed the rollout it started — the
+ * expected task count, the PRIMARY deployment COMPLETED on the target
+ * revision, and every ALB target healthy (the deploy executor's gates). The
+ * target revision and the ECS deployment id of each rollout ride the pending
+ * marker, so a later invocation resumes the wait. A circuit-breaker rollback
+ * to the previous revision fails the operation. A secret-only change (same
+ * bindings, new value) forces fresh tasks, because ECS reads a secret only at
+ * task start. A service at zero tasks (an install that waits for its first
+ * start) only gets its task definition re-pointed: delivery is complete
+ * there, and the first deploy starts it.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -37,9 +49,22 @@ import {
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
 
-import type { CommandExecutor } from './commands.js';
+import type { CommandExecutor, RelayCommandResult } from './commands.js';
 import type { CloudFormationReader, StackResource } from './verify.js';
-import type { EcsDeployClient, RegisterTaskDefinitionInput } from './deploy.js';
+import {
+  CRASH_LOOP_THRESHOLD,
+  crashedTasksOfRevision,
+  deploymentTargetsHealthy,
+  primaryRolloutCompleted,
+  rolloutFailed,
+  sameRegistration,
+  type EcsDeployClient,
+  type EcsTaskDefinition,
+  type RegisterTaskDefinitionInput,
+} from './deploy.js';
+import type { TargetHealthReader } from './ecs-health.js';
+import { essentialContainerNames } from './ecs-observe.js';
+import type { PendingStore } from './pending.js';
 
 /** One entry from the control plane's effective configuration. */
 export interface EffectiveConfigEntry {
@@ -77,6 +102,24 @@ export interface ConfigUpdateDeps {
   readonly installationId: string;
   /** Mints a generated secret value (injectable for tests). */
   readonly generateSecret?: () => string;
+  /** ALB target-health reader behind the settle gate (the deploy executor's gate). */
+  readonly elb: TargetHealthReader;
+  /** Carries the rollouts to a later invocation while they run. */
+  readonly pending: PendingStore;
+  readonly now?: () => string;
+}
+
+/** The deps that settling already-started rollouts needs (no config fetch, no secret store). */
+export type ConfigRolloutDeps = Pick<ConfigUpdateDeps, 'cfn' | 'ecs' | 'elb' | 'pending' | 'stackName'>;
+
+/** One service rollout a CONFIG_UPDATE started and must see complete. */
+export interface ConfigRollout {
+  /** The task-definition revision the service must run when the rollout completes. */
+  readonly taskDefinition: string;
+  /** The ECS deployment the update created, when ECS reported it. */
+  readonly deploymentId?: string;
+  /** The update registered this revision, so its own crashed tasks are evidence. */
+  readonly newRevision: boolean;
 }
 
 /** What one configuration pass did with the secret store. */
@@ -90,7 +133,12 @@ export interface ConfigSecretReport {
 type ConfigUpdateOutcome =
   | { readonly state: 'succeeded'; readonly alreadyApplied: boolean; readonly report: ConfigSecretReport }
   | { readonly state: 'failed'; readonly reason: string }
-  | { readonly state: 'updating'; readonly report: ConfigSecretReport };
+  | {
+      readonly state: 'updating';
+      readonly report: ConfigSecretReport;
+      /** Keyed by ECS service ARN. */
+      readonly rollouts: Readonly<Record<string, ConfigRollout>>;
+    };
 
 /** 256 bits of randomness, URL-safe — usable as any session/JWT/encryption secret. */
 export function generateSecretValue(): string {
@@ -182,6 +230,77 @@ export function findAppConfigSecretArn(resources: readonly StackResource[]): str
   return secret?.physicalId ?? null;
 }
 
+/**
+ * The application container: the one with environment variables, or the
+ * first one — the same heuristic the deploy executor uses.
+ */
+function applicationContainer(definition: EcsTaskDefinition): Record<string, unknown> | undefined {
+  return (
+    definition.containerDefinitions.find(
+      (container) =>
+        Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
+    ) ?? definition.containerDefinitions[0]
+  );
+}
+
+/** The config secret's stored key/value object (empty when it holds no JSON object). */
+async function readStoredSecrets(deps: Pick<ConfigUpdateDeps, 'secrets'>, arn: string): Promise<Record<string, unknown>> {
+  const existing = await deps.secrets.getSecretValue({ SecretId: arn });
+  if (existing.secretString === undefined) return {};
+  try {
+    const parsed: unknown = JSON.parse(existing.secretString);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return { ...(parsed as Record<string, unknown>) };
+    }
+  } catch {
+    // Not a JSON object — treat as empty rather than corrupting what the
+    // application stack manages with a lost merge.
+  }
+  return {};
+}
+
+/**
+ * The keys of the effective configuration `definition` does not carry yet —
+ * what a CONFIG_UPDATE pass would still change on it (DEPLOY-009). Empty
+ * means the revision is configured. Read-only: the secret store is read,
+ * never written. A secret the pass would make available (a value it
+ * delivers, a key it mints) counts as required; a key no pass can bind is
+ * left out, exactly as the pass leaves it unbound.
+ */
+export async function unappliedConfigurationKeys(
+  deps: Pick<ConfigUpdateDeps, 'cfn' | 'secrets' | 'fetchEffectiveConfig' | 'stackName'>,
+  definition: EcsTaskDefinition,
+): Promise<string[]> {
+  const desired = await deps.fetchEffectiveConfig();
+  if (desired.length === 0) return [];
+  const appContainer = applicationContainer(definition);
+  if (!appContainer) return desired.map((entry) => entry.key);
+
+  const currentEnv = (appContainer['environment'] as { name?: string; value?: string }[]) ?? [];
+  const unapplied = computeEnvChanges(desired, currentEnv)?.changes.map((change) => change.name) ?? [];
+
+  const desiredSecrets = desired.filter((entry) => entry.isSecret);
+  if (desiredSecrets.length > 0) {
+    const secretArn = findAppConfigSecretArn(await deps.cfn.describeStackResources(deps.stackName));
+    if (secretArn === null) return [...unapplied, ...desiredSecrets.map((entry) => entry.key)];
+    const stored = await readStoredSecrets(deps, secretArn);
+    const available = new Set(
+      desiredSecrets
+        .filter(
+          (entry) =>
+            entry.generated === true ||
+            (typeof entry.value === 'string' && entry.value.length > 0) ||
+            (typeof stored[entry.key] === 'string' && (stored[entry.key] as string).length > 0),
+        )
+        .map((entry) => entry.key),
+    );
+    const currentSecrets = (appContainer['secrets'] as { name?: string; valueFrom?: string }[]) ?? [];
+    const secretDelta = computeSecretChanges(desired, currentSecrets, secretArn, [], available);
+    unapplied.push(...(secretDelta?.bindings.map((binding) => binding.name) ?? []));
+  }
+  return unapplied;
+}
+
 async function settleConfigUpdate(
   deps: ConfigUpdateDeps,
   removedKeys: readonly string[] = [],
@@ -208,13 +327,13 @@ async function settleConfigUpdate(
   // DescribeServices answers in request order; zip each answer to the ARN
   // that asked for it. A service that cannot be described fails the pass —
   // config that silently skips a workload would leave two sources of truth.
-  const live: { arn: string; taskDefinition: string }[] = [];
+  const live: { arn: string; taskDefinition: string; desiredCount: number }[] = [];
   for (let i = 0; i < serviceArns.length; i++) {
     const service = services[i];
     if (!service || service.taskDefinition === undefined) {
       return { state: 'failed', reason: `ECS service "${serviceArns[i]}" could not be described` };
     }
-    live.push({ arn: serviceArns[i]!, taskDefinition: service.taskDefinition });
+    live.push({ arn: serviceArns[i]!, taskDefinition: service.taskDefinition, desiredCount: service.desiredCount ?? 0 });
   }
 
   // ── Secret reconciliation ──────────────────────────────────────────────
@@ -229,6 +348,7 @@ async function settleConfigUpdate(
   const unboundSecretKeys: string[] = [];
   const availableSecretKeys = new Set<string>();
   let secretArn: string | null = null;
+  let storeChanged = false;
   if (desiredSecrets.length > 0 || hasIncomingValues || removedKeys.length > 0) {
     const arn = findAppConfigSecretArn(resources);
     if (arn === null) {
@@ -239,20 +359,7 @@ async function settleConfigUpdate(
     }
     secretArn = arn;
 
-    const existing = await deps.secrets.getSecretValue({ SecretId: arn });
-    let merged: Record<string, unknown> = {};
-    if (existing.secretString !== undefined) {
-      try {
-        const parsed: unknown = JSON.parse(existing.secretString);
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          merged = { ...(parsed as Record<string, unknown>) };
-        }
-      } catch {
-        // Not a JSON object — treat as empty rather than corrupting what
-        // the application stack manages with a lost merge.
-        merged = {};
-      }
-    }
+    const merged = await readStoredSecrets(deps, arn);
     let changed = false;
     // Pending pre-relay values arrive in the desired entries (the vault
     // overlay on /api/relay/config), not the command payload. A same-key
@@ -286,6 +393,7 @@ async function settleConfigUpdate(
     }
     if (changed) {
       await deps.secrets.putSecretValue({ SecretId: arn, secretString: JSON.stringify(merged) });
+      storeChanged = true;
     }
     for (const entry of desiredSecrets) {
       if (typeof merged[entry.key] === 'string' && (merged[entry.key] as string).length > 0) {
@@ -303,24 +411,22 @@ async function settleConfigUpdate(
   // desired config.
   interface ServiceDelta {
     readonly arn: string;
+    readonly desiredCount: number;
     readonly taskDefinition: Awaited<ReturnType<EcsDeployClient['describeTaskDefinition']>>['taskDefinition'];
     readonly envDelta: ReturnType<typeof computeEnvChanges>;
     readonly secretDelta: ReturnType<typeof computeSecretChanges>;
     readonly appContainer: Record<string, unknown>;
   }
   const deltas: ServiceDelta[] = [];
+  // Running services whose task definition stays the same but whose bound
+  // secret values changed: ECS reads a secret only at task start.
+  const restarts: { arn: string; taskDefinition: string }[] = [];
   for (const liveService of live) {
     const { taskDefinition } = await deps.ecs.describeTaskDefinition({
       taskDefinition: liveService.taskDefinition,
     });
 
-    // Find the application container (the one with environment variables or
-    // the first one — same heuristic the deploy executor uses).
-    const appContainer =
-      taskDefinition.containerDefinitions.find(
-        (container) =>
-          Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
-      ) ?? taskDefinition.containerDefinitions[0];
+    const appContainer = applicationContainer(taskDefinition);
     if (!appContainer) {
       return { state: 'failed', reason: 'Task definition has no container definitions' };
     }
@@ -332,9 +438,17 @@ async function settleConfigUpdate(
       secretArn === null
         ? null
         : computeSecretChanges(desired, currentSecrets, secretArn, removedKeys, availableSecretKeys);
-    if (envDelta === null && secretDelta === null) continue;
+    if (envDelta === null && secretDelta === null) {
+      const bindsConfigSecret =
+        secretArn !== null && currentSecrets.some((secret) => secret.valueFrom?.startsWith(`${secretArn}:`) === true);
+      if (storeChanged && bindsConfigSecret && liveService.desiredCount > 0) {
+        restarts.push({ arn: liveService.arn, taskDefinition: liveService.taskDefinition });
+      }
+      continue;
+    }
     deltas.push({
       arn: liveService.arn,
+      desiredCount: liveService.desiredCount,
       taskDefinition,
       envDelta,
       secretDelta,
@@ -342,9 +456,10 @@ async function settleConfigUpdate(
     });
   }
 
-  if (deltas.length === 0) {
+  if (deltas.length === 0 && restarts.length === 0) {
     return { state: 'succeeded', alreadyApplied: true, report };
   }
+  const rollouts: Record<string, ConfigRollout> = {};
 
   // Apply the deltas: per service, merge changes into the environment array
   // and the secrets array, strip the explicitly removed keys, register a new
@@ -403,15 +518,205 @@ async function settleConfigUpdate(
       tags: [{ key: 'deployz:installation', value: deps.installationId }],
     };
 
-    const registered = await deps.ecs.registerTaskDefinition(nextDefinition);
+    // A replayed pass whose earlier attempt registered this exact revision
+    // but never attached it reuses that revision instead of registering a
+    // duplicate.
+    const { taskDefinition: latest } =
+      delta.taskDefinition.family !== undefined
+        ? await deps.ecs.describeTaskDefinition({ taskDefinition: delta.taskDefinition.family })
+        : { taskDefinition: undefined };
+    const configuredArn =
+      latest?.taskDefinitionArn !== undefined && sameRegistration(latest, nextDefinition)
+        ? latest.taskDefinitionArn
+        : (await deps.ecs.registerTaskDefinition(nextDefinition)).taskDefinitionArn;
     await deps.ecs.updateService({
       cluster,
       service: delta.arn,
-      taskDefinition: registered.taskDefinitionArn,
+      taskDefinition: configuredArn,
     });
+    // A service at zero tasks has nothing to roll: the re-pointed definition
+    // is what its first start runs.
+    if (delta.desiredCount > 0) {
+      rollouts[delta.arn] = { taskDefinition: configuredArn, newRevision: true };
+    }
+  }
+  for (const restart of restarts) {
+    await deps.ecs.updateService({ cluster, service: restart.arn, forceNewDeployment: true });
+    rollouts[restart.arn] = { taskDefinition: restart.taskDefinition, newRevision: false };
   }
 
-  return { state: 'updating', report };
+  const rolloutArns = Object.keys(rollouts);
+  if (rolloutArns.length === 0) {
+    return { state: 'succeeded', alreadyApplied: false, report };
+  }
+  // The PRIMARY deployment right after the update is the rollout this pass
+  // started — its id is what a later poll waits for.
+  const { services: started } = await deps.ecs.describeServices({ cluster, services: rolloutArns });
+  for (let i = 0; i < rolloutArns.length; i++) {
+    const id = started[i]?.deployments?.find((deployment) => deployment.status === 'PRIMARY')?.id;
+    if (id !== undefined) rollouts[rolloutArns[i]!] = { ...rollouts[rolloutArns[i]!]!, deploymentId: id };
+  }
+  return { state: 'updating', report, rollouts };
+}
+
+type RolloutVerdict =
+  | { readonly state: 'succeeded' }
+  | { readonly state: 'in-progress' }
+  | { readonly state: 'failed'; readonly reason: string; readonly failureCode: string };
+
+/**
+ * Whether every rollout a CONFIG_UPDATE started has completed. Reads before
+ * it decides, and never mutates. A rollout is complete when its service's
+ * PRIMARY deployment is the one this update created, runs the target
+ * revision, reached COMPLETED with the expected task count, and every ALB
+ * target is healthy. A circuit-breaker rollback, a PRIMARY on another
+ * revision or deployment, or a crash loop of the new revision fails it.
+ */
+export async function settleConfigRollouts(
+  deps: ConfigRolloutDeps,
+  rollouts: Readonly<Record<string, ConfigRollout>>,
+): Promise<RolloutVerdict> {
+  const arns = Object.keys(rollouts);
+  const cluster = arns[0]?.split('/')[1];
+  if (cluster === undefined) return { state: 'failed', reason: 'No rollout to settle', failureCode: 'UNKNOWN' };
+  const { services } = await deps.ecs.describeServices({ cluster, services: arns });
+  const failures: { reason: string; failureCode: string }[] = [];
+  let inProgress = false;
+  for (let i = 0; i < arns.length; i++) {
+    const arn = arns[i]!;
+    const rollout = rollouts[arn]!;
+    const service = services[i];
+    if (!service || service.taskDefinition === undefined) {
+      failures.push({ reason: `ECS service "${arn}" could not be described`, failureCode: 'AWS_PERMISSION_DENIED' });
+      continue;
+    }
+    const deployments = service.deployments ?? [];
+    const primary = deployments.find((deployment) => deployment.status === 'PRIMARY');
+    const ours =
+      rollout.deploymentId !== undefined
+        ? deployments.find((deployment) => deployment.id === rollout.deploymentId)
+        : undefined;
+    const rolledBack =
+      (rollout.deploymentId !== undefined ? ours?.rolloutState === 'FAILED' : rolloutFailed(deployments)) ||
+      (primary?.taskDefinition !== undefined && primary.taskDefinition !== rollout.taskDefinition) ||
+      (rollout.deploymentId !== undefined && primary?.id !== undefined && primary.id !== rollout.deploymentId);
+    if (rolledBack) {
+      failures.push({
+        reason: `ECS rolled service "${arn}" back to ${primary?.taskDefinition ?? 'its previous revision'}; the configuration update never became healthy. Secret values already written to the configuration secret were not restored.`,
+        failureCode: 'ECS_DEPLOYMENT_FAILED',
+      });
+      continue;
+    }
+    if (rollout.newRevision) {
+      const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: rollout.taskDefinition });
+      const crashed = await crashedTasksOfRevision(
+        deps,
+        cluster,
+        arn,
+        rollout.taskDefinition,
+        essentialContainerNames(taskDefinition.containerDefinitions),
+      );
+      if (crashed.count >= CRASH_LOOP_THRESHOLD) {
+        failures.push({
+          reason: `${crashed.count} tasks of the new configuration revision exited with code ${crashed.exitCode} (${crashed.stoppedReason})`,
+          failureCode: 'CONTAINER_START_FAILED',
+        });
+        continue;
+      }
+    }
+    const desired = service.desiredCount ?? 0;
+    const settled =
+      primaryRolloutCompleted(deployments) && desired > 0 && (service.runningCount ?? 0) >= desired;
+    if (!settled) inProgress = true;
+  }
+  if (failures.length > 0) {
+    return {
+      state: 'failed',
+      reason: failures.map((failure) => failure.reason).join('; '),
+      failureCode: failures[0]!.failureCode,
+    };
+  }
+  if (inProgress || !(await deploymentTargetsHealthy(deps))) return { state: 'in-progress' };
+  return { state: 'succeeded' };
+}
+
+/** The rollouts a CONFIG_UPDATE marker carries, or null when it carries none. */
+function readConfigRollouts(payload: Record<string, unknown>): Record<string, ConfigRollout> | null {
+  const raw = payload['configRollouts'];
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const rollouts: Record<string, ConfigRollout> = {};
+  for (const [arn, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null) return null;
+    const entry = value as Record<string, unknown>;
+    if (typeof entry['taskDefinition'] !== 'string') return null;
+    rollouts[arn] = {
+      taskDefinition: entry['taskDefinition'],
+      newRevision: entry['newRevision'] === true,
+      ...(typeof entry['deploymentId'] === 'string' ? { deploymentId: entry['deploymentId'] } : {}),
+    };
+  }
+  return Object.keys(rollouts).length > 0 ? rollouts : null;
+}
+
+function reportFromMarker(payload: Record<string, unknown>): ConfigSecretReport {
+  const keys = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((key): key is string => typeof key === 'string') : [];
+  return { generatedKeys: keys(payload['generatedKeys']), unboundSecretKeys: keys(payload['unboundSecretKeys']) };
+}
+
+/** The result for a settled rollout verdict, or null while it still runs. */
+function rolloutResult(
+  commandId: string,
+  idempotencyKey: string,
+  verdict: RolloutVerdict,
+  report: ConfigSecretReport,
+): RelayCommandResult | null {
+  if (verdict.state === 'in-progress') return null;
+  if (verdict.state === 'failed') {
+    return { commandId, idempotencyKey, success: false, error: verdict.reason, failureCode: verdict.failureCode };
+  }
+  return {
+    commandId,
+    idempotencyKey,
+    success: true,
+    output: {
+      executed: true,
+      type: 'CONFIG_UPDATE',
+      alreadyApplied: false,
+      // Key names only — never a value.
+      generatedKeys: report.generatedKeys,
+      unboundSecretKeys: report.unboundSecretKeys,
+    },
+  };
+}
+
+/** Finishes a CONFIG_UPDATE rollout an earlier invocation started. */
+export function createConfigUpdateResumer(deps: ConfigRolloutDeps): () => Promise<RelayCommandResult[]> {
+  return async () => {
+    const pending = await deps.pending.read();
+    if (pending === null || pending.type !== 'CONFIG_UPDATE') return [];
+    const rollouts = readConfigRollouts(pending.payload);
+    if (rollouts === null) {
+      await deps.pending.clear();
+      return [
+        {
+          commandId: pending.commandId,
+          idempotencyKey: pending.idempotencyKey,
+          success: false,
+          error: 'Pending configuration update lost its rollouts',
+        },
+      ];
+    }
+    const result = rolloutResult(
+      pending.commandId,
+      pending.idempotencyKey,
+      await settleConfigRollouts(deps, rollouts),
+      reportFromMarker(pending.payload),
+    );
+    if (result === null) return [];
+    await deps.pending.clear();
+    return [result];
+  };
 }
 
 export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecutor {
@@ -456,6 +761,24 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
 
     let outcome: ConfigUpdateOutcome;
     try {
+      // A re-offered command whose rollouts are already on its own marker
+      // only waits for them; it never applies the configuration twice.
+      const existing = await deps.pending.read();
+      const existingRollouts =
+        existing?.commandId === command.id && existing.type === 'CONFIG_UPDATE'
+          ? readConfigRollouts(existing.payload)
+          : null;
+      if (existing !== null && existingRollouts !== null) {
+        const result = rolloutResult(
+          command.id,
+          command.idempotencyKey,
+          await settleConfigRollouts(deps, existingRollouts),
+          reportFromMarker(existing.payload),
+        );
+        if (result === null) return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+        await deps.pending.clear();
+        return result;
+      }
       outcome = await settleConfigUpdate(deps, removedKeys, secretValues);
     } catch (err) {
       return {
@@ -476,10 +799,32 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
       };
     }
 
-    // Both 'succeeded' and 'updating' report success from the executor's
-    // perspective: the task definition was registered and the service
-    // updated. The rollout itself is ECS's problem — the watchdog will
-    // catch a stuck rollout.
+    if (outcome.state === 'updating') {
+      // Record the debt BEFORE deferring. The marker carries the rollouts
+      // and key names only — never a secret value.
+      const recorded = await deps.pending.write({
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        type: command.type,
+        stackName: deps.stackName,
+        startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+        payload: {
+          configRollouts: outcome.rollouts,
+          generatedKeys: outcome.report.generatedKeys,
+          unboundSecretKeys: outcome.report.unboundSecretKeys,
+        },
+      });
+      if (!recorded) {
+        return {
+          commandId: command.id,
+          idempotencyKey: command.idempotencyKey,
+          success: false,
+          error: 'Configuration rollout started, but the relay could not record that it must report back',
+        };
+      }
+      return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+    }
+
     return {
       commandId: command.id,
       idempotencyKey: command.idempotencyKey,
@@ -487,7 +832,7 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
       output: {
         executed: true,
         type: command.type,
-        alreadyApplied: outcome.state === 'succeeded',
+        alreadyApplied: outcome.alreadyApplied,
         // Key names only — never a value.
         generatedKeys: outcome.report.generatedKeys,
         unboundSecretKeys: outcome.report.unboundSecretKeys,

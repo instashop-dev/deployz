@@ -157,7 +157,6 @@ test('search filters by name, by email and by company, and says so when nothing 
 
   await search.fill('nobody-by-that-name');
   await expect(page.getByText('No customers match these filters.')).toBeVisible();
-  await expect(page.getByText('Try changing your search or clearing the filters.')).toBeVisible();
 
   await search.fill('');
   await expect(list.getByText(first.name)).toBeVisible();

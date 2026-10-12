@@ -41,8 +41,12 @@ export {
   detectExternalServiceRequirements,
   collectScripts,
   collectScriptsWithDir,
+  selectMigrationScript,
+  dockerfileWorkdirs,
   detectDeclaredWorkerCommands,
   detectDeclaredWorkerCommand,
+  isDevToolCommand,
+  mainCommandRunsWorker,
   isRuntimeSourcePath,
   // DEPLOY-029: shared with apps/api's GitHub tree-fetch boundary, which
   // walks the same Dockerfile CMD/ENTRYPOINT script chain
@@ -58,7 +62,7 @@ export type {
   ExternalServiceDefinition,
   ExternalServiceRequirement,
 } from './detectors.js';
-export { EXTERNAL_SERVICE_CATALOG } from './detectors.js';
+export { EXTERNAL_SERVICE_CATALOG, TREE_PATHS } from './detectors.js';
 
 export type { RejectionFinding } from './rejection.js';
 export {
@@ -81,6 +85,7 @@ export {
   checkAzure,
   checkGcp,
   checkGpu,
+  checkNoBuildableDockerfile,
 } from './rejection.js';
 
 export type {
@@ -116,6 +121,7 @@ export type {
   InfrastructureBinding,
 } from './bindings.js';
 export { deriveInfrastructureBindings, derivedS3EnvValue } from './bindings.js';
+export { derivedUrlEnvValue, isDerivedUrlEnvVariable } from './derived-url.js';
 
 export type {
   CompatibilityVerdict,

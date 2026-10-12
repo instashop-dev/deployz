@@ -23,7 +23,7 @@ export default function SettingsError({
     <Card>
       <CardHeader>
         <CardTitle>Something went wrong</CardTitle>
-        <CardDescription>We couldn&apos;t load your organization settings.</CardDescription>
+        <CardDescription>Couldn&apos;t load settings.</CardDescription>
       </CardHeader>
       <CardContent>
         <Button

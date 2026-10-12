@@ -52,7 +52,7 @@ export default function ApplicationsPage() {
         if (!cancelled) {
           setAppsState({
             status: 'error',
-            message: "We couldn't load your applications. Try again in a moment.",
+            message: "Couldn't load applications. Try again.",
           });
         }
       }
@@ -68,14 +68,7 @@ export default function ApplicationsPage() {
   return (
     <div className="flex w-full max-w-5xl flex-col gap-6">
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Applications</h1>
-          {hasApplications ? (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Manage the software you deploy to customers.
-            </p>
-          ) : null}
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Applications</h1>
         {hasApplications ? (
           <Button asChild data-testid="add-application-button">
             <Link href="/dashboard/applications/new">
@@ -121,14 +114,9 @@ export default function ApplicationsPage() {
           data-testid="add-application-section"
           className="flex flex-col gap-4"
         >
-          <div>
-            <h2 id="add-first-application" className="text-base font-semibold">
-              Add your first application
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Choose the GitHub repository containing the application you want to deploy.
-            </p>
-          </div>
+          <h2 id="add-first-application" className="text-base font-semibold">
+            Add your first application
+          </h2>
           <RepositoryPicker applications={appsState.applications} />
         </section>
       ) : null}

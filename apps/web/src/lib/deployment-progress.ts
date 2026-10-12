@@ -84,7 +84,7 @@ export function removedProgress(state: string): { title: string; body: string } 
 export const STAGE_HEADLINE: Record<DeploymentStage, { title: string; body: string }> = {
   WAITING_FOR_AWS: {
     title: 'Setting up your AWS connection',
-    body: 'AWS is creating the secure Deployz connector in your account. Deployment progress will appear here automatically.',
+    body: 'AWS is creating the secure Deployz connector in your account.',
   },
   CONNECTING: {
     title: 'Connecting your AWS account',
@@ -432,7 +432,7 @@ export const AWAITING_DOMAIN_STEP_DETAIL = 'Waiting for a custom domain to be ad
 /** The customer install page's exact reassuring sentence for a step running
  *  longer than its typical range — AWS jargon-free, never a percentage. */
 export const TAKING_LONGER_MESSAGE =
-  'Taking longer than usual. AWS is still working and Deployz is continuing to check.';
+  'Taking longer than usual. AWS is still working.';
 
 /**
  * The vendor's slow-step line. Before any AWS stack exists the customer has

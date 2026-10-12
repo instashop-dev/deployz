@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { CAPABILITY_KEYS, estimateFootprintCost } from '@deployz/contracts';
+import { CAPABILITY_KEYS, SMALL_PROFILE, TASK_FAMILY_SUFFIX_PARAMETER, deployzTaskFamily, estimateFootprintCost } from '@deployz/contracts';
 import type { DeployzIR, IrBinding, IrResource, IrSchedule, IrWorkload } from '@deployz/contracts';
 
 import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
@@ -17,7 +17,19 @@ const here = dirname(fileURLToPath(import.meta.url));
 // The full postgres template (web + RDS PostgreSQL + Valkey + S3 + ALB),
 // pinned byte-for-byte. Phase 4B's MySQL capability must not move a single
 // postgres byte — this hash is the proof (see the mysql describe below).
-const POSTGRES_TEMPLATE_HASH_GOLDEN = '6aaf2bbd296c5d9735d3b25a4afadba9fb2c3513b3098b592b3f381c40bd91c2';
+// Moved deliberately since: database AZ placement (DbAz parameters) and
+// installation-scoped task families (the Family join and
+// `paramTaskFamilySuffix`) and the 300 s web health-check grace, and the
+// small-v2 profile (db.t3.micro + gp3), each changed every template.
+const POSTGRES_TEMPLATE_HASH_GOLDEN = '57844150a766fb8e5328bab7239b1160f865f90f47a63aac9943851353eb936d';
+
+/** Evaluates the compiled `Family` join for one stack's suffix parameter value. */
+function familyFor(family: unknown, suffix: string): string {
+  const [separator, parts] = (family as { 'Fn::Join': [string, unknown[]] })['Fn::Join'];
+  return parts
+    .map((part) => (typeof part === 'string' ? part : (part as { Ref: string }).Ref === TASK_FAMILY_SUFFIX_PARAMETER ? suffix : '?'))
+    .join(separator);
+}
 
 // ── IR fixtures ──────────────────────────────────────────────────────────────
 
@@ -528,7 +540,7 @@ describe('multi-workload', () => {
     // one-shot tasks, and relay service discovery must never see a migration.
     expect(taskDef.verificationCheck).toBeUndefined();
     const family = taskDef.properties['Family'];
-    expect(family).toBe('DeployzAppMigration');
+    expect(familyFor(family, 'a1b2')).toBe(deployzTaskFamily('migration', 'a1b2'));
     // The analyzed command is FROZEN into the container — the relay runs the
     // definition as-is and can never inject a command of its own.
     const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
@@ -917,6 +929,34 @@ describe('queue env injection (phase 5)', () => {
   });
 });
 
+describe('installation-scoped task families', () => {
+  const compiled = compileDeployzInfrastructure({ ir: makePhase5Ir(), region: null });
+  const template = compiled.template as {
+    Parameters: Record<string, Record<string, unknown>>;
+    Resources: Record<string, { Type: string; Properties: Record<string, unknown> }>;
+  };
+
+  it('every task definition family carries the installation suffix, so two installations never share one', () => {
+    const families = Object.entries(template.Resources)
+      .filter(([, resource]) => resource.Type === 'AWS::ECS::TaskDefinition')
+      .map(([logicalId, resource]) => [logicalId, resource.Properties['Family']] as const);
+    expect(families.length).toBeGreaterThan(1);
+    for (const [, family] of families) {
+      const a = familyFor(family, 'aaaa1111');
+      const b = familyFor(family, 'bbbb2222');
+      expect(a).not.toBe(b);
+      expect(a).toMatch(/^DeployzApp[A-Za-z0-9]+aaaa1111$/);
+    }
+  });
+
+  it('the suffix parameter has no default and admits only letters and digits', () => {
+    const parameter = template.Parameters[TASK_FAMILY_SUFFIX_PARAMETER]!;
+    expect(parameter['Type']).toBe('String');
+    expect(parameter).not.toHaveProperty('Default');
+    expect(parameter['AllowedPattern']).toBe('^[a-z0-9]+$');
+  });
+});
+
 describe('scheduled job (phase 5d)', () => {
   const ir = makePhase5Ir();
   const compiled = compileDeployzInfrastructure({ ir, region: null });
@@ -925,7 +965,7 @@ describe('scheduled job (phase 5d)', () => {
   it('compiles a frozen-command task definition, no service, no verification check', () => {
     const taskDef = byId.get(logicalResourceId('cleanup', 'task-definition'))!;
     expect(taskDef.cfnType).toBe('AWS::ECS::TaskDefinition');
-    expect(taskDef.properties['Family']).toBe('DeployzAppCleanup');
+    expect(familyFor(taskDef.properties['Family'], 'a1b2')).toBe('DeployzAppCleanupa1b2');
     const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
     expect(app['Command']).toEqual(['sh', '-c', 'node dist/cleanup.js']);
     expect(taskDef.verificationCheck).toBeUndefined();
@@ -979,6 +1019,7 @@ describe('EventBridge Scheduler (phase 5c)', () => {
     expect(target['DeadLetterConfig']).toEqual({ Arn: { 'Fn::GetAtt': [logicalResourceId('cleanup-schedule-dlq', 'queue'), 'Arn'] } });
     const ecsParams = target['EcsParameters'] as Record<string, unknown>;
     expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).toContain('DeployzAppCleanup');
+    expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).toContain(`{"Ref":"${TASK_FAMILY_SUFFIX_PARAMETER}"}`);
     expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).not.toContain(':*');
     expect(ecsParams['LaunchType']).toBe('FARGATE');
   });
@@ -1011,6 +1052,10 @@ describe('EventBridge Scheduler (phase 5c)', () => {
     const runTask = statements.find((s) => s['Action'] === 'ecs:RunTask')!;
     expect(runTask['Condition']).toEqual({ ArnEquals: { 'ecs:cluster': { 'Fn::GetAtt': [logicalResourceId('web', 'cluster'), 'Arn'] } } });
     expect(runTask['Resource']).toHaveLength(2);
+    // Only this installation's family: the suffix parameter scopes both ARNs.
+    for (const resource of runTask['Resource'] as unknown[]) {
+      expect(JSON.stringify(resource)).toContain(`"DeployzAppCleanup",{"Ref":"${TASK_FAMILY_SUFFIX_PARAMETER}"}`);
+    }
 
     const passRole = statements.find((s) => s['Action'] === 'iam:PassRole')!;
     expect(passRole['Condition']).toEqual({ StringEquals: { 'iam:PassedToService': 'ecs-tasks.amazonaws.com' } });
@@ -1307,13 +1352,13 @@ describe('rds az placement', () => {
     expect(instances).toHaveLength(1);
     const db = instances[0]!.Properties;
     expect(db).not.toHaveProperty('AvailabilityZone');
-    expect(db['DBInstanceClass']).toBe('db.t4g.micro');
+    expect(db['DBInstanceClass']).toBe('db.t3.micro');
     expect(db['Engine']).toBe('postgres');
     expect(db['EngineVersion']).toBe('16');
     expect(db['AllocatedStorage']).toBe('20');
     expect(db['MaxAllocatedStorage']).toBe(100);
     expect(db['StorageEncrypted']).toBe(true);
-    expect(db['StorageType']).toBe('gp2');
+    expect(db['StorageType']).toBe('gp3');
     expect(db['BackupRetentionPeriod']).toBe(7);
     expect(db['PreferredBackupWindow']).toBe('03:00-05:00');
     expect(db['DeleteAutomatedBackups']).toBe(false);
@@ -1323,5 +1368,134 @@ describe('rds az placement', () => {
     const subnetGroupResource = resources['PrimaryDbSubnetGroup'];
     expect(subnetGroupResource['UpdateReplacePolicy']).toBe('Retain');
     expect(subnetGroupResource['DeletionPolicy']).toBe('Retain');
+  });
+});
+
+describe('small-v1 frozen profile', () => {
+  it('compiles to db.t4g.micro and gp2 when explicitly frozen', () => {
+    const { template } = compileDeployzInfrastructure({
+      ir: makeIr({ postgres: true, redis: true }),
+      region: null,
+      sizeProfile: SMALL_PROFILE,
+    });
+    const resources = template['Resources'] as Record<string, { Type: string; Properties: Record<string, unknown> }>;
+    const instances = Object.values(resources).filter((r) => r.Type === 'AWS::RDS::DBInstance');
+    expect(instances).toHaveLength(1);
+    const db = instances[0]!.Properties;
+    expect(db['DBInstanceClass']).toBe('db.t4g.micro');
+    expect(db['StorageType']).toBe('gp2');
+  });
+});
+
+describe('compiler determinism', () => {
+  it('produces identical output regardless of region', () => {
+    const ir = makeIr({ postgres: true, redis: true });
+    const a = compileDeployzInfrastructure({ ir, region: 'us-east-1' });
+    const b = compileDeployzInfrastructure({ ir, region: 'eu-west-1' });
+    const c = compileDeployzInfrastructure({ ir, region: null });
+    expect(a.artifact.templateHash).toBe(b.artifact.templateHash);
+    expect(a.artifact.templateHash).toBe(c.artifact.templateHash);
+  });
+});
+
+describe('app-specific binding aliases', () => {
+  type Container = { Environment: Array<{ Name: string; Value?: unknown }>; Secrets: Array<{ Name: string; ValueFrom?: unknown }> };
+  const base = makeIr({ postgres: true, redis: true, workers: [{ componentId: 'jobs', command: 'node worker.js' }] });
+  const withAliases: DeployzIR = {
+    ...base,
+    workloads: [
+      ...base.workloads,
+      {
+        componentId: 'migration',
+        kind: 'migration',
+        label: 'Database migration',
+        buildArtifactId: 'app',
+        command: 'flask db upgrade',
+        port: null,
+        public: false,
+        healthCheck: null,
+        desiredCount: 1,
+        compute: base.workloads[0]!.compute,
+        dependencyCapabilityKeys: [CAPABILITY_KEYS.RDS_POSTGRES],
+      },
+    ],
+    resources: base.resources.map((resource) => {
+      if (resource.componentId === 'primary-db') {
+        return {
+          ...resource,
+          envBindings: [
+            { name: 'DATABASE_URL', kind: 'url' as const },
+            { name: 'SQLALCHEMY_DATABASE_URI', kind: 'url' as const },
+            { name: 'SPRING_DATASOURCE_URL', kind: 'jdbc_url' as const },
+            { name: 'DB_HOST', kind: 'host' as const },
+            { name: 'DB_PASSWORD', kind: 'password' as const },
+            { name: 'PORT', kind: 'port' as const },
+          ],
+        };
+      }
+      if (resource.componentId === 'cache') return { ...resource, envBindings: [{ name: 'BACKEND_CACHE_REDIS_URI', kind: 'url' as const }] };
+      if (resource.componentId === 'storage') return { ...resource, envBindings: [{ name: 'S3_ATTACHMENTS_BUCKET', kind: 'bucket' as const }] };
+      return resource;
+    }),
+  };
+  const result = compileDeployzInfrastructure({ ir: withAliases, region: null });
+  const taskDefs = result.resolvedGraph.resources.filter((r) => r.cfnType === 'AWS::ECS::TaskDefinition');
+  const appOf = (props: Record<string, unknown>) =>
+    (props['ContainerDefinitions'] as Container[]).find((c) => (c as unknown as { Name: string }).Name === 'App')!;
+
+  it('binds every alias on every task definition, the migration included', () => {
+    expect(taskDefs.map((r) => r.logicalId).sort()).toEqual(['JobsTaskDefinition', 'MigrationTaskDefinition', 'WebTaskDefinition']);
+    for (const taskDef of taskDefs) {
+      const app = appOf(taskDef.properties);
+      const env = app.Environment.map((e) => e.Name);
+      const secrets = app.Secrets.map((s) => s.Name);
+      expect(secrets).toContain('SQLALCHEMY_DATABASE_URI');
+      expect(secrets).toContain('DB_PASSWORD');
+      expect(env).toEqual(expect.arrayContaining(['SPRING_DATASOURCE_URL', 'DB_HOST', 'BACKEND_CACHE_REDIS_URI', 'S3_ATTACHMENTS_BUCKET']));
+    }
+  });
+
+  it('copies the standard values: URL secret, master password, endpoint, JDBC URL, cache URL, bucket', () => {
+    const app = appOf(taskDefs.find((r) => r.logicalId === 'WebTaskDefinition')!.properties);
+    const secret = (name: string) => app.Secrets.find((s) => s.Name === name)?.ValueFrom;
+    const env = (name: string) => app.Environment.find((e) => e.Name === name)?.Value;
+    expect(secret('SQLALCHEMY_DATABASE_URI')).toEqual(secret('DATABASE_URL'));
+    expect(secret('DB_PASSWORD')).toEqual(secret('DATABASE_PASSWORD'));
+    expect(env('DB_HOST')).toEqual(env('DATABASE_HOST'));
+    expect(env('BACKEND_CACHE_REDIS_URI')).toEqual(env('REDIS_URL'));
+    expect(env('S3_ATTACHMENTS_BUCKET')).toEqual(env('AWS_S3_BUCKET'));
+    expect(JSON.stringify(env('SPRING_DATASOURCE_URL'))).toContain('jdbc:postgresql://');
+    expect(JSON.stringify(env('SPRING_DATASOURCE_URL'))).toContain(':5432/deployz?sslmode=require');
+  });
+
+  it('never replaces a standard or platform name', () => {
+    const app = appOf(taskDefs.find((r) => r.logicalId === 'WebTaskDefinition')!.properties);
+    expect(app.Environment.filter((e) => e.Name === 'PORT')).toHaveLength(1);
+    expect(app.Secrets.filter((s) => s.Name === 'DATABASE_URL')).toHaveLength(1);
+  });
+
+  it('builds a mysql JDBC URL for a mysql database', () => {
+    const mysqlBase = makeIr({ postgres: true, redis: false, dbEngine: 'mysql' });
+    const mysqlIr: DeployzIR = {
+      ...mysqlBase,
+      resources: mysqlBase.resources.map((r) =>
+        r.componentId === 'primary-db' ? { ...r, envBindings: [{ name: 'SPRING_DATASOURCE_URL', kind: 'jdbc_url' as const }] } : r,
+      ),
+    };
+    const web = compileDeployzInfrastructure({ ir: mysqlIr, region: null }).resolvedGraph.resources.find((r) => r.logicalId === 'WebTaskDefinition')!;
+    const value = appOf(web.properties).Environment.find((e) => e.Name === 'SPRING_DATASOURCE_URL')?.Value;
+    expect(JSON.stringify(value)).toContain('jdbc:mysql://');
+    expect(JSON.stringify(value)).toContain(':3306/deployz?sslMode=REQUIRED');
+  });
+});
+
+describe('web health-check grace', () => {
+  it('gives a load-balanced service 300 s before ALB health checks count, and a worker none', () => {
+    const result = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: false, workers: [{ componentId: 'jobs', command: 'node worker.js' }] }), region: null });
+    const services = result.resolvedGraph.resources.filter((r) => r.cfnType === 'AWS::ECS::Service');
+    const web = services.find((r) => r.logicalId === 'WebService')!;
+    const worker = services.find((r) => r.logicalId === 'JobsService')!;
+    expect(web.properties['HealthCheckGracePeriodSeconds']).toBe(300);
+    expect(worker.properties).not.toHaveProperty('HealthCheckGracePeriodSeconds');
   });
 });

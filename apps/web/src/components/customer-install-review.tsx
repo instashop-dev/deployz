@@ -49,8 +49,8 @@ export function CustomerInstallReview({
           <InstallPlanComponentTable plan={plan} />
         </TablePanel>
         <p className="text-sm text-muted-foreground">
-          Deployz also creates the Deployz connector, which Deployz uses to create and update this
-          deployment. It stays until you delete its stack.
+          Deployz also creates the Deployz connector, which manages this deployment. It stays until
+          you delete its stack.
         </p>
         {retentionNote ? (
           <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
@@ -72,7 +72,7 @@ export function CustomerInstallReview({
 
       {estimatePending ? (
         <p className="text-sm text-muted-foreground" data-testid="footprint-cost-pending">
-          The estimated AWS cost depends on the Region. Select a Region to see it.
+          Select a Region to see the estimated AWS cost.
         </p>
       ) : estimateUnavailable ? (
         <p className="text-sm text-muted-foreground" data-testid="footprint-cost-unavailable">
@@ -92,8 +92,8 @@ export function CustomerInstallReview({
             your AWS credentials.
           </li>
           <li>
-            The connector creates, updates and removes this deployment&apos;s resources. It only
-            calls out to Deployz; Deployz never connects in.
+            The connector manages this deployment&apos;s resources. It only calls out to Deployz;
+            Deployz never connects in.
           </li>
           <li>Your application data and logs stay in your AWS account.</li>
         </ul>

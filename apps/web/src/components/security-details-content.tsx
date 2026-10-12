@@ -128,8 +128,7 @@ export function SecurityDetailsContent({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Security details</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          The plain-English version first. The exact technical permissions are at the bottom —
-          expand any section to see them, exactly as they appear in what you deploy.
+          Plain-English summary first. Exact permissions are at the bottom.
         </p>
       </div>
 
@@ -311,8 +310,7 @@ export function SecurityDetailsContent({
           Technical details
         </h2>
         <p className="text-sm text-muted-foreground">
-          Expand a section to see the exact permissions, exactly as they appear in the template
-          you deploy.
+          Exact permissions, as they appear in the template you deploy.
         </p>
 
         <div className="flex flex-col gap-3">

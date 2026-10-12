@@ -80,9 +80,7 @@ export function EditCustomerDialog({
       <DialogContent data-testid="edit-customer-dialog" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edit customer</DialogTitle>
-          <DialogDescription>
-            Contact details only. Their install link and deployment stay exactly as they are.
-          </DialogDescription>
+          <DialogDescription>Contact details only. The install link and deployment are unchanged.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={onSubmit} className="flex flex-col gap-4">

@@ -53,7 +53,7 @@ describe('footprintComponentRows', () => {
       id: 'database',
       component: 'Database',
       provisionedAs: 'PostgreSQL 16',
-      configuration: 'db.t4g.micro · 20 GB storage',
+      configuration: 'db.t3.micro · 20 GB storage',
       retention: 'Retained',
     });
 

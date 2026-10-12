@@ -100,7 +100,7 @@ describe('COMP-004 / COMP-005 — health paths', () => {
     expect(detectHealthEndpoint(tree)).toMatchObject({ detected: true, path: '/api/healthcheck' });
   });
 
-  it('reads the URL a Dockerfile HEALTHCHECK probes, below a route registration in code', () => {
+  it('reads the URL a Dockerfile HEALTHCHECK probes, above a route registration in code', () => {
     const healthcheckOnly: FileTree = {
       Dockerfile: 'FROM node:22\nHEALTHCHECK --interval=5s CMD curl -f http://localhost:3000/api/heartbeat || exit 1\n',
     };
@@ -110,7 +110,7 @@ describe('COMP-004 / COMP-005 — health paths', () => {
       ...healthcheckOnly,
       'src/index.ts': "app.get('/health', (_req, res) => res.json({ ok: true }));\n",
     };
-    expect(detectHealthEndpoint(withRoute).path).toBe('/health');
+    expect(detectHealthEndpoint(withRoute).path).toBe('/api/heartbeat');
   });
 
   it('reads the URL a production Compose healthcheck probes', () => {
@@ -457,7 +457,7 @@ describe('COMP-009 — Compose service counting', () => {
 });
 
 describe('COMP-011 — Redis evidence from Compose files and guarded clients', () => {
-  it('counts only the primary production Compose file as strong evidence', () => {
+  it('counts only the primary production Compose file as evidence, and never as a requirement alone', () => {
     const variants: FileTree = {
       'package.json': JSON.stringify({ dependencies: { express: '^4.19.0' } }),
       'docker-compose.yml': 'services:\n  server:\n    build: .\n',
@@ -472,7 +472,8 @@ describe('COMP-011 — Redis evidence from Compose files and guarded clients', (
     const primary: FileTree = {
       'docker/docker-compose.yml': 'services:\n  immich-server:\n    image: immich\n  redis:\n    image: docker.io/valkey/valkey:9\n',
     };
-    expect(assessRedis(primary).required).toBe(true);
+    expect(assessRedis(primary).confidence).toBe('medium');
+    expect(assessRedis(primary).required).toBe(false);
   });
 
   it('treats a client built behind a configuration guard as optional', () => {

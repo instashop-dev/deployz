@@ -38,13 +38,19 @@
  * INSTALL-time image baked in (`paramImageReference`) — DEPLOY_RELEASE and
  * ROLLBACK never touch CloudFormation, so a family's latest revision never
  * otherwise picks up a new release. `registerReleaseImageIntoFamily` is the
- * one generic, bounded step that keeps a named family current: describe its
- * latest ACTIVE revision, skip if it already runs the target digest
- * (idempotent/retry-safe), otherwise register a new revision with the
- * release image. It runs (a) for the migration family right before RunTask,
- * and (b) for every scheduled-job family the control plane names, but only
- * once a DEPLOY_RELEASE/ROLLBACK rollout has otherwise SETTLED — a failed
- * update must leave scheduled jobs on the previous image.
+ * one generic, bounded step that keeps a named family current: it copies the
+ * revision this stack itself created (never one another installation
+ * registered), reuses the family's latest revision only when it is exactly
+ * that copy, and returns the exact revision ARN. The copy also carries the
+ * effective application configuration (environment + secret references) of
+ * the configured runtime service (`overlayEffectiveApplicationConfig`):
+ * vendor/customer values, generated secrets and binding aliases reach the
+ * services through later revisions, never through the stack's one-shot
+ * revision. It runs (a) for the
+ * migration family right before RunTask, which runs that exact ARN, and (b)
+ * for every scheduled-job family the control plane names, but only once a
+ * DEPLOY_RELEASE/ROLLBACK rollout has otherwise SETTLED — a failed update
+ * must leave scheduled jobs on the previous image.
  */
 
 import { workloadContainerCommand, type FailureEvidence } from '@deployz/contracts';
@@ -53,6 +59,7 @@ import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
 import { applicationContainers, applicationExits, essentialContainerNames } from './ecs-observe.js';
 import type { TargetHealthReader } from './ecs-health.js';
+import { listAllStackResources } from './stack-resources.js';
 
 /** The ECS write surface this module needs (injectable seam for testing). */
 export interface EcsDeployClient {
@@ -65,6 +72,8 @@ export interface EcsDeployClient {
       runningCount?: number | undefined;
       taskDefinition?: string | undefined;
       deployments?: {
+        /** The ECS deployment id — what tells two rollouts of one revision apart. */
+        id?: string | undefined;
         status?: string | undefined;
         rolloutState?: string | undefined;
         taskDefinition?: string | undefined;
@@ -134,7 +143,7 @@ export interface EcsDeployClient {
  * the running service depends on.
  */
 export interface EcsTaskDefinition {
-  /** The exact revision AWS answered with — read only, never copied into a registration. */
+  /** The exact revision described — read only, never registered. */
   taskDefinitionArn?: string | undefined;
   family?: string | undefined;
   cpu?: string | undefined;
@@ -151,7 +160,7 @@ export interface EcsTaskDefinition {
   volumes?: unknown[];
 }
 
-export type RegisterTaskDefinitionInput = Omit<EcsTaskDefinition, 'containerDefinitions'> & {
+export type RegisterTaskDefinitionInput = Omit<EcsTaskDefinition, 'containerDefinitions' | 'taskDefinitionArn'> & {
   containerDefinitions: Record<string, unknown>[];
   /** The installation tag the relay's IAM conditions require on register. */
   tags?: { key: string; value: string }[];
@@ -171,6 +180,12 @@ export interface EcsDeployDeps {
   readonly stackName: string;
   /** Stamped on every registered task-definition copy (IAM tag boundary). */
   readonly installationId: string;
+  /**
+   * The keys of the effective configuration a task definition does not
+   * carry yet (`unappliedConfigurationKeys`, ./config-update.ts). Asked only
+   * for a service at zero tasks: its first start waits until this is empty.
+   */
+  readonly unappliedConfiguration: (definition: EcsTaskDefinition) => Promise<readonly string[]>;
   readonly now?: () => string;
   /** How long the in-invocation migration poll waits between DescribeTasks calls. */
   readonly migrationPollIntervalMs?: number;
@@ -252,8 +267,10 @@ const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 /**
  * The only shape a one-shot task-definition family name may take (mirrors
- * `deployzTaskFamily` in `@deployz/contracts`) — never a command, never
- * anything the relay could confuse for one.
+ * `deployzTaskFamily` in `@deployz/contracts`: `DeployzApp<Pascal>` plus the
+ * installation's suffix, or no suffix on an older stack) — never a command,
+ * never anything the relay could confuse for one. The family must also be
+ * one this stack created (`ownedFamilySource`).
  */
 const TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/;
 
@@ -418,6 +435,11 @@ export async function settleEcsDeploy(
   context: DeploySettleContext = { allowMigration: false },
 ): Promise<EcsDeployOutcome> {
   const views = await findServiceViews(deps);
+  if (views === null) {
+    // An unreadable inventory says nothing about the rollout: never a verdict.
+    console.log(JSON.stringify({ event: 'relay:stack-resources-unreadable', stackName: deps.stackName }));
+    return { state: 'in-progress', ...(context.migration ? { migration: context.migration } : {}) };
+  }
   if (views.length === 0) {
     return { state: 'failed', reason: `No ECS service found in stack "${deps.stackName}"` };
   }
@@ -584,13 +606,48 @@ export async function settleEcsDeploy(
     };
   }
 
+  // The configured runtime revision every one-shot task of this release
+  // takes its effective application configuration from.
+  const runtimeView = configuredRuntimeView(views, workloads);
+  const runtimeDefinition = runtimeView === null ? undefined : definitions.get(runtimeView.arn);
+
   // Every service already runs this release, stable and verified — nothing
   // to roll (a retried command must not mutate twice). Enforced by code, not
   // convention: when a migration seat is present, success may only be
   // returned AFTER the migration stage has run — so the early return is
   // gated on there being no migration to run.
   if (!anyServiceNeedsUpdate && request.migrationTask === null) {
-    return settleSuccess(deps, request, context.migration ?? undefined);
+    return settleSuccess(deps, request, context.migration ?? undefined, runtimeDefinition);
+  }
+
+  // DEPLOY-009: the configured task definition must be attached before first
+  // scale-up. A service at zero tasks starts only on a revision that already
+  // carries the effective configuration — never on the template's
+  // unconfigured revision, however this command and the CONFIG_UPDATE that
+  // configures the service interleave (a later relay invocation, a failed or
+  // replayed pass). Until then nothing is mutated: the service stays at zero
+  // and the command waits for a later poll.
+  //
+  // The same guard covers the configured runtime revision a migration about
+  // to start takes its effective configuration from: a one-shot task never
+  // runs with configuration the services do not carry yet.
+  const migrationStarting =
+    request.migrationTask !== null && context.allowMigration && (context.migration ?? null) === null;
+  for (const view of views) {
+    const firstStart = (view.service!.desiredCount ?? 0) === 0;
+    if (!firstStart && !(migrationStarting && view === runtimeView)) continue;
+    const unapplied = await deps.unappliedConfiguration(definitions.get(view.arn)!);
+    if (unapplied.length > 0) {
+      console.log(
+        JSON.stringify({
+          event: firstStart ? 'relay:first-start-awaiting-configuration' : 'relay:migration-awaiting-configuration',
+          service: view.arn,
+          taskDefinition: view.service!.taskDefinition,
+          keys: unapplied,
+        }),
+      );
+      return { state: 'in-progress', ...(context.migration ? { migration: context.migration } : {}) };
+    }
   }
 
   // Migration stage — before any service update, so the previous release
@@ -610,6 +667,7 @@ export async function settleEcsDeploy(
       migrationTask: request.migrationTask,
       pendingMigration: context.migration ?? null,
       request,
+      runtimeDefinition,
       markerCommandId: context.markerCommandId,
       markerIdempotencyKey: context.markerIdempotencyKey,
       markerType: context.markerType,
@@ -631,7 +689,7 @@ export async function settleEcsDeploy(
   // A seat the executor refused to run (ROLLBACK/RESTART, by the gate above)
   // cannot gate the success path: those commands never carry migrations.
   if (!anyServiceNeedsUpdate) {
-    return settleSuccess(deps, request, migration);
+    return settleSuccess(deps, request, migration, runtimeDefinition);
   }
 
   // ── Roll every service that still needs it ──────────────────────────────
@@ -758,6 +816,9 @@ async function settleMigration(
     /** The deploy request — needed to register the release image into the
      *  migration family before it runs (see `registerReleaseImageIntoFamily`). */
     request: DeployRequest;
+    /** The configured runtime revision the migration takes its effective
+     *  configuration from — undefined when none could be resolved. */
+    runtimeDefinition: EcsTaskDefinition | undefined;
     /** Marker fields for the early migration write after RunTask succeeds. */
     markerCommandId?: string | undefined;
     markerIdempotencyKey?: string | undefined;
@@ -790,12 +851,18 @@ async function settleMigration(
     // INSTALL-time image baked in — DEPLOY_RELEASE/ROLLBACK never touch
     // CloudFormation, so its latest revision would otherwise still run
     // whatever image the last stack operation set, not this release's
-    // digest. Bring it current before RunTask (idempotent — a no-op once
-    // the latest revision already runs the digest and the command), and run
-    // exactly the revision that results.
-    let revision: string;
+    // digest. Bring it current before RunTask, and run the EXACT revision
+    // that returns: a bare family name would run whatever revision is
+    // latest by then. A vendor correction replaces only the command.
+    let migrationDefinitionArn: string;
     try {
-      revision = await migrationRevision(deps, migrationTask, params.request);
+      migrationDefinitionArn = await registerReleaseImageIntoFamily(
+        deps,
+        migrationTask.family,
+        params.request,
+        params.runtimeDefinition,
+        migrationTask.command === null ? undefined : workloadContainerCommand(migrationTask.command),
+      );
     } catch (err) {
       return {
         state: 'failed',
@@ -805,7 +872,7 @@ async function settleMigration(
 
     const { taskArns } = await deps.ecs.runTask({
       cluster,
-      taskDefinition: revision,
+      taskDefinition: migrationDefinitionArn,
       count: 1,
       launchType: 'FARGATE',
       networkConfiguration: {
@@ -985,7 +1052,7 @@ function isImagePullFailure(stoppedReason: string | null | undefined): boolean {
   return stoppedReason !== undefined && stoppedReason !== null && IMAGE_PULL_FAILURE_MARKERS.test(stoppedReason);
 }
 
-function rolloutFailed(
+export function rolloutFailed(
   deployments: { status?: string | undefined; rolloutState?: string | undefined }[] | undefined,
 ): boolean {
   return deployments?.some((deployment) => deployment.rolloutState === 'FAILED') ?? false;
@@ -997,7 +1064,7 @@ function rolloutFailed(
  * service that is not (or has never been) rolling exposes no COMPLETED
  * primary, so this is false and the deploy keeps waiting.
  */
-function primaryRolloutCompleted(
+export function primaryRolloutCompleted(
   deployments: { status?: string | undefined; rolloutState?: string | undefined }[] | undefined,
 ): boolean {
   return deployments?.find((deployment) => deployment.status === 'PRIMARY')?.rolloutState === 'COMPLETED';
@@ -1020,9 +1087,11 @@ const COMPLETE_RESOURCE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLET
  * Absent target group (never completed, or not readable) also means not
  * healthy — the deploy keeps waiting rather than guessing.
  */
-async function deploymentTargetsHealthy(deps: EcsDeployDeps): Promise<boolean> {
-  const resources = await deps.cfn.describeStackResources(deps.stackName);
-  const targetGroup = resources.find(
+export async function deploymentTargetsHealthy(
+  deps: Pick<EcsDeployDeps, 'cfn' | 'elb' | 'stackName'>,
+): Promise<boolean> {
+  const inventory = await listAllStackResources(deps.cfn, deps.stackName);
+  const targetGroup = inventory?.resources.find(
     (resource) => resource.type === TARGET_GROUP_TYPE && COMPLETE_RESOURCE_STATUSES.has(resource.status),
   );
   if (!targetGroup?.physicalId) return false;
@@ -1055,10 +1124,10 @@ async function observeRunningDigest(
  * another stop code and are never counted. `essential` names that
  * revision's application containers; a helper's exit never counts.
  */
-const CRASH_LOOP_THRESHOLD = 3;
+export const CRASH_LOOP_THRESHOLD = 3;
 
-async function crashedTasksOfRevision(
-  deps: EcsDeployDeps,
+export async function crashedTasksOfRevision(
+  deps: Pick<EcsDeployDeps, 'ecs'>,
   cluster: string,
   serviceArn: string,
   taskDefinitionArn: string,
@@ -1095,12 +1164,36 @@ interface ServiceView {
   runningDigest?: string | null | undefined;
 }
 
-/** The stack's ECS services, in CloudFormation resource order (web first). */
-async function findServiceViews(deps: EcsDeployDeps): Promise<ServiceView[]> {
-  const resources = await deps.cfn.describeStackResources(deps.stackName);
-  return resources
+/**
+ * The stack's ECS services, in CloudFormation resource order (web first), or
+ * null when the inventory cannot be read — which is not "no services".
+ */
+async function findServiceViews(deps: EcsDeployDeps): Promise<ServiceView[] | null> {
+  const inventory = await listAllStackResources(deps.cfn, deps.stackName);
+  if (inventory === null) return null;
+  return inventory.resources
     .filter((resource) => resource.type === 'AWS::ECS::Service' && resource.physicalId !== undefined)
     .map((resource) => ({ logicalId: resource.logicalId, arn: resource.physicalId! }));
+}
+
+/** The compiler's logical id for the `web` workload's ECS service (`logicalResourceId('web', 'service')`). */
+const WEB_SERVICE_LOGICAL_ID = 'WebService';
+
+/**
+ * The service whose configured revision is the effective-configuration
+ * source for one-shot tasks: the public `web` workload's service — named by
+ * its workload seat, or by the compiler's fixed logical id when the payload
+ * has no seats (a ROLLBACK) — or else the stack's only service. Null when
+ * none of these names exactly one service: the caller fails closed instead
+ * of guessing by position.
+ */
+function configuredRuntimeView(views: readonly ServiceView[], workloads: readonly DeployWorkload[]): ServiceView | null {
+  const webLogicalId = workloads.find((workload) => workload.id === 'web')?.serviceLogicalId ?? WEB_SERVICE_LOGICAL_ID;
+  return (
+    views.find((view) => view.logicalId === webLogicalId) ??
+    views.find((view) => view.logicalId === WEB_SERVICE_LOGICAL_ID) ??
+    (views.length === 1 ? views[0]! : null)
+  );
 }
 
 /** The revision this command rolled out for one service, when it rolled one. */
@@ -1151,14 +1244,176 @@ export function replaceApplicationImages(
   return copy;
 }
 
+type NamedEntry = { name?: string | undefined; [field: string]: unknown };
+
+function namedEntries(value: unknown): NamedEntry[] {
+  return (Array.isArray(value) ? value : []).filter(
+    (entry): entry is NamedEntry => typeof (entry as NamedEntry | null)?.name === 'string',
+  );
+}
+
+/** `base` entries with `overlay` entries merged in by name — the overlay wins; order is stable. */
+function mergeByName(base: NamedEntry[], overlay: NamedEntry[]): NamedEntry[] {
+  const merged = new Map<string, NamedEntry>();
+  for (const entry of [...base, ...overlay]) merged.set(entry.name!, { ...entry });
+  return [...merged.values()];
+}
+
+/** The `runtime` entries that are not exactly an entry of `compiled` — what was delivered after install. */
+function deliveredEntries(runtime: unknown, compiled: unknown): NamedEntry[] {
+  const compiledShapes = new Set(namedEntries(compiled).map(canonical));
+  return namedEntries(runtime).filter((entry) => !compiledShapes.has(canonical(entry)));
+}
+
 /**
- * Registers the release image into a named, spec-frozen one-shot task
- * family: reads the family's latest ACTIVE revision (`describeTaskDefinition`
- * accepts a bare family name and answers with its newest active revision),
- * and registers a new revision only when that revision does not already run
- * the target digest. Idempotent and retry-safe — a repeated call after a
- * successful register is a no-op, so a re-offered command or a later
- * scheduled-job family in the same list never double-registers.
+ * The one-shot definition with the configured runtime's effective
+ * application configuration overlaid. Everything structural (family, roles,
+ * sizing, command, entry point, mounts, logging, dependencies, other
+ * containers) stays the one-shot's own. Only the application container's
+ * `environment` and `secrets` change: the one-shot's entries, with the
+ * entries delivered to the runtime after install merged in by name (the
+ * delivered value wins). Delivered means not exactly as in `compiledRuntime`,
+ * the runtime service's own stack-created revision: vendor/customer values,
+ * generated secrets and aliases are delivered, and so is a vendor value that
+ * replaces a compiler-managed name (an external `DATABASE_URL`). An entry
+ * compiled into the runtime only for its own workload (a per-workload queue
+ * binding) never reaches the one-shot, which keeps its own compiled entries.
+ * Secrets stay ECS references (`valueFrom`) — no value is ever resolved.
+ *
+ * The application container is the one container running an image from the
+ * release repository, matched in the runtime revision by NAME — never by
+ * position, and never an init or sidecar container. Throws when either side
+ * cannot be identified: a one-shot task never runs with known-incomplete
+ * configuration.
+ */
+export function overlayEffectiveApplicationConfig(
+  oneShot: EcsTaskDefinition,
+  runtime: EcsTaskDefinition,
+  compiledRuntime: EcsTaskDefinition,
+  imageRepository: string,
+): EcsTaskDefinition {
+  const isApplication = (container: EcsTaskDefinition['containerDefinitions'][number]): boolean =>
+    typeof container.image === 'string' && container.image.startsWith(`${imageRepository}@`);
+  const candidates = oneShot.containerDefinitions.filter(isApplication);
+  const name = candidates.length === 1 ? candidates[0]!.name : undefined;
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new Error(
+      `Task family "${String(oneShot.family)}" has ${candidates.length} named containers referencing repository "${imageRepository}", not one`,
+    );
+  }
+  const source = runtime.containerDefinitions.find((container) => container.name === name);
+  if (source === undefined || !isApplication(source)) {
+    throw new Error(
+      `Effective application configuration could not be resolved: the configured runtime revision ${String(runtime.taskDefinitionArn ?? runtime.family)} has no application container "${name}"`,
+    );
+  }
+  const compiled = compiledRuntime.containerDefinitions.find((container) => container.name === name);
+  if (compiled === undefined) {
+    throw new Error(
+      `Effective application configuration could not be resolved: the stack's runtime revision ${String(compiledRuntime.taskDefinitionArn ?? compiledRuntime.family)} has no container "${name}"`,
+    );
+  }
+  return {
+    ...oneShot,
+    containerDefinitions: oneShot.containerDefinitions.map((container) => {
+      if (container !== candidates[0]) return { ...container };
+      const environment = mergeByName(
+        namedEntries(container['environment']),
+        deliveredEntries(source['environment'], compiled['environment']),
+      );
+      const secrets = mergeByName(
+        namedEntries(container['secrets']),
+        deliveredEntries(source['secrets'], compiled['secrets']),
+      );
+      return {
+        ...container,
+        ...(environment.length > 0 ? { environment } : {}),
+        ...(secrets.length > 0 ? { secrets } : {}),
+      };
+    }),
+  };
+}
+
+const TASK_DEFINITION_TYPE = 'AWS::ECS::TaskDefinition';
+
+/** The family of a task-definition revision ARN (`…:task-definition/<family>:<revision>`). */
+function familyOfRevision(arn: string): string | null {
+  return /:task-definition\/([A-Za-z0-9_-]+):\d+$/.exec(arn)?.[1] ?? null;
+}
+
+/**
+ * The revision of `family` this deployment's own stack created — the only
+ * source the relay copies. An image match, or a tag the relay stamped on a
+ * copy, proves nothing: on an older stack the family name is shared by every
+ * installation in the account and Region, so its latest revision may be
+ * another installation's (other roles, other secrets, another database).
+ */
+async function ownedFamilySource(
+  deps: EcsDeployDeps,
+  family: string,
+): Promise<{ readonly arn: string; readonly definition: EcsTaskDefinition }> {
+  // Paged to completion: a large stack outgrows DescribeStackResources' 100.
+  const inventory = await listAllStackResources(deps.cfn, deps.stackName);
+  if (inventory === null) throw new Error(`The resources of stack "${deps.stackName}" could not be read`);
+  const owned = inventory.resources.filter(
+    (resource) =>
+      resource.type === TASK_DEFINITION_TYPE &&
+      COMPLETE_RESOURCE_STATUSES.has(resource.status) &&
+      resource.physicalId !== undefined &&
+      familyOfRevision(resource.physicalId) === family,
+  );
+  if (owned.length !== 1) {
+    throw new Error(`Stack "${deps.stackName}" created ${owned.length} task definitions of family "${family}", not one`);
+  }
+  const arn = owned[0]!.physicalId!;
+  const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: arn });
+  if (taskDefinition.family !== family) {
+    throw new Error(`Task definition "${arn}" is of family "${String(taskDefinition.family)}", not "${family}"`);
+  }
+  return { arn, definition: taskDefinition };
+}
+
+/** Key-order-independent JSON, so two descriptions of one registration compare equal. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).filter((key) => record[key] !== undefined).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** True when `definition` registers exactly what `copy` registers (tags aside). */
+export function sameRegistration(definition: EcsTaskDefinition, copy: RegisterTaskDefinitionInput): boolean {
+  const shape = (input: EcsTaskDefinition | RegisterTaskDefinitionInput): string =>
+    canonical({
+      family: input.family,
+      cpu: input.cpu,
+      memory: input.memory,
+      networkMode: input.networkMode,
+      requiresCompatibilities: input.requiresCompatibilities,
+      executionRoleArn: input.executionRoleArn,
+      taskRoleArn: input.taskRoleArn,
+      containerDefinitions: input.containerDefinitions,
+      volumes: input.volumes,
+    });
+  return shape(definition) === shape(copy);
+}
+
+/**
+ * Registers the release image into a named, spec-frozen one-shot task family
+ * and returns the EXACT revision ARN to use. The source is always the
+ * revision this stack created (`ownedFamilySource`); the copy overlays the
+ * configured runtime's effective application configuration
+ * (`overlayEffectiveApplicationConfig`) and replaces the release image, so
+ * the one-shot runs with the same environment and secret references as the
+ * services. Without a configured runtime revision it throws — never a
+ * fallback to the stack's unconfigured revision. Idempotent and retry-safe:
+ * the stack's own revision, or the family's latest revision, is reused when
+ * it already is exactly that copy — on an older shared family, another
+ * installation's revision never is (its roles differ), so it is never
+ * adopted.
  *
  * Used for the migration family right before RunTask (Phase 4C/5: DEPLOY_
  * RELEASE and ROLLBACK never touch CloudFormation, so a family's latest
@@ -1169,33 +1424,39 @@ async function registerReleaseImageIntoFamily(
   deps: EcsDeployDeps,
   family: string,
   request: DeployRequest,
+  runtime: EcsTaskDefinition | undefined,
   applicationCommand?: readonly string[],
-): Promise<string | undefined> {
-  const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: family });
-  const nextImage = `${request.imageRepository}@${request.imageDigest}`;
-  const alreadyOnDigest = taskDefinition.containerDefinitions.some((container) => container.image === nextImage);
-  const commandCurrent =
-    applicationCommand === undefined ||
-    sameCommand(
-      applicationContainer(taskDefinition.containerDefinitions, request.imageRepository)?.['command'],
-      applicationCommand,
+): Promise<string> {
+  if (runtime?.family === undefined) {
+    throw new Error(
+      `Effective application configuration could not be resolved: no configured runtime service names the configuration for task family "${family}"`,
     );
-  if (alreadyOnDigest && commandCurrent) return taskDefinition.taskDefinitionArn;
-  const replaced = replaceApplicationImages(taskDefinition, request);
-  if (!replaced) {
+  }
+  const compiledRuntime = await ownedFamilySource(deps, runtime.family);
+  const source = await ownedFamilySource(deps, family);
+  const copy = replaceApplicationImages(
+    overlayEffectiveApplicationConfig(source.definition, runtime, compiledRuntime.definition, request.imageRepository),
+    request,
+  );
+  if (!copy) {
     throw new Error(
       `Task family "${family}" has no container referencing repository "${request.imageRepository}"`,
     );
   }
   if (applicationCommand !== undefined) {
-    const container = applicationContainer(replaced.containerDefinitions, request.imageRepository);
+    const container = applicationContainer(copy.containerDefinitions, request.imageRepository);
     if (container === undefined) {
       throw new Error(`Task family "${family}" has no single application container to carry the command`);
     }
     container['command'] = [...applicationCommand];
   }
-  replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
-  return (await deps.ecs.registerTaskDefinition(replaced)).taskDefinitionArn;
+  if (sameRegistration(source.definition, copy)) return source.arn;
+  const { taskDefinition: latest } = await deps.ecs.describeTaskDefinition({ taskDefinition: family });
+  if (latest.taskDefinitionArn !== undefined && latest.family === family && sameRegistration(latest, copy)) {
+    return latest.taskDefinitionArn;
+  }
+  copy.tags = [{ key: 'deployz:installation', value: deps.installationId }];
+  return (await deps.ecs.registerTaskDefinition(copy)).taskDefinitionArn;
 }
 
 /**
@@ -1217,59 +1478,6 @@ function applicationContainer<T extends { image?: unknown; essential?: unknown }
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-function sameCommand(current: unknown, expected: readonly string[]): boolean {
-  return (
-    Array.isArray(current) &&
-    current.length === expected.length &&
-    current.every((part, index) => part === expected[index])
-  );
-}
-
-/** `arn:aws:ecs:…:task-definition/<family>:<revision>` → `<family>`. */
-function taskDefinitionFamily(arn: string): string | null {
-  return /:task-definition\/([^:/]+):\d+$/.exec(arn)?.[1] ?? null;
-}
-
-/**
- * The exact migration revision to run. The named family must be a task
- * definition of this deployment's own stack — never another family the
- * relay can reach. The command is the vendor's correction when the seat
- * carries one, otherwise the frozen command of the revision the stack
- * itself created, so a removed correction restores the frozen command. Only
- * the application container's command and image change; the entrypoint,
- * roles, secrets, volumes, networking and init containers are copied from
- * the family's latest revision.
- */
-async function migrationRevision(
-  deps: EcsDeployDeps,
-  migrationTask: DeployMigrationTask,
-  request: DeployRequest,
-): Promise<string> {
-  const resources = await deps.cfn.describeStackResources(deps.stackName);
-  const owned = resources.find(
-    (resource) =>
-      resource.type === 'AWS::ECS::TaskDefinition' &&
-      resource.physicalId !== undefined &&
-      taskDefinitionFamily(resource.physicalId) === migrationTask.family,
-  );
-  if (owned?.physicalId === undefined) {
-    throw new Error(`Task family "${migrationTask.family}" is not part of stack "${deps.stackName}"`);
-  }
-  let command: readonly string[] | undefined;
-  if (migrationTask.command !== null) {
-    command = workloadContainerCommand(migrationTask.command);
-  } else {
-    const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: owned.physicalId });
-    const frozen = applicationContainer(taskDefinition.containerDefinitions, request.imageRepository)?.['command'];
-    command = Array.isArray(frozen) && frozen.every((part) => typeof part === 'string') ? frozen : undefined;
-  }
-  const revision = await registerReleaseImageIntoFamily(deps, migrationTask.family, request, command);
-  if (revision === undefined) {
-    throw new Error(`Task family "${migrationTask.family}" answered with no revision ARN`);
-  }
-  return revision;
-}
-
 /**
  * Registers the release image into every scheduled-job family the control
  * plane named (Phase 5) — called only once a DEPLOY_RELEASE/ROLLBACK
@@ -1277,9 +1485,13 @@ async function migrationRevision(
  * the previous image. `AWS::Scheduler::Schedule` runs the family's latest
  * revision; this never RunTask's it — that stays Scheduler's job alone.
  */
-async function registerScheduledJobFamilies(deps: EcsDeployDeps, request: DeployRequest): Promise<void> {
+async function registerScheduledJobFamilies(
+  deps: EcsDeployDeps,
+  request: DeployRequest,
+  runtime: EcsTaskDefinition | undefined,
+): Promise<void> {
   for (const family of request.scheduledJobFamilies) {
-    await registerReleaseImageIntoFamily(deps, family, request);
+    await registerReleaseImageIntoFamily(deps, family, request, runtime);
   }
 }
 
@@ -1297,10 +1509,12 @@ async function settleSuccess(
   deps: EcsDeployDeps,
   request: DeployRequest,
   migration: PendingMigration | undefined,
+  runtime: EcsTaskDefinition | undefined,
 ): Promise<EcsDeployOutcome> {
   try {
-    await registerScheduledJobFamilies(deps, request);
-  } catch {
+    await registerScheduledJobFamilies(deps, request, runtime);
+  } catch (err) {
+    console.log(JSON.stringify({ event: 'relay:scheduled-job-registration-deferred', error: String(err) }));
     return { state: 'in-progress', ...(migration !== undefined ? { migration } : {}) };
   }
   return { state: 'succeeded', alreadyRunning: true };
@@ -1416,18 +1630,7 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       type: command.type,
       stackName: deps.stackName,
       startedAt: (deps.now ?? (() => new Date().toISOString()))(),
-      // A first start from zero rides the marker so the resumer can scale a
-      // rolled-back rollout back down (DEPLOY-009); the revision rolled out
-      // rides along so the resumer can tell a rollback from a rollout
-      // (DEPLOY-015).
-      payload: {
-        ...command.payload,
-        ...(outcome.startedFromZero ? { startedFromZero: true } : {}),
-        ...(outcome.targetTaskDefinitionArn ? { targetTaskDefinitionArn: outcome.targetTaskDefinitionArn } : {}),
-        ...(outcome.targetTaskDefinitionArns
-          ? { targetTaskDefinitionArns: outcome.targetTaskDefinitionArns }
-          : {}),
-      },
+      payload: { ...command.payload, ...rolloutFacts(outcome) },
       ...(outcome.migration ? { migration: outcome.migration } : {}),
     });
     if (!recorded) {
@@ -1445,6 +1648,20 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       }),
     );
     return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+  };
+}
+
+/**
+ * What a started rollout records on the pending marker. A first start from
+ * zero rides the marker so the resumer can scale a rolled-back rollout back
+ * down (DEPLOY-009); the revision rolled out rides along so the resumer can
+ * tell a rollback from a rollout (DEPLOY-015).
+ */
+function rolloutFacts(outcome: Extract<EcsDeployOutcome, { state: 'in-progress' }>): Record<string, unknown> {
+  return {
+    ...(outcome.startedFromZero ? { startedFromZero: true } : {}),
+    ...(outcome.targetTaskDefinitionArn ? { targetTaskDefinitionArn: outcome.targetTaskDefinitionArn } : {}),
+    ...(outcome.targetTaskDefinitionArns ? { targetTaskDefinitionArns: outcome.targetTaskDefinitionArns } : {}),
   };
 }
 
@@ -1491,8 +1708,21 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
       // completion onto the marker: a stopped task ages out of DescribeTasks,
       // and re-polling it on later polls would eventually fail a deploy
       // whose migration already succeeded. One extra write, exactly once.
-      if (outcome.migration !== undefined && outcome.migration.completedAt !== pending.migration?.completedAt) {
-        await deps.pending.write({ ...pending, migration: outcome.migration });
+      const migrationCompleted =
+        outcome.migration !== undefined && outcome.migration.completedAt !== pending.migration?.completedAt;
+      // A rollout this pass started (after a migration, or a first start
+      // that waited for its configuration) is recorded exactly once, as the
+      // executor records one it starts.
+      const rolloutStarted =
+        outcome.targetTaskDefinitionArns !== undefined &&
+        pending.payload['targetTaskDefinitionArns'] === undefined &&
+        pending.payload['targetTaskDefinitionArn'] === undefined;
+      if (migrationCompleted || rolloutStarted) {
+        await deps.pending.write({
+          ...pending,
+          payload: { ...pending.payload, ...rolloutFacts(outcome) },
+          ...(outcome.migration !== undefined ? { migration: outcome.migration } : {}),
+        });
       }
       console.log(
         JSON.stringify({
@@ -1551,6 +1781,11 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
     );
 
     const views = await findServiceViews(deps);
+    if (views === null) {
+      // Nothing is mutated yet and nothing is known: not a failure. The
+      // control plane re-offers the command (uncertain-result rule).
+      return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+    }
     if (views.length === 0) {
       return result(command, false, {
         error: `No ECS service found in stack "${deps.stackName}"`,

@@ -162,7 +162,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     // §35 contract fields backfilled from the analysis (were null/false).
     expect(row.containerPort).toBe(3000);
     expect(row.healthPath).toBe('/health');
-    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+    expect(row.migrationCommand).toBe('npx drizzle-kit migrate');
     expect(row.databaseRequired).toBe(true);
 
     // The canonical projection is persisted beside the flat metadata,
@@ -176,7 +176,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
       network: { port: { value: 3000, source: 'dockerfile' } },
       database: { required: true, type: 'postgres' },
       healthCheck: { detected: true, path: '/health' },
-      migrations: { command: 'npx drizzle-kit push', tools: ['drizzle-kit'] },
+      migrations: { command: 'npx drizzle-kit migrate', tools: ['drizzle-kit'] },
     });
     expect(detected?.environmentVariables.map((v) => v.key)).toContain('DATABASE_URL');
   });
@@ -273,10 +273,8 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     // and `prisma/schema.prisma` (this fixture's schema location) is
     // already Prisma's default lookup path relative to that cwd.
     expect(row.migrationCommand).toBe('npx prisma migrate deploy');
-    // The only health-check evidence in this fixture is the app-router
-    // route file app/api/health/route.ts — the Dockerfile's HEALTHCHECK
-    // curls /health (a stale/generic default), but the route the app
-    // actually serves is /api/health, and that must win.
+    // The Dockerfile's HEALTHCHECK curls the app-router route file
+    // app/api/health/route.ts: its probed path is the health path.
     expect(row.healthPath).toBe('/api/health');
 
     const metadata = row.detectedMetadata as {
@@ -365,7 +363,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
 
     const row = await loadApplication(db, application.id);
     expect(row.containerPort).toBe(3000);
-    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+    expect(row.migrationCommand).toBe('npx drizzle-kit migrate');
   });
 
   it('never overrides a contract field the vendor edited', async () => {
@@ -517,8 +515,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
           'db:migrate:dev': 'prisma migrate dev',
           'db:migrate': 'prisma migrate deploy',
         },
-        dependencies: { express: '^4.18.0' },
-        devDependencies: { prisma: '^5.14.0' },
+        dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
       }),
     };
 
@@ -564,7 +561,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
       'package.json': JSON.stringify({
         name: 'migrate-by-value',
         scripts: { start: 'node index.js', 'update-db': 'prisma migrate deploy', 'build-db-schema': 'prisma db pull' },
-        dependencies: { express: '^4.18.0', prisma: '^5.14.0' },
+        dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
       }),
     };
 
@@ -574,19 +571,19 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     expect(row.migrationCommand).toBe('npx prisma migrate deploy');
   });
 
-  it('resolves a migration command from a workspace package script, not just the root manifest', async () => {
+  it('resolves a migration command from the deployed workspace package script, not just the root manifest', async () => {
     const application = await insertApplication(db, orgId, {
       githubInstallationId: 'install-1',
       repoFullName: 'acme/migrate-workspace-package',
       defaultBranch: 'main',
     });
     const files = {
-      Dockerfile: NODE_FULL_INSTALL_DOCKERFILE,
       'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*'] }),
+      'apps/api/Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'CMD ["node", "index.js"]'].join('\n'),
       'apps/api/package.json': JSON.stringify({
         name: 'api',
-        scripts: { start: 'node index.js', 'db:migrate': 'drizzle-kit push' },
-        dependencies: { express: '^4.18.0', 'drizzle-kit': '^0.24.0' },
+        scripts: { start: 'node index.js', 'db:migrate': 'drizzle-kit migrate' },
+        dependencies: { express: '^4.18.0', 'drizzle-kit': '^0.31.0' },
       }),
     };
 
@@ -594,7 +591,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+    expect(row.migrationCommand).toBe('npx drizzle-kit migrate');
   });
 
   // Production-verified defect: `resolveMigrationCommand` used to copy the
@@ -626,13 +623,8 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         ].join('\n'),
         'apps/remix/package.json': JSON.stringify({
           name: 'remix',
-          scripts: { start: 'node build/server/main.js' },
-          dependencies: { express: '^4.18.0' },
-        }),
-        'packages/prisma/package.json': JSON.stringify({
-          name: 'prisma-pkg',
-          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
-          dependencies: { prisma: '^6.19.0' },
+          scripts: { start: 'node build/server/main.js', 'prisma:migrate-deploy': 'prisma migrate deploy' },
+          dependencies: { express: '^4.18.0', prisma: '^6.19.0' },
         }),
         'packages/prisma/schema.prisma': [
           'datasource db {',
@@ -657,7 +649,13 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         defaultBranch: 'main',
       });
       const files = {
-        'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*', 'packages/*'] }),
+        'package.json': JSON.stringify({
+          name: 'root',
+          private: true,
+          workspaces: ['apps/*', 'packages/*'],
+          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
+          dependencies: { prisma: '^6.19.0' },
+        }),
         'docker/Dockerfile': [
           'FROM node:20-alpine',
           'WORKDIR /app',
@@ -669,11 +667,6 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
           name: 'remix',
           scripts: { start: 'node build/server/main.js' },
           dependencies: { express: '^4.18.0' },
-        }),
-        'packages/prisma/package.json': JSON.stringify({
-          name: 'prisma-pkg',
-          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
-          dependencies: { prisma: '^6.19.0' },
         }),
         'packages/prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
       };
@@ -695,7 +688,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         'package.json': JSON.stringify({
           name: 'app',
           scripts: { start: 'node dist/index.js', 'db:migrate': 'prisma migrate deploy' },
-          dependencies: { express: '^4.18.0', prisma: '^5.14.0' },
+          dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
         }),
         'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
       };
@@ -727,7 +720,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
             start: 'node main.js',
             'db:migrate': 'npx prisma migrate deploy --schema prisma/schema.prisma',
           },
-          dependencies: { express: '^4.18.0', prisma: '^5.14.0' },
+          dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
         }),
         'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
       };
@@ -776,7 +769,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         'package.json': JSON.stringify({
           name: 'app',
           scripts: { start: 'node index.js', 'db:migrate': 'pnpm prisma migrate deploy' },
-          dependencies: { express: '^4.18.0' },
+          dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
         }),
       };
 
@@ -816,7 +809,6 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     it.each([
       ['a Bun runtime image (never substituted with bunx)', ['FROM oven/bun:1', 'WORKDIR /app', 'COPY . .', 'RUN bun install', 'CMD ["bun", "index.js"]'], 'dependencies'],
-      ['a production-only install that leaves the CLI out', ['FROM node:20-alpine', 'WORKDIR /app', 'COPY . .', 'RUN npm ci --omit=dev', 'CMD ["node", "index.js"]'], 'devDependencies'],
       ['a runner stage that removes npm', ['FROM node:20-alpine AS build', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'FROM build AS runner', 'RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npx', 'CMD ["node", "index.js"]'], 'dependencies'],
       ['a distroless runtime with no shell', ['FROM node:20-alpine AS build', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'FROM gcr.io/distroless/nodejs20-debian12', 'COPY --from=build /app /app', 'CMD ["index.js"]'], 'dependencies'],
       ['a base image set by a build argument', ['ARG BASE=node:20-alpine', 'FROM ${BASE}', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'CMD ["node", "index.js"]'], 'dependencies'],
@@ -937,6 +929,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         scripts: { start: 'node index.js', 'worker:start': 'node worker.js' },
         dependencies: { express: '^4.18.0', bullmq: '^5.7.0' },
       }),
+      'Dockerfile': ['FROM node:20', 'COPY . .', 'CMD ["node", "index.js"]', ''].join('\n'),
     };
 
     await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
@@ -947,7 +940,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     // a declared worker process is a supported, non-blocking second process
     // (Phase 4A — one ECS service per workload), never a readiness blocker.
     // The verdict stays NEEDS_ATTENTION only because this minimal fixture has
-    // no Dockerfile (container-setup) — the worker itself adds nothing
+    // no port or health evidence — the worker itself adds nothing
     // blocking.
     expect(row.workerCommand).toBe('node worker.js');
     expect(row.compatibilityStatus).toBe('NEEDS_ATTENTION');
@@ -1088,8 +1081,8 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
         sha === 'sha-pkg'
           ? JSON.stringify({
               name: 'widgets',
-              scripts: { start: 'node index.js', 'db:migrate': 'npx drizzle-kit push' },
-              dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+              scripts: { start: 'node index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+              dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.31.0' },
             })
           : 'FROM node:20-alpine\nHEALTHCHECK CMD curl -f http://localhost:3000/health\nCMD ["node", "index.js"]\n';
       return {

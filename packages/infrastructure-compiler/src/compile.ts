@@ -7,6 +7,7 @@ import type {
   IrResource,
   IrSchedule,
   IrWorkload,
+  ManifestEnvBinding,
 } from '@deployz/contracts';
 import { CAPABILITY_KEYS, defaultInfrastructureSizeProfile, workloadContainerCommand } from '@deployz/contracts';
 
@@ -88,7 +89,7 @@ function tags(componentId: string): Array<{ Key: string; Value: string }> {
   ];
 }
 
-// ── Fixed sizing / engine constants (pinned to the small-v1 profile + the
+// ── Fixed sizing / engine constants (pinned to the active profile + the
 //    runtime-v1 template constants; see sizing parity) ───────────────────────
 const DB_ENGINE = 'postgres';
 const DB_ENGINE_VERSION = '16';
@@ -131,7 +132,10 @@ const DB_SUBNET_CIDRS = [
 const DB_AZ_SLOT_COUNT = 8;
 
 // ── Compiler version / capability registry identity ─────────────────────────
-export const COMPILER_VERSION = 'dynamic-compiler-v2-2' as const;
+export const COMPILER_VERSION = 'dynamic-compiler-v2-5' as const;
+
+/** Seconds ECS ignores ALB health checks after a web task starts. */
+export const WEB_HEALTH_CHECK_GRACE_SECONDS = 300;
 
 interface ResInput {
   readonly componentId: string;
@@ -491,7 +495,7 @@ function compileRds(dbResource: IrResource, profile: InfrastructureSizeProfile, 
       PreferredBackupWindow: '03:00-05:00',
       PubliclyAccessible: false,
       StorageEncrypted: true,
-      StorageType: 'gp2',
+      StorageType: profile.database.storageType,
       Tags: tags(componentId),
       VPCSecurityGroups: [getAtt(sg, 'GroupId')],
     },
@@ -579,6 +583,8 @@ interface EcsContext {
   readonly hasRedis: boolean;
   readonly db: { componentId: string; engine: 'postgres' | 'mysql'; secret: string; urlSecret: string; instance: string } | undefined;
   readonly cache: { componentId: string; replicationGroup: string } | undefined;
+  /** The app's own env names for each managed value (MEMOS_DSN, SPRING_DATASOURCE_URL, …), from the IR resources. */
+  readonly aliases: readonly { readonly resource: 'db' | 'cache' | 'storage'; readonly binding: ManifestEnvBinding }[];
 }
 
 /** Statements granting read access to a set of Secrets Manager secret logical ids. */
@@ -804,10 +810,67 @@ function appEnvironment(ctx: EcsContext, extraEnv: readonly unknown[] = []): { e
       { Name: 'REDIS_PORT', Value: String(REDIS_PORT) },
     );
   }
+  // The app's own names for the same managed values, after the standard
+  // names and never replacing one. Every task definition (web, workers, the
+  // migration and scheduled jobs) gets them from the template itself.
+  const taken = new Set([...environment, ...secrets].map((entry) => (entry as { Name: string }).Name));
+  for (const { resource, binding } of ctx.aliases) {
+    if (taken.has(binding.name)) continue;
+    const entry = aliasEntry(ctx, resource, binding.kind);
+    if (entry === null) continue;
+    taken.add(binding.name);
+    if (entry.secret) secrets.push({ Name: binding.name, ValueFrom: entry.value });
+    else environment.push({ Name: binding.name, Value: entry.value });
+  }
   // Queue env bindings (Phase 5A) — per-workload only, appended after the
   // shared environment every workload sees.
   environment.push(...extraEnv);
   return { environment, secrets };
+}
+
+/** The value one alias binding resolves to, or null when the resource has no such value. */
+function aliasEntry(
+  ctx: EcsContext,
+  resource: 'db' | 'cache' | 'storage',
+  kind: ManifestEnvBinding['kind'],
+): { secret: boolean; value: unknown } | null {
+  if (resource === 'db') {
+    if (ctx.db === undefined) return null;
+    const host = getAtt(ctx.db.instance, 'Endpoint.Address');
+    const port = ctx.db.engine === 'mysql' ? MYSQL_DB_PORT : DB_PORT;
+    switch (kind) {
+      case 'url':
+        return { secret: true, value: ref(ctx.db.urlSecret) };
+      case 'password':
+        return { secret: true, value: join('', [ref(ctx.db.secret), ':password::']) };
+      case 'host':
+        return { secret: false, value: host };
+      case 'port':
+        return { secret: false, value: String(port) };
+      case 'database':
+        return { secret: false, value: DB_NAME };
+      case 'username':
+        return { secret: false, value: DB_USER };
+      case 'jdbc_url':
+        return {
+          secret: false,
+          value: ctx.db.engine === 'mysql'
+            ? join('', ['jdbc:mysql://', host, `:${port}/${DB_NAME}?sslMode=REQUIRED`])
+            : join('', ['jdbc:postgresql://', host, `:${port}/${DB_NAME}?sslmode=require`]),
+        };
+      default:
+        return null;
+    }
+  }
+  if (resource === 'cache') {
+    if (ctx.cache === undefined) return null;
+    const host = getAtt(ctx.cache.replicationGroup, 'PrimaryEndPoint.Address');
+    if (kind === 'url') return { secret: false, value: join('', ['redis://', host, `:${REDIS_PORT}`]) };
+    if (kind === 'host') return { secret: false, value: host };
+    if (kind === 'port') return { secret: false, value: String(REDIS_PORT) };
+    return null;
+  }
+  return kind === 'bucket' ? { secret: false, value: ref(logicalResourceId('storage', 'bucket')) } : null;
 }
 
 /**
@@ -861,7 +924,7 @@ function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: In
         ContainerDefinitions: containerDefs,
         Cpu: String(profile.workload.cpuUnits),
         ExecutionRoleArn: getAtt(execRole, 'Arn'),
-        Family: `DeployzApp${pascal(componentId)}`,
+        Family: taskFamily(componentId),
         Memory: String(profile.workload.memoryMiB),
         NetworkMode: 'awsvpc',
         RequiresCompatibilities: ['FARGATE'],
@@ -931,7 +994,7 @@ function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: 
         ContainerDefinitions: containerDefs,
         Cpu: String(profile.workload.cpuUnits),
         ExecutionRoleArn: getAtt(execRole, 'Arn'),
-        Family: `DeployzApp${pascal(componentId)}`,
+        Family: taskFamily(componentId),
         Memory: String(profile.workload.memoryMiB),
         NetworkMode: 'awsvpc',
         RequiresCompatibilities: ['FARGATE'],
@@ -965,7 +1028,10 @@ function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: 
         EnableECSManagedTags: false,
         // The ALB grace period only applies to a load-balanced service — a
         // worker has no HTTP health check at all (service-stability only).
-        ...(ingress !== undefined ? { HealthCheckGracePeriodSeconds: 60 } : {}),
+        // It covers a boot that migrates first: an app that needs about 90 s on
+        // 0.25 vCPU (ghostfolio: prisma migrate, seed, Nest) was killed after
+        // 60 s and every rollout of it failed.
+        ...(ingress !== undefined ? { HealthCheckGracePeriodSeconds: WEB_HEALTH_CHECK_GRACE_SECONDS } : {}),
         LaunchType: 'FARGATE',
         ...(ingress !== undefined
           ? { LoadBalancers: [{ ContainerName: 'App', ContainerPort: ref('paramContainerPort'), TargetGroupArn: ref(ingress.targetGroup) }] }
@@ -1132,7 +1198,7 @@ function compileScheduledJobTask(ctx: EcsContext, workload: IrWorkload, profile:
         ContainerDefinitions: containerDefs,
         Cpu: String(profile.workload.cpuUnits),
         ExecutionRoleArn: getAtt(execRole, 'Arn'),
-        Family: `DeployzApp${pascal(componentId)}`,
+        Family: taskFamily(componentId),
         Memory: String(profile.workload.memoryMiB),
         NetworkMode: 'awsvpc',
         RequiresCompatibilities: ['FARGATE'],
@@ -1232,16 +1298,18 @@ function scheduleActionStatement(action: string, res_: { family: { revisionless:
  * (Phase 5C): a confused-deputy-guarded role, IAM derived ONLY from the
  * schedule's own invoke/dead-letter bindings, and the schedule resource
  * targeting the ALWAYS-latest (revisionless) task definition family — the
- * relay registers each release as a new revision of the same family.
+ * relay registers each release as a new revision of the same family. The
+ * family is unique to the installation, so no other installation's revision
+ * can ever be its latest.
  */
 function compileSchedule(ir: DeployzIR, schedule: IrSchedule, ids: NetIds): ResolvedResource[] {
   const id = schedule.id;
   const role = logicalResourceId(id, 'scheduler-role');
   const policy = logicalResourceId(id, 'scheduler-role-policy');
 
-  const family = `DeployzApp${pascal(schedule.targetWorkloadId)}`;
-  const familyRevisionless = join('', ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), `:task-definition/${family}`]);
-  const familyAllRevisions = join('', ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), `:task-definition/${family}:*`]);
+  const familyArn = ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), ':task-definition/', taskFamily(schedule.targetWorkloadId)];
+  const familyRevisionless = join('', familyArn);
+  const familyAllRevisions = join('', [...familyArn, ':*']);
   const clusterArn = getAtt(logicalResourceId('web', 'cluster'), 'Arn');
   const jobTaskRoleArn = getAtt(logicalResourceId(schedule.targetWorkloadId, 'task-role'), 'Arn');
   const execRoleArn = getAtt(logicalResourceId('web', 'task-execution-role'), 'Arn');
@@ -1335,6 +1403,7 @@ function compileParameters(): ResolvedParameter[] {
     });
   }
   return [
+    { id: 'paramTaskFamilySuffix', type: 'String', noEcho: false, allowedPattern: '^[a-z0-9]+$', description: 'Installation-unique suffix of every task-definition family this stack creates. No default: a stack can never fall back to a family another installation shares.' },
     { id: 'paramDesiredCount', type: 'Number', noEcho: false, defaultValue: '1', description: 'Number of application tasks the service starts with. 0 defers the first start to the configured deploy that follows the install.' },
     { id: 'paramImageReference', type: 'String', noEcho: false, defaultValue: `${DEFAULT_IMAGE_REPOSITORY}@${DEFAULT_IMAGE_DIGEST}`, description: 'Container image reference (repository@sha256:...) the application task definitions run.' },
     { id: 'paramContainerPort', type: 'Number', noEcho: true, defaultValue: String(APP_PORT), description: 'TCP port the application container listens on.' },
@@ -1360,6 +1429,16 @@ function compileOutputs(ctx: { hasDb: boolean; db: { instance: string; secret: s
     outputs.push({ id: 'CacheEndpoint', value: getAtt(ctx.cache.replicationGroup, 'PrimaryEndPoint.Address') });
   }
   return outputs;
+}
+
+/**
+ * The task-definition family of one workload: `DeployzApp<Pascal>` plus the
+ * installation's suffix (`paramTaskFamilySuffix`). Two installations in one
+ * AWS account and Region never share a family. Mirrors `deployzTaskFamily`
+ * in `@deployz/contracts`.
+ */
+function taskFamily(componentId: string): unknown {
+  return join('', [`DeployzApp${pascal(componentId)}`, ref('paramTaskFamilySuffix')]);
 }
 
 function pascal(token: string): string {
@@ -1436,7 +1515,13 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
       }
     : undefined;
 
-  const ctx: EcsContext = { ids, hasDb: db !== undefined, hasRedis: cache !== undefined, db, cache };
+  const storageResource = resourceByCapability(ir, CAPABILITY_KEYS.S3);
+  const aliases = [
+    ...(db !== undefined ? (dbResource?.envBindings ?? []).map((binding) => ({ resource: 'db' as const, binding })) : []),
+    ...(cache !== undefined ? (cacheResource?.envBindings ?? []).map((binding) => ({ resource: 'cache' as const, binding })) : []),
+    ...(storageResource?.envBindings ?? []).map((binding) => ({ resource: 'storage' as const, binding })),
+  ];
+  const ctx: EcsContext = { ids, hasDb: db !== undefined, hasRedis: cache !== undefined, db, cache, aliases };
 
   // Only PUBLIC workloads sit behind the ALB — a worker gets no target group,
   // no listener and no HTTP health check.

@@ -1,4 +1,5 @@
 import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
+import { posix as posixPath } from 'node:path';
 
 import { eq } from 'drizzle-orm';
 
@@ -10,6 +11,7 @@ import {
   ENTRYPOINT_REGEX,
   CMD_CHAIN_MAX_DEPTH,
   type FileTree,
+  TREE_PATHS,
 } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -603,6 +605,8 @@ export async function listRepositories(
 interface GitTreeEntry {
   path: string;
   type: string; // 'blob' | 'tree' | 'commit'
+  // '120000' marks a symlink: its blob content is the link target path.
+  mode?: string | undefined;
   sha: string;
   size?: number | undefined;
 }
@@ -643,8 +647,9 @@ const IGNORED_DIR_SEGMENTS = new Set([
 // it for DEPLOY-029: `detectStartupMigrationEvidence` follows the shell
 // script(s) a Dockerfile CMD/ENTRYPOINT invokes (and every script those call
 // in turn) — without it here, that script is never fetched in real (non-
-// fixture) mode and the detector has nothing to read.
-const SOURCE_EXTENSION_REGEX = /\.(sh|ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
+// fixture) mode and the detector has nothing to read. `ini` joins it for the
+// same reason: a CMD `uwsgi --ini uwsgi.ini` can carry a `hook-pre-app` migration.
+const SOURCE_EXTENSION_REGEX = /\.(sh|ini|ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
 // A manifest, a Dockerfile or a Prisma schema anywhere in the tree — a
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).
@@ -669,6 +674,11 @@ const COMPOSE_REGEX = /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i;
 // .env.example/.env.template/.env.sample at any depth — the checked-in env
 // samples vendors actually commit (never a real `.env`, which is gitignored).
 const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
+// Framework config files that read env vars under the app's own names: Rails
+// `config/*.yml` (ERB), Laravel `config/*.php`, Spring `application*.properties|yml`.
+// Direct children of `config/` only — `config/locales/` would flood the cap.
+const CONFIG_ENV_FILE_REGEX =
+  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)config\.ya?ml$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
 // File-based health routes — the same shape detectHealthEndpoint matches on
 // the path rather than on the file's contents — and a NestJS
 // `health.controller.ts`, whose `@Controller('health')` is the only evidence.
@@ -716,6 +726,7 @@ function isRelevantPath(path: string): boolean {
   if (OTHER_MANIFEST_REGEX.test(path)) return true;
   if (DOCKERFILE_REGEX.test(path)) return true;
   if (PRISMA_SCHEMA_REGEX.test(path)) return true;
+  if (CONFIG_ENV_FILE_REGEX.test(path)) return true;
   if (COMPOSE_REGEX.test(path)) return true;
   if (ENV_SAMPLE_REGEX.test(path)) return true;
   if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
@@ -765,6 +776,14 @@ function isLockfilePath(path: string): boolean {
 // more source files than the cap (a Go or Django tree can carry hundreds).
 const ENTRY_FILE_REGEX =
   /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\//i;
+// Files that read the environment and name the datastore the app uses:
+// `environment.service.ts`, `env/GlobalValues.ts`, `configs/database.config.ts`. They are few
+// and small, and a deep one would otherwise lose its slot to hundreds of `index.ts`. A plain
+// `env.ts` stays with the entry files: front ends carry one too. A typed config class
+// (`config-variables.ts`) and a plugin or storage manager (`NcPluginMgrv2.ts`) hold the
+// app's storage env names the same way.
+const ENV_CONFIG_FILE_REGEX =
+  /(?:^|\/)(?:environment(?:\.(?:service|config))?|env\.(?:service|config)|[\w.-]*config-variables|[\w.-]*(?:plugin|storage)-?(?:mgr|manager)[\w.-]*)\.[a-z]+$|(?:^|\/)(?:env|environment)\/[^/]+\.(?:[cm]?[jt]s|py|rb|go)$|(?:^|\/)configs\/[\w.-]+\.config\.[cm]?[jt]s$/i;
 
 //
 // Dockerfiles, Compose files and env samples come before package manifests:
@@ -787,8 +806,8 @@ function relevancePriority(path: string, protectedPaths: ReadonlySet<string>): n
   if (MANIFEST_REGEX.test(path)) return 1;
   if (OTHER_MANIFEST_REGEX.test(path)) return 1;
   if (!path.includes('/')) return 2; // generic (unnamed) root files
-  if (PRISMA_SCHEMA_REGEX.test(path)) return 3;
-  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 4;
+  if (PRISMA_SCHEMA_REGEX.test(path) || CONFIG_ENV_FILE_REGEX.test(path)) return 3;
+  if (HEALTH_ROUTE_FILE_REGEX.test(path) || ENV_CONFIG_FILE_REGEX.test(path)) return 4;
   if (ENTRY_FILE_REGEX.test(path)) return 5; // entry, routing and configuration source
   return 6; // other source files
 }
@@ -944,6 +963,24 @@ async function fetchBlobContent(
   }
 }
 
+// A git symlink's blob holds only its target path. A detector must read the
+// target file's content, so a symlinked Dockerfile resolves to the real one.
+async function fetchEntryContent(
+  ref: RepositoryRef,
+  entry: GitTreeEntry,
+  entriesByPath: ReadonlyMap<string, GitTreeEntry>,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<string | null> {
+  const content = await fetchBlobContent(ref, entry.sha, installationToken, fetchFn);
+  if (entry.mode !== '120000' || content === null) return content;
+  const dir = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '';
+  const target = posixPath.normalize(posixPath.join(dir, content.trim()));
+  const targetEntry = entriesByPath.get(target);
+  if (targetEntry?.type !== 'blob' || targetEntry.mode === '120000') return null;
+  return fetchBlobContent(ref, targetEntry.sha, installationToken, fetchFn);
+}
+
 const EMPTY_PROTECTED_PATHS: ReadonlySet<string> = new Set();
 
 // DEPLOY-029: resolve the selected Dockerfile's CMD/ENTRYPOINT script chain
@@ -965,17 +1002,17 @@ async function resolveCmdChainProtectedPaths(
 ): Promise<ReadonlySet<string>> {
   const protectedPaths = new Set<string>();
   const knownPaths: FileTree = {};
-  const shaByPath = new Map<string, string>();
+  const entryByPath = new Map<string, GitTreeEntry>();
   for (const entry of relevantEntries) {
     knownPaths[entry.path] = '';
-    shaByPath.set(entry.path, entry.sha);
+    entryByPath.set(entry.path, entry);
   }
 
   const dockerfilePath = listDockerfileCandidates(knownPaths)[0];
-  const dockerfileSha = dockerfilePath !== undefined ? shaByPath.get(dockerfilePath) : undefined;
-  if (dockerfilePath === undefined || dockerfileSha === undefined) return protectedPaths;
+  const dockerfileEntry = dockerfilePath !== undefined ? entryByPath.get(dockerfilePath) : undefined;
+  if (dockerfilePath === undefined || dockerfileEntry === undefined) return protectedPaths;
 
-  const dockerfileContent = await fetchBlobContent(ref, dockerfileSha, installationToken, fetchFn);
+  const dockerfileContent = await fetchEntryContent(ref, dockerfileEntry, entryByPath, installationToken, fetchFn);
   if (dockerfileContent === null) return protectedPaths;
 
   const dockerDir = dockerfilePath.includes('/') ? dockerfilePath.split('/').slice(0, -1).join('/') : '';
@@ -988,9 +1025,9 @@ async function resolveCmdChainProtectedPaths(
     const next: string[] = [];
     for (const path of frontier) {
       protectedPaths.add(path);
-      const sha = shaByPath.get(path);
-      if (sha === undefined) continue;
-      const content = await fetchBlobContent(ref, sha, installationToken, fetchFn);
+      const scriptEntry = entryByPath.get(path);
+      if (scriptEntry === undefined) continue;
+      const content = await fetchBlobContent(ref, scriptEntry.sha, installationToken, fetchFn);
       if (content === null) continue;
       next.push(...extractCmdScriptPaths(content, knownPaths, dockerDir, visited));
     }
@@ -1022,6 +1059,7 @@ export async function buildFileTreeForAnalysis(
       ? await resolveCmdChainProtectedPaths(ref, relevantEntries, installationToken, fetchFn)
       : EMPTY_PROTECTED_PATHS;
 
+  const entriesByPath = new Map(entries.map((entry) => [entry.path, entry]));
   const candidates = relevantEntries
     .filter((entry) => entry.size === undefined || entry.size <= ANALYSIS_MAX_FILE_BYTES)
     .sort((a, b) => compareRelevance(a.path, b.path, protectedPaths))
@@ -1039,7 +1077,7 @@ export async function buildFileTreeForAnalysis(
       while (next < candidates.length) {
         const entry = candidates[next++];
         if (!entry) break;
-        const content = await fetchBlobContent(ref, entry.sha, installationToken, fetchFn);
+        const content = await fetchEntryContent(ref, entry, entriesByPath, installationToken, fetchFn);
         if (content !== null) {
           tree[entry.path] = content;
         }
@@ -1058,6 +1096,11 @@ export async function buildFileTreeForAnalysis(
       tree[entry.path] = '';
     }
   }
+  // Every tracked path, so a detector can tell a missing file from an unfetched one.
+  Object.defineProperty(tree, TREE_PATHS, {
+    value: entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path),
+    enumerable: false,
+  });
 
   return tree;
 }
@@ -1103,8 +1146,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'express-api',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.24.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1151,8 +1194,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'bullmq-worker',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.7.0', 'drizzle-kit': '^0.24.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.7.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1207,7 +1250,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'COPY . .',
       'RUN npm run build',
       'EXPOSE 3000',
-      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/api/health || exit 1',
       'CMD ["npm", "start"]',
     ].join('\n'),
     'package.json': JSON.stringify({
@@ -1291,8 +1334,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'config-required-app',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.24.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1332,8 +1375,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'env-matrix-app',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', stripe: '^16.0.0', 'drizzle-kit': '^0.24.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0', stripe: '^16.0.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1392,8 +1435,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'multi-worker-app',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.24.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1422,8 +1465,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'mysql-api',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', mysql2: '^3.9.0', 'drizzle-kit': '^0.24.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', mysql2: '^3.9.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",

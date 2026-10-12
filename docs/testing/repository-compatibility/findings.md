@@ -813,6 +813,7 @@ cleaner verdict signal but a noisier fact signal.
   configuration-detection mismatch — the benchmark still expects
   NEEDS_CONFIGURATION for a Dockerfile that cannot build from the snapshot,
   while the analyser deliberately does not reject.
+- Superseded by COMP-042: the rejection returns, limited to complete evidence.
 - Status: accepted (documented limitation)
 
 ### COMP-022 — A database engine selected by an environment value is READY without the value
@@ -1359,3 +1360,77 @@ cleaner verdict signal but a noisier fact signal.
   container-level health evidence with no HTTP path requirement, and keep
   `vendor_required` for the truly probe-less case.
 - Status: open
+
+### COMP-042 — A repository with no buildable Dockerfile is accepted as NEEDS_CONFIGURATION
+
+- Family: fresh-100 F1 (`ANALYSIS_BUG`), 19 gate false acceptances and 7 build failures.
+- Repositories: no Dockerfile (repo-505, 511, 515, 518, 525, 579, 585, 588, 590, 596); a Dockerfile that copies sources the repository lacks (repo-517, 544, 559); a template Dockerfile (repo-599); a development-only Dockerfile (repo-574).
+- Type: ANALYSIS_BUG
+- Expected: NOT_COMPATIBLE (no Deployz setting adds a Dockerfile that builds a production image)
+- Actual: NEEDS_CONFIGURATION (`dockerfile-missing`, `dockerfile-missing-sources`)
+- Fix: `detectUnbuildableDockerfile` and the `checkNoBuildableDockerfile` rejection (`no-buildable-dockerfile`). It rejects only on complete evidence: the full tracked path list is known, every Dockerfile in it was fetched, there is no `.gitmodules`, and either no Dockerfile is buildable (none, development-only or template) or the single Dockerfile copies a source that is absent and not a generated directory. `COPY --from=`, a second candidate Dockerfile and a capped file list never reject (COMP-021). `ANALYSIS_VERSION` 46.
+- Regression: `packages/analysis/test/fresh-100-unbuildable-dockerfile.test.ts` (fixtures only).
+- Residual: repo-575, 577 and 548 copy or download a release artifact the detector does not flag, and repo-507 fails on the pinned source (no lockfile, no `output: standalone`); they stay accepted and are recorded as limitations.
+- Status: fixed
+
+### COMP-043 — A deployment sample or a comment rejects an app that a supported configuration fits
+
+- Family: fresh-100 F4 (`ANALYSIS_BUG`), 7 gate false rejections (repo-503, 509, 516, 520, 547, 563, 569).
+- Repositories fixed here: repo-547 (a settings file that selects `storages.backends.s3boto3` when `AWS_STORAGE_BUCKET_NAME` is set, with no requirements file in the collected tree), repo-563 (an image-only Compose sidecar with no published port that waits on the app), repo-569 (a `@pulumi/pulumi` package under `deploy/pulumi/` rejected as `pulumi`) and repo-509 (a `rediss://` URL in a comment of `.env.example` rejected as `redis-unsupported`).
+- Type: ANALYSIS_BUG
+- Expected: NEEDS_CONFIGURATION (the Pulumi package is a self-hoster option; the Redis URL is documentation, the connection is optional)
+- Actual: NOT_COMPATIBLE
+- Fix: `checkPulumi` ignores a Pulumi dependency in a deployment sample directory, the same rule as the Pulumi file check; the `rediss://` check strips comments from env sample files; the object-storage option also accepts a settings file that names the S3 storage backend as SDK evidence; the multi-service check ignores a port-less image-only service that depends on the app, when the app publishes a port and does not name the service. A Pulumi package in the application and a `rediss://` value that an env sample sets still reject. `ANALYSIS_VERSION` 47.
+- Regression: `packages/analysis/test/false-rejection-scoping.test.ts` (fixtures only).
+- Residual (rejection kept): repo-503 (the collected tree has no storage-type or S3 selector for the data directory, and the app and nginx pair stays a multi-service finding), repo-520 (the default image embeds PostgreSQL with a volume, plus media and secrets volumes and a db built from `Dockerfile.devdb`; the minimal target needs a target-selection signal), repo-516 (the gate is not the cause: Deployz selects `cli/Dockerfile`; a Dockerfile selection change).
+- Status: partly fixed (509, 547, 563, 569 fixed; 503, 516, 520 kept)
+
+### COMP-044 — Local state or a required configuration file is not detected
+
+- Family: fresh-100 F2 (`ANALYSIS_MISSING_SIGNAL`), 7 gate false acceptances (repo-510, 522, 528, 529, 552, 557, 593).
+- Repositories fixed here: repo-510 (Rails `config/database.yml` whose only adapter is `sqlite3`, Gemfile without a PostgreSQL gem) and repo-593 (the image `ENTRYPOINT` passes `--config /app/config/glance.yml`; no instruction creates that file and the repository ships none at that path).
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NOT_COMPATIBLE (`local-filesystem` or `sqlite`)
+- Actual: NEEDS_CONFIGURATION or READY
+- Fix: `checkSqlite` rejects a Rails `database.yml` that names only the sqlite3 adapter when no PostgreSQL driver is declared. `checkRequiredConfigFileMount` also reads a configuration file passed as `--config`, `--config-file` or `-c` in `ENTRYPOINT` or `CMD`, with the same rule as for an `ENV` path. A Rails app that also names a PostgreSQL adapter or gem, a Dockerfile that creates the directory, and a repository that ships the file all stay accepted. `ANALYSIS_VERSION` 48.
+- Regression: `packages/analysis/test/fresh-100-local-state.test.ts` (fixtures only).
+- Residual (limitation, not fixed because no signal is sound on a second app): repo-522 (the file server serves a host directory given as an argument at run time; the image declares no path), repo-528 (`ELECTRIC_STORAGE_DIR` default `./persistent` is set in Elixir runtime configuration; a relative default is not a durable-directory signal elsewhere), repo-529 (`VOLUME /var/lib/snipeit` holds uploads and keys; the upload rule treats the S3 option as a replacement and the keys cannot be told apart), repo-552 (the app reads `.config/default.yml` from its own source, not from an image instruction), repo-557 (an empty web root plus a local SQLite default; the app also accepts PostgreSQL).
+- Status: partly fixed (510, 593 fixed; 522, 528, 529, 552, 557 kept)
+
+### COMP-045 — An image with no default server command, or several supervised processes, is not detected
+
+- Family: fresh-100 F3 (`ANALYSIS_MISSING_SIGNAL`), repo-549, 566, 580 (gate and probe) and repo-514, 523 (F11 in the start diagnosis, same defect: the built image cannot start the app).
+- Repositories fixed here: repo-514 (the final stage is `FROM debian` with no `CMD` and no `ENTRYPOINT`; the base shell exits with code 0), repo-523 (`ENTRYPOINT ["bundle", "exec"]` with no `CMD`; the real command is only in the compose file) and repo-580 (s6-overlay runs the api, cron, web and worker services in one image).
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NEEDS_CONFIGURATION with `start-command-missing` (514, 523), NOT_COMPATIBLE with `background-worker` (580)
+- Actual: the gate accepted all three
+- Fix: `detectNoDefaultServerCommand` reads the last build stage and the stages it builds from. It reports no start command when the lineage has no `CMD` and no `ENTRYPOINT` on a bare OS base (debian, ubuntu, alpine and similar), or when the `ENTRYPOINT` is only a launcher (`bundle exec`, `uv run`, `poetry run`, `pipenv run`, `npx`, `node`, `python`, `ruby`) with no `CMD`. `detectStartupCommand` then returns no command, so `start-command-missing` is raised and the operator sets the command. `checkMultiProcessImage` rejects an image that installs s6-overlay or supervisord when the files its Dockerfile copies hold two or more s6 `run` services or two or more supervisord `[program:]` sections, not counting a web-server front end (nginx, apache, httpd, caddy) or php-fpm (dependency `multi-process-image`, family `background-worker`). A base image that is not a bare OS image, an `ENTRYPOINT` that is a program, a single supervised service, nginx with php-fpm and a supervisor file the Dockerfile does not copy stay accepted. `ANALYSIS_VERSION` 49.
+- Regression: `packages/analysis/test/fresh-100-start-command.test.ts` (fixtures only).
+- Residual (limitation, not fixed because no signal is sound on a second app): repo-549 (`ENTRYPOINT` is a script that dispatches on a mode argument; the script is not in the collected tree and a program ENTRYPOINT with a script cannot be told from a valid one), repo-566 (`ENTRYPOINT ["/openfga"]` is a program that prints its help without a sub-command; the same shape is a valid server in other images).
+- Verification: fixtures only; the effect on the real repositories is for the next compat run (repo-580 depends on the selected Dockerfile being the s6 image).
+- Status: partly fixed (514, 523, 580 fixed; 549, 566 kept)
+
+### COMP-046 — A migration command that needs a development-only tool is selected
+
+- Family: fresh-100 F6 (`ANALYSIS_BUG`), repo-560 (run).
+- Repositories fixed here: repo-560 (the selected pre-deploy command starts with `vite-node`, which the pruned runtime image does not contain; exit 127).
+- Type: ANALYSIS_BUG
+- Expected: no pre-deploy migration command (migration mode is not `pre_deploy`)
+- Actual: the command `vite-node scripts/... && npx knex migrate:latest` was selected
+- Fix: the development-only CLI list in `selectMigrationScript` now includes `vite-node`, `babel-node`, `ts-node-dev` and `esno`. A script that uses one of them is selected only when it is a runtime dependency of the deployed package or the final image keeps development dependencies. `ANALYSIS_VERSION` 50.
+- Regression: `packages/analysis/test/fresh-100-migration-runtime.test.ts` (fixtures only).
+- Verification: fixtures only; the effect on the real repository is for the next compat run.
+- Status: fixed
+
+### COMP-047 — The live repository AI answer is discarded when an architecture requirement has an explanation
+
+- Family: fresh-100 F5 (`DEPLOYZ_BUG`), 13 parse-error requests: repo-502, 503, 514, 516, 528, 536, 541, 545, 548, 555, 564, 573, 583. (The 10 timeouts of this family are not changed, see below.)
+- Repositories fixed here: all 13 (same schema rejection; the first-run evidence only holds the error `AI_NoObjectGeneratedError: response did not match schema`).
+- Type: DEPLOYZ_BUG (the benchmark registry has no such type; it holds ANALYSIS_MISSING_SIGNAL, the closest valid type, because the AI signal is missing from the stored analysis)
+- Expected: a well-formed model answer is used
+- Actual: the strict response schema rejected `architectureRequirements.<service>.explanation`. The model adds that key (as it does for every other field) although the prompt does not ask for it. The whole answer was lost. The failure was reproduced against the live gateway with a fixture repository: 1 of 5 requests; the validation issue was `unrecognized_keys: explanation` on the postgres and redis entries.
+- Fix: the architecture requirement schema accepts an optional `explanation` (max 200 characters). All other fields stay strict. `ANALYSIS_VERSION` 51.
+- Timeout: `REPO_AI_TIMEOUT_MS` (30 s) is unchanged. A live probe with thinking off answered in 6.3 to 16.4 s (fixture prompt, 9 requests). The 10 first-run timeouts are not explained by these numbers, so no new value is justified without a measurement on a real large prompt.
+- Regression: `packages/analysis/test/repository-ai.test.ts` (fixtures only).
+- Verification: fixtures and one live gateway probe on a fixture; the effect on the real repositories is for the next compat run.
+- Status: fixed (parse errors); timeouts open

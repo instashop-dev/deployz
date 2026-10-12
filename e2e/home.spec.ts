@@ -102,7 +102,7 @@ test('C — a ready application offers the first customer deployment', async ({ 
   });
 
   await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Your application is analysed' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Application analysed' })).toBeVisible();
   await expect(page.getByText(application.name).first()).toBeVisible();
   await expect(page.getByText('Docker')).toBeVisible();
   await expect(page.getByText('PostgreSQL')).toBeVisible();

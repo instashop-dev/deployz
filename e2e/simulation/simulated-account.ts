@@ -24,7 +24,7 @@
  * `/install`, `/stack-events`, `/ecs-health`).
  */
 
-import { DEPLOYZ_INSTALLATION_TAG, deployzTaskFamily, workloadContainerCommand } from '@deployz/contracts';
+import { DEPLOYZ_INSTALLATION_TAG, TASK_FAMILY_SUFFIX_PARAMETER, workloadContainerCommand } from '@deployz/contracts';
 import {
   type CreateStackInput,
   type CreateStackOutcome,
@@ -44,7 +44,7 @@ import type { EcsDeployClient, EcsTaskDefinition, RegisterTaskDefinitionInput } 
 import type { EcsTaskReader } from '@deployz/relay/ecs-observe';
 import type { StackDeleter, EcsStandaloneTaskStopper } from '@deployz/relay/destroy';
 
-import type { ScenarioDefinition, TimelineEvent, UpdateRolloutOutcome } from './types.js';
+import type { ConfigRolloutOutcome, ScenarioDefinition, TimelineEvent, UpdateRolloutOutcome } from './types.js';
 
 const STACK_EVENT_RESOURCE_TYPE = 'AWS::CloudFormation::Stack';
 const SUCCESS_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
@@ -63,6 +63,10 @@ interface ServiceDeployState {
   /** Sticky: read by the runtime-health heartbeat until the next update. */
   healthRolloutFailed: boolean;
   running: boolean;
+  /** The PRIMARY ECS deployment's id — a new one for every UpdateService. */
+  deploymentId: string;
+  /** One-shot: a configuration rollout the circuit breaker rolled back. */
+  failedDeployment: { id: string; taskDefinition: string } | null;
 }
 
 /**
@@ -76,10 +80,11 @@ interface ServiceDeployState {
 const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
 const BOOTSTRAP_IMAGE_DIGEST = `sha256:${'0'.repeat(64)}`;
 const RDS_CA_INIT_IMAGE = 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal';
-/** The migration family and the frozen command the fixtures' seeded `npm run db:migrate` compiles to. */
-const MIGRATION_FAMILY = deployzTaskFamily('migration');
+const CONFIG_SECRET_LOGICAL_ID = 'ApplicationConfigSecret';
+const TASK_DEFINITION_TYPE = 'AWS::ECS::TaskDefinition';
+const MIGRATION_TASK_DEFINITION = 'MigrationTaskDefinition';
+/** The frozen command the fixtures' seeded `npm run db:migrate` compiles to. */
 const FROZEN_MIGRATION_COMMAND = workloadContainerCommand('npm run db:migrate');
-const MIGRATION_TASK_LOGICAL_ID = 'MigrationTaskDefinition';
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -103,6 +108,8 @@ function physicalIdFor(resourceType: string, logicalId: string, stackName: strin
       return `${stackName}-storage-123456789012`;
     case 'AWS::ElastiCache::ReplicationGroup':
       return `${stackName}-redis`;
+    case 'AWS::SecretsManager::Secret':
+      return `arn:aws:secretsmanager:us-east-1:123456789012:secret:${stackName}-${logicalId}-AbCdEf`;
     default:
       return `${logicalId}-${stackName}`;
   }
@@ -128,8 +135,10 @@ export class SimulatedCustomerAccount {
    * behaviour.
    */
   private readonly taskDefinitionsByFamily = new Map<string, string>();
-  /** Family → the revision the stack itself created (its CloudFormation physical id). */
-  private readonly stackTaskDefinitionByFamily = new Map<string, string>();
+  /** Family → the revision CloudFormation created for it — the stack resource's physical id. */
+  private readonly stackTaskDefinitionArns = new Map<string, string>();
+  /** The stack's `paramTaskFamilySuffix`: every family the stack creates ends with it. */
+  private taskFamilySuffix = '';
   /**
    * One deploy/health state per ECS service (Phase 4A: one service per
    * workload), keyed by the service's ARN. Created lazily the first time a
@@ -176,6 +185,8 @@ export class SimulatedCustomerAccount {
    *  increases after a teardown. */
   createStackCalls = 0;
   private updateServiceCallIndex = 0;
+  private configRolloutCallIndex = 0;
+  private deploymentSequence = 0;
 
   // ── Phase 14 observability ───────────────────────────────────────────────
   // (migrationRuns above)
@@ -267,33 +278,69 @@ export class SimulatedCustomerAccount {
     }
     const stackName = this.stackNameValue;
     if (stackName === null) return [];
-    // The compiled stack carries the migration task definition whenever the
-    // app has a migration command, and the fixtures configure one for every
-    // database app: it is complete by the time any ECS service is.
+    // Every compiled stack carries the application config secret the
+    // CONFIG_UPDATE executor writes into; it is complete by the time any ECS
+    // service is.
     const serviceComplete = [...byResource.values()].some(
       (event) => event.resourceType === 'AWS::ECS::Service' && SUCCESS_STATUSES.has(event.status),
     );
-    if (serviceComplete && this.scenario.postgres !== false && !byResource.has(MIGRATION_TASK_LOGICAL_ID)) {
-      byResource.set(MIGRATION_TASK_LOGICAL_ID, {
+    if (serviceComplete && !byResource.has(CONFIG_SECRET_LOGICAL_ID)) {
+      byResource.set(CONFIG_SECRET_LOGICAL_ID, {
         afterMs: 0,
         atVirtualMs: 0,
-        logicalResourceId: MIGRATION_TASK_LOGICAL_ID,
-        resourceType: 'AWS::ECS::TaskDefinition',
+        logicalResourceId: CONFIG_SECRET_LOGICAL_ID,
+        resourceType: 'AWS::SecretsManager::Secret',
         status: 'CREATE_COMPLETE',
       });
     }
-    return [...byResource.entries()].map(([logicalId, event]) => ({
+    const resources: StackResource[] = [...byResource.entries()].map(([logicalId, event]) => ({
       logicalId,
       type: event.resourceType,
       status: event.status,
-      // A task definition's physical id is the exact revision the stack created.
       physicalId:
-        event.resourceType === 'AWS::ECS::TaskDefinition'
+        event.resourceType === TASK_DEFINITION_TYPE
           ? this.stackTaskDefinitionArn(logicalId)
           : physicalIdFor(event.resourceType, logicalId, stackName),
       timestamp: this.eventTimestampIso(event),
       ...(event.statusReason !== undefined ? { statusReason: event.statusReason } : {}),
     }));
+    // The compiled stack creates each service's own task definition
+    // (`<Component>TaskDefinition`) alongside the service.
+    for (const created of resources.filter(
+      (resource) => resource.type === 'AWS::ECS::Service' && resource.status === 'CREATE_COMPLETE',
+    )) {
+      const logicalId = created.logicalId.replace(/Service$/, 'TaskDefinition');
+      if (byResource.has(logicalId)) continue;
+      resources.push({
+        logicalId,
+        type: TASK_DEFINITION_TYPE,
+        status: 'CREATE_COMPLETE',
+        physicalId: this.stackTaskDefinitionArn(logicalId),
+        ...(created.timestamp !== undefined ? { timestamp: created.timestamp } : {}),
+      });
+    }
+    // A database-backed fixture application always analyses with a migration
+    // command (fixtures.ts), so its compiled stack also creates the migration
+    // task definition — alongside the application service.
+    const service = resources.find(
+      (resource) => resource.type === 'AWS::ECS::Service' && resource.status === 'CREATE_COMPLETE',
+    );
+    if (this.scenario.postgres !== false && service !== undefined && !byResource.has(MIGRATION_TASK_DEFINITION)) {
+      resources.push({
+        logicalId: MIGRATION_TASK_DEFINITION,
+        type: TASK_DEFINITION_TYPE,
+        status: 'CREATE_COMPLETE',
+        physicalId: this.stackTaskDefinitionArn(MIGRATION_TASK_DEFINITION),
+        ...(service.timestamp !== undefined ? { timestamp: service.timestamp } : {}),
+      });
+    }
+    return resources;
+  }
+
+  /** The revision CloudFormation created for a `<Component>TaskDefinition` resource. */
+  private stackTaskDefinitionArn(logicalId: string): string {
+    const family = this.taskFamily(logicalId.replace(/TaskDefinition$/, ''));
+    return this.stackTaskDefinitionArns.get(family) ?? this.ensureTaskFamily(family);
   }
 
   // ── CreateStack (shared by the StackInstaller adapter) ────────────────
@@ -308,6 +355,7 @@ export class SimulatedCustomerAccount {
       if (this.deleteStartRealMs !== null && !this.scenario.destroy) {
         this.stackNameValue = input.stackName;
         this.installationTag = input.tags[DEPLOYZ_INSTALLATION_TAG] ?? '';
+        this.taskFamilySuffix = input.parameters[TASK_FAMILY_SUFFIX_PARAMETER] ?? '';
         this.deleteStartRealMs = null;
         return { created: true, stackId: this.stackIdValue };
       }
@@ -317,6 +365,7 @@ export class SimulatedCustomerAccount {
     }
     this.stackNameValue = input.stackName;
     this.installationTag = input.tags[DEPLOYZ_INSTALLATION_TAG] ?? '';
+    this.taskFamilySuffix = input.parameters[TASK_FAMILY_SUFFIX_PARAMETER] ?? '';
     return { created: true, stackId: this.stackIdValue };
   }
 
@@ -575,16 +624,20 @@ export class SimulatedCustomerAccount {
 
   // ── Deploy/rollback (D2) ─────────────────────────────────────────────────
 
-  /** `DeployzApp<pascal(componentId)>` — the compiler's task-def family shape
-   *  (WebService → DeployzAppWeb, EmailWorkerService → DeployzAppEmailWorker). */
+  /** `DeployzApp<pascal(componentId)>` + the stack's task-family suffix — the
+   *  compiler's task-def family shape (WebService → DeployzAppWeb<suffix>). */
   private familyForLogicalId(logicalId: string): string {
-    const component = logicalId.replace(/Service$/, '');
+    return this.taskFamily(logicalId.replace(/Service$/, ''));
+  }
+
+  /** The family this stack's compiled template names for a component. */
+  taskFamily(component: string): string {
     const pascal = component
       .split(/[^A-Za-z0-9]+/)
       .filter((word) => word.length > 0)
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
-    return `DeployzApp${pascal}`;
+    return `DeployzApp${pascal}${this.taskFamilySuffix}`;
   }
 
   /** The stack's ECS services in resource order — web first (compile order). */
@@ -623,21 +676,14 @@ export class SimulatedCustomerAccount {
           name: 'App',
           image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}`,
           essential: true,
-          ...(family === MIGRATION_FAMILY ? { command: [...FROZEN_MIGRATION_COMMAND] } : {}),
+          ...(family === this.familyForLogicalId('Migration') ? { command: [...FROZEN_MIGRATION_COMMAND] } : {}),
         },
         { name: 'RdsCaBundle', image: RDS_CA_INIT_IMAGE, essential: false },
       ],
     });
     this.taskDefinitionsByFamily.set(family, arn);
-    this.stackTaskDefinitionByFamily.set(family, arn);
+    this.stackTaskDefinitionArns.set(family, arn);
     return arn;
-  }
-
-  /** The revision the stack created for a task-definition logical id (`MigrationTaskDefinition` → `DeployzAppMigration`). */
-  private stackTaskDefinitionArn(logicalId: string): string {
-    const family = this.familyForLogicalId(logicalId.replace(/TaskDefinition$/, ''));
-    this.ensureTaskFamily(family);
-    return this.stackTaskDefinitionByFamily.get(family)!;
   }
 
   /** The task definition the last migration task ran, for scenario assertions. */
@@ -664,6 +710,8 @@ export class SimulatedCustomerAccount {
         jobRolloutFailed: false,
         healthRolloutFailed: false,
         running: false,
+        deploymentId: this.nextDeploymentId(),
+        failedDeployment: null,
       });
     }
   }
@@ -686,6 +734,25 @@ export class SimulatedCustomerAccount {
       desiredCount: state.desiredCount,
       healthy: state.running && !state.healthRolloutFailed,
     }));
+  }
+
+  private nextDeploymentId(): string {
+    this.deploymentSequence += 1;
+    return `ecs-svc/${String(this.deploymentSequence).padStart(19, '0')}`;
+  }
+
+  private nextConfigRolloutOutcome(): ConfigRolloutOutcome {
+    const outcome = this.scenario.configRollouts?.[this.configRolloutCallIndex] ?? 'succeed';
+    this.configRolloutCallIndex += 1;
+    return outcome;
+  }
+
+  /** The image a revision runs, for telling a configuration rollout from a release rollout. */
+  private imageOf(taskDefinitionArn: string): string | undefined {
+    const image = this.taskDefinitions.get(taskDefinitionArn)?.containerDefinitions.find(
+      (container) => typeof container.image === 'string' && container.image.includes('@'),
+    )?.image;
+    return typeof image === 'string' ? image : undefined;
   }
 
   private nextUpdateRolloutOutcome(): UpdateRolloutOutcome {
@@ -789,11 +856,23 @@ export class SimulatedCustomerAccount {
             if (state === undefined) return {};
             const failed = state.jobRolloutFailed;
             state.jobRolloutFailed = false;
+            const rolledBack = state.failedDeployment;
+            state.failedDeployment = null;
             return {
               desiredCount: state.desiredCount,
               runningCount: failed || !state.running ? 0 : state.desiredCount,
               taskDefinition: state.taskDefinitionArn,
-              deployments: [{ status: 'PRIMARY', rolloutState: failed ? 'FAILED' : 'COMPLETED' }],
+              deployments: [
+                {
+                  id: state.deploymentId,
+                  status: 'PRIMARY',
+                  taskDefinition: state.taskDefinitionArn,
+                  rolloutState: failed ? 'FAILED' : 'COMPLETED',
+                },
+                ...(rolledBack !== null
+                  ? [{ id: rolledBack.id, status: 'ACTIVE', taskDefinition: rolledBack.taskDefinition, rolloutState: 'FAILED' }]
+                  : []),
+              ],
               networkConfiguration: {
                 awsvpcConfiguration: {
                   subnets: ['subnet-11111aaa'],
@@ -833,11 +912,41 @@ export class SimulatedCustomerAccount {
         // new image, no rollout knob consumed.
         if (input.forceNewDeployment === true) {
           this.restarts += 1;
+          state.deploymentId = this.nextDeploymentId();
           state.jobRolloutFailed = false;
           state.healthRolloutFailed = false;
           state.running = state.runningDigest !== null;
           return;
         }
+        // A re-point at zero tasks (configuration delivered before the first
+        // start) runs nothing, so nothing rolls.
+        if (input.taskDefinition !== undefined && state.desiredCount === 0 && input.desiredCount === undefined) {
+          state.taskDefinitionArn = input.taskDefinition;
+          state.deploymentId = this.nextDeploymentId();
+          return;
+        }
+        // A configuration rollout: a new revision of the same image on a
+        // running service. 'rollback' is the ECS circuit breaker restoring
+        // the previous revision, which keeps serving.
+        if (
+          input.taskDefinition !== undefined &&
+          state.desiredCount > 0 &&
+          state.running &&
+          this.imageOf(input.taskDefinition) === this.imageOf(state.taskDefinitionArn)
+        ) {
+          const ours = this.nextDeploymentId();
+          if (this.nextConfigRolloutOutcome() === 'rollback') {
+            this.operationLog.push(`config-rollback:${state.logicalId}`);
+            state.failedDeployment = { id: ours, taskDefinition: input.taskDefinition };
+            state.deploymentId = this.nextDeploymentId();
+            return;
+          }
+          this.operationLog.push(`config:${state.logicalId}`);
+          state.taskDefinitionArn = input.taskDefinition;
+          state.deploymentId = ours;
+          return;
+        }
+        state.deploymentId = this.nextDeploymentId();
         const outcome = this.nextUpdateRolloutOutcome();
         if (input.taskDefinition !== undefined) state.taskDefinitionArn = input.taskDefinition;
         // First-start scaling rides the payload's per-workload count.
@@ -918,11 +1027,7 @@ export class SimulatedCustomerAccount {
     const found = this.taskDefinitions.get(arn);
     if (found === undefined) throw new Error(`Unknown task definition "${taskDefinition}"`);
     return {
-      taskDefinition: {
-        ...found,
-        taskDefinitionArn: arn,
-        containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })),
-      },
+      taskDefinition: { ...found, taskDefinitionArn: arn, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
     };
   }
 

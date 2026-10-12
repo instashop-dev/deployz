@@ -31,19 +31,14 @@ export default async function MembersPage() {
           <ArrowLeft className="size-4" aria-hidden />
           Settings
         </Link>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Team</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            The people who have access to this organization.
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Team</h1>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Members</CardTitle>
           <CardDescription>
-            {members.length} {members.length === 1 ? 'member' : 'members'}.
+            {members.length} {members.length === 1 ? 'member' : 'members'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -54,7 +49,6 @@ export default async function MembersPage() {
       <Card>
         <CardHeader>
           <CardTitle>Pending invitations</CardTitle>
-          <CardDescription>Invitations that have not been accepted yet.</CardDescription>
         </CardHeader>
         <CardContent>
           <PendingInvitations invitations={invitations} canManage={canManage} />
@@ -65,7 +59,6 @@ export default async function MembersPage() {
         <Card>
           <CardHeader>
             <CardTitle>Invite someone</CardTitle>
-            <CardDescription>They will get an email with a link to join.</CardDescription>
           </CardHeader>
           <CardContent>
             <InviteMemberForm />
@@ -77,7 +70,6 @@ export default async function MembersPage() {
         <Card>
           <CardHeader>
             <CardTitle>Leave organization</CardTitle>
-            <CardDescription>Remove your own access to this organization.</CardDescription>
           </CardHeader>
           <CardContent>
             <LeaveOrganizationButton />

@@ -421,6 +421,10 @@ const PROVISION_MANAGE_ACTIONS = [
   'ec2:AttachInternetGateway',
   'ec2:DetachInternetGateway',
   'ec2:ModifyVpcAttribute',
+  // The secondary VPC CIDR for the database-only subnets
+  // (AWS::EC2::VPCCidrBlock) acts on the tagged VPC.
+  'ec2:AssociateVpcCidrBlock',
+  'ec2:DisassociateVpcCidrBlock',
   'ec2:ModifySubnetAttribute',
   'ec2:AuthorizeSecurityGroupIngress',
   'ec2:AuthorizeSecurityGroupEgress',

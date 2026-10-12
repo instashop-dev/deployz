@@ -44,8 +44,7 @@ export function RequirementDriftNotice({
         <TriangleAlert className="size-4" aria-hidden />
         <AlertTitle>Existing deployments are not changed</AlertTitle>
         <AlertDescription>
-          Deployz reports these differences only. Deployz does not change these deployments
-          automatically. Each deployment below keeps the settings it was created with.
+          Each deployment keeps the settings it was created with.
         </AlertDescription>
       </Alert>
       <ul className="flex flex-col gap-3">
@@ -118,7 +117,7 @@ export function EditDialog({
       await onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'We could not save the change. Try again.');
+      setError(err instanceof Error ? err.message : "Couldn't save the change. Try again.");
     } finally {
       setPendingAction(null);
     }
@@ -133,7 +132,7 @@ export function EditDialog({
       await onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'We could not reset the value. Try again.');
+      setError(err instanceof Error ? err.message : "Couldn't reset the value. Try again.");
     } finally {
       setPendingAction(null);
     }

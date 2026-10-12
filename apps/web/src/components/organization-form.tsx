@@ -63,7 +63,7 @@ export function OrganizationForm({ organization }: { organization: OrganizationI
         ) : null}
         {status === 'error' ? (
           <p role="alert" className="text-sm text-destructive">
-            We couldn&apos;t save this change. Try again in a moment.
+            Couldn&apos;t save. Try again.
           </p>
         ) : null}
       </div>

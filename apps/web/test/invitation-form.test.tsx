@@ -145,7 +145,7 @@ describe('InvitationDialog', () => {
     // An input's value is not part of textContent — read the field itself.
     const linkInput = document.getElementById('invitation-link') as HTMLInputElement;
     expect(linkInput.value).toContain(`#${TOKEN}`);
-    expect(document.body.textContent).toContain('it carries the one-time token');
+    expect(document.body.textContent).toContain('The token is shown only once');
   });
 
   it('shows the server error message when creation fails', async () => {

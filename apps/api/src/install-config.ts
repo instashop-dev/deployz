@@ -1,11 +1,19 @@
 import { eq } from 'drizzle-orm';
 
-import { derivedS3EnvValue, mintedEnvKeys } from '@deployz/analysis';
-import { buildDeploymentResourceTags, deliversConfigValue, requirementsFromSpec } from '@deployz/contracts';
+import { derivedS3EnvValue, derivedUrlEnvValue, mintedEnvKeys } from '@deployz/analysis';
+import {
+  TASK_FAMILY_SUFFIX_PARAMETER,
+  buildDeploymentResourceTags,
+  deliversConfigValue,
+  requirementsFromSpec,
+  taskFamilySuffixForSpec,
+  type DeploymentSpecV2,
+} from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
+import { getDefaultDeploymentUrl } from './default-https.js';
 import { readEnvironmentSettings } from './environment-setup.js';
 import { ApiError } from './errors.js';
 import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
@@ -62,7 +70,7 @@ export interface PendingSecretVault {
  * The entries the relay applies: every effective config entry (plain values
  * travel, secret values never do) plus, for each key without a vendor or
  * customer value, the value Deployz derives (S3 region/endpoint from the
- * deployment region) or an entry the relay mints (a generated key). When a
+ * deployment region, the app's own public URL from the default HTTPS URL) or an entry the relay mints (a generated key). When a
  * `vault` is passed (production path), pending-secrets rows are decrypted in this
  * seam — values the vendor typed before the relay enrolled reach the
  * customer via this read, not via the queue message.
@@ -142,10 +150,13 @@ export async function buildRelayConfigEntries(
   const configured = new Set(entries.map((entry) => entry.key));
   // Precedence: an explicit vendor/customer value (above) always wins over a
   // derived value.
-  if (manifest?.storage.required === true) {
+  if (manifest !== null) {
+    const defaultUrl = deployment.id === undefined ? null : getDefaultDeploymentUrl(deployment.id);
     for (const variable of manifest.environment.variables) {
       if (configured.has(variable.key)) continue;
-      const value = derivedS3EnvValue(variable, deployment.region);
+      const value =
+        (manifest.storage.required ? derivedS3EnvValue(variable, deployment.region) : null) ??
+        (defaultUrl === null ? null : derivedUrlEnvValue(variable, defaultUrl));
       if (value === null) continue;
       configured.add(variable.key);
       entries.push({ key: variable.key, isSecret: false, value, source: 'derived' });
@@ -174,6 +185,25 @@ export async function configPrecedesFirstStart(
 }
 
 /**
+ * The task-family suffix of a deployment's compiled stack (empty for an
+ * artifact with shared family names). Refused when the stack needs a suffix
+ * and no installation is registered (the same refusal as a deploy without a
+ * connected relay): no family could be named, and a deploy must never run
+ * without its migration.
+ */
+export function requireTaskFamilySuffix(spec: DeploymentSpecV2, installationId: string | null): string {
+  const suffix = taskFamilySuffixForSpec(spec, installationId);
+  if (suffix === null) {
+    throw new ApiError(
+      409,
+      'RELAY_NOT_CONNECTED',
+      'No relay is connected to this deployment. Reconnect it before deploying.',
+    );
+  }
+  return suffix;
+}
+
+/**
  * The INSTALL job's payload: the compiled template's URL + parameters, the
  * Redis/database flags, the deployment identity tags, the canonical manifest
  * and — when configuration must precede the first start and there is a
@@ -186,6 +216,8 @@ export async function configPrecedesFirstStart(
  * deployment's frozen spec (the compiled artifact the relay must fetch and
  * the verification contract it must satisfy), never re-derived — a
  * deployment created before the compiler existed fails closed here.
+ * `installationId` names the installation the stack is created for; its
+ * task-family suffix makes every task family of the stack its own.
  */
 export async function buildInstallPayload(
   db: RuntimeDb,
@@ -199,6 +231,7 @@ export async function buildInstallPayload(
     specV2: Record<string, unknown> | null;
   },
   store: ConfigStore,
+  installationId: string | null,
 ): Promise<Record<string, unknown>> {
   const manifest = readStoredManifest(deployment.desiredState);
   if (!manifest) {
@@ -217,13 +250,14 @@ export async function buildInstallPayload(
     );
   }
   const requirements = requirementsFromSpec(spec)!;
+  const familySuffix = requireTaskFamilySuffix(spec, installationId);
   const startAfterConfig = await configPrecedesFirstStart(db, deployment, store);
   const { parameters, releaseId } = await buildInstallParameters(db, deployment.id, {
     startAfterConfig,
   });
   return {
     templateUrl: spec.artifactLocation,
-    parameters,
+    parameters: familySuffix === '' ? parameters : { ...parameters, [TASK_FAMILY_SUFFIX_PARAMETER]: familySuffix },
     databaseRequired: requirements.databaseRequired,
     redisRequired: requirements.redisRequired,
     // Control-plane-minted deployz identity tags. The relay applies them as

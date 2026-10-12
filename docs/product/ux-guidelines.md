@@ -255,7 +255,9 @@ AWS access and security, customer-provided configuration and secrets,
 retained resources and data, removal behavior, the failure summary, the
 rollback migration warning.
 
-**Technical details** (collapsed, one label everywhere): AWS sizing (vCPU,
+**Technical details** (collapsed, one label everywhere; on the customer
+progress page the one disclosure is "Deployment details" because it also
+holds the detailed step list, the activity feed and component status): AWS sizing (vCPU,
 memory, instance class, storage size, NAT gateway), AWS resource types and
 counts, stack names and status, logical IDs, ARNs, account IDs, installation
 references, raw events and raw errors, detection evidence, passed checks,
@@ -269,8 +271,8 @@ no purpose in that context.
 | Vendor Overview | "N services detected · View" |
 | Vendor Configuration › Services & resources | Canonical vendor view: one row per service with its sizing, its AWS resources (each once, collapsed), estimated AWS cost, Kept / Removed on removal, and issues (Needs input); Detected / Confirmed states under Technical details (UX-BACKEND-007) |
 | Vendor deployment page | Live status per service; resource inventory under Technical details |
-| Customer pre-deploy | Concise customer summary grouped under generic headings, with Kept / Removed |
-| Customer during deploy | Component progress, only after the first infrastructure event |
+| Customer pre-deploy | Concise customer summary grouped under generic headings; the full AWS resource table, with Kept / Removed, under "View AWS resources" |
+| Customer during deploy | Component progress, only after the first infrastructure event, under "Deployment details" |
 
 **Customer secrets — truthful statement.** Customers type secrets before
 their AWS account connects, so this path applies

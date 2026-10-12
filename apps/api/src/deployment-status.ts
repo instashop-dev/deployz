@@ -1274,9 +1274,19 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     jobs.filter((job) => job.type === 'DEPLOY_RELEASE' || job.type === 'ROLLBACK' || job.type === 'RESTART'),
     (job) => job.createdAt,
   );
+  // A failed configuration update surfaces the same way while the latest
+  // configuration attempt is the failed one; a failed release update wins.
+  const latestConfigUpdate = latestBy(
+    jobs.filter((job) => job.type === 'CONFIG_UPDATE'),
+    (job) => job.createdAt,
+  );
   const dayTwoFailure =
-    stage !== 'FAILED' && everInstalled && !REMOVED_STATES.has(deployment.state) && latestDayTwo?.state === 'FAILED'
-      ? latestDayTwo
+    stage !== 'FAILED' && everInstalled && !REMOVED_STATES.has(deployment.state)
+      ? latestDayTwo?.state === 'FAILED'
+        ? latestDayTwo
+        : latestConfigUpdate?.state === 'FAILED'
+          ? latestConfigUpdate
+          : undefined
       : undefined;
 
   const updatedAt =

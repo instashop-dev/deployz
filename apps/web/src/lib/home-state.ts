@@ -215,18 +215,18 @@ export function firstDeploymentCopy(input: {
   if (input.state === 'NOT_INSTALLED') {
     return {
       title: `Waiting for ${input.customerName} to install`,
-      body: 'Send them their install link, then this deployment sets itself up.',
+      body: 'Send them the install link.',
     };
   }
   if (input.state === 'WAITING_FOR_RELAY') {
     return {
       title: `Connecting ${input.customerName}'s AWS account`,
-      body: 'They approved the setup. AWS is creating the Deployz connector — this updates itself.',
+      body: 'Approved. AWS is creating the Deployz connector.',
     };
   }
   return {
     title: `Deploying ${input.customerName}`,
-    body: 'Setting up this deployment in your customer’s AWS account.',
+    body: 'Setting up in the customer’s AWS account.',
   };
 }
 

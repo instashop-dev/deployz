@@ -7,6 +7,7 @@ import {
   type ReadinessReport,
 } from '@deployz/analysis';
 import {
+  applyEnvironmentBindings,
   evaluateEnvironmentSetup,
   keysNotNeedingValue,
   runtimeKeysNeedingValue,
@@ -263,11 +264,11 @@ export async function runApplicationPreflight(
   customerId: string | null,
   extraProvidedEnvKeys: readonly string[] = [],
 ): Promise<{ manifest: DeploymentManifest; result: PreflightResult }> {
-  const manifest = normalizeDeploymentManifest(
-    { metadata: application.detectedMetadata ?? {} },
-    applicationToManifestOverrides(application),
-  );
   const settings = readEnvironmentSettings(application);
+  const manifest = applyEnvironmentBindings(
+    normalizeDeploymentManifest({ metadata: application.detectedMetadata ?? {} }, applicationToManifestOverrides(application)),
+    settings,
+  );
   const providedEnvKeys = [
     ...(await listProvidedConfigKeys(db, application.id, customerId, settings)),
     ...extraProvidedEnvKeys,

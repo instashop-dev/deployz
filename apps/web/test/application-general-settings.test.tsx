@@ -188,7 +188,7 @@ describe('Rename application', () => {
     });
     await click(byTestId('app-name-save'));
 
-    expect(mocks.toastError).toHaveBeenCalledWith("We couldn't rename the application. Try again in a moment.");
+    expect(mocks.toastError).toHaveBeenCalledWith("Couldn't rename the application. Try again.");
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 });
@@ -280,7 +280,7 @@ describe('Delete application', () => {
     });
 
     expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(
-      "We couldn't remove this application. Try again in a moment.",
+      "Couldn't remove the application. Try again.",
     );
     expect(mocks.push).not.toHaveBeenCalled();
   });
@@ -293,7 +293,7 @@ describe('Delete application', () => {
     });
 
     expect(byTestId('delete-app-unavailable')?.textContent).toContain(
-      "This application has deployment history, so it can't be removed.",
+      "Applications with deployment history can't be removed.",
     );
     expect(byTestId('delete-app-trigger')).toBeNull();
   });

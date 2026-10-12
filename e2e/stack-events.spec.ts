@@ -259,7 +259,9 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
     page.getByRole('heading', { name: 'Creating application infrastructure' }),
   ).toBeVisible();
   await expect(page.getByText('Creating infrastructure (in progress)')).toBeVisible();
+  await page.getByRole('button', { name: 'Deployment details' }).click();
   await expect(page.getByText('Creating network (in progress)')).toBeVisible();
+  await page.getByRole('button', { name: 'Deployment details' }).click();
   const installPageText = await page.locator('body').innerText();
   expect(installPageText).not.toMatch(JARGON);
 

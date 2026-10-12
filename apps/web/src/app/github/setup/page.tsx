@@ -33,7 +33,7 @@ export default async function GithubSetupPage({
     return (
       <SetupCard title="Finish connecting GitHub">
         <p className="text-sm text-muted-foreground">
-          The Deployz GitHub App is installed. Sign in to connect it to your organization.
+          Sign in to connect the GitHub App to your organization.
         </p>
         <Button asChild>
           <Link href={route.href}>Sign in</Link>
@@ -45,8 +45,7 @@ export default async function GithubSetupPage({
   return (
     <SetupCard title="No installation to connect">
       <p className="text-sm text-muted-foreground">
-        GitHub did not name an installation in this link. Start the connection again from your
-        applications page.
+        This link has no installation. Start again from your applications page.
       </p>
       <Button asChild variant="outline">
         <Link href="/dashboard/applications">Go to applications</Link>
