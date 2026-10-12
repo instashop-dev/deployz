@@ -316,6 +316,16 @@ Gate C also found that CONFIG_UPDATE failed on every compiler-v2 stack
 canary covered it. A profile whose fixture needs one vendor value and
 one secret would keep that path under test.
 
+**Pending qualification — CONFIG_UPDATE settlement (recorded, not run).**
+A configuration update now succeeds only after its rollout completes, and
+a circuit-breaker rollback fails it. The real-AWS run must prove: a plain
+value change rolls a new revision and succeeds after the targets are
+healthy; a secret-only change forces fresh tasks; a configuration that
+breaks the application is rolled back by the circuit breaker, the job
+fails and the previous revision keeps serving. The change that added the
+settlement deferred this run by instruction; the run is not waived, and
+`config-update-failure` is the simulated evidence until then.
+
 Stage B `fromEnv` secrets (`deploy-config.yaml`) deliver a credential
 the harness cannot generate — Gate C's scoped S3 key pair — from the
 environment at run time. The value is never stored.

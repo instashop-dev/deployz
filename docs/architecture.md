@@ -17,7 +17,7 @@ rationale lives in [`decisions/README.md`](decisions/README.md).
 | Component | Code | Role |
 | --- | --- | --- |
 | API Lambda (Fastify, Node 22, behind HTTP API Gateway at `api.deployz.dev`) | `apps/api` | Auth (Better Auth), GitHub App, analysis, releases, deployments, invitations, relay channel, billing, Team Admin |
-| Worker Lambda (SQS consumer + 15-minute schedule) | `packages/cdk/src/lambda/worker.ts` | Analysis and release-build jobs, CONFIG_UPDATE fan-out, CodeBuild result handling, the reconcile watchdog and the other sweeps |
+| Worker Lambda (SQS consumer + 15-minute schedule) | `packages/cdk/src/lambda/worker.ts` | Analysis and release-build jobs, CONFIG_UPDATE fan-out (the API runs it inline without a queue), CodeBuild result handling, the reconcile watchdog and the other sweeps |
 | RDS PostgreSQL 16 (`db.t4g.micro`, isolated subnets) | `packages/db` (drizzle) | All control-plane state |
 | SQS job queue + dead-letter queue | `apps/api/src/queue.ts` | API → worker messages |
 | CodeBuild project + ECR repository `deployz-images` | `packages/cdk/src/pipeline/build-pipeline.ts` | Release builds; immutable tags, digest-pinned deploys |

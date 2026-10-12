@@ -111,8 +111,9 @@ customer types secret (invitation confirm or config save)
   bound, because the direct CONFIG_UPDATE can find no service and its payload is scrubbed on claim
 → relay enrollment → INSTALL with desired count 0 when configuration must precede the first start
 → relay fetches effective config (GET /api/relay/config); the API decrypts bound rows in that response and stamps delivery
-→ CONFIG_UPDATE writes the value into the customer's Secrets Manager secret
-→ relay result → bound rows deleted
+→ CONFIG_UPDATE writes the value into the customer's Secrets Manager secret and re-points the
+  zero-task service (a running service: it waits until the rollout completes)
+→ relay result → bound rows deleted on success only
 → auto-deploy of the newest READY release scales the service up
 ```
 

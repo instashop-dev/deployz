@@ -201,9 +201,13 @@ function deployCommand(imageDigest: string) {
 /** The configuration executor and the deploy executor over one shared ECS service. */
 function createRelay(world: World) {
   const ecs = fakeEcs(world);
+  // One relay holds one pending marker, shared by every executor.
+  const pending = memoryPendingStore();
   const configDeps = {
     cfn,
     ecs,
+    elb,
+    pending,
     secrets,
     fetchEffectiveConfig: async () => ENTRIES,
     stackName: 'deployz-app',
@@ -213,7 +217,7 @@ function createRelay(world: World) {
     cfn,
     ecs,
     elb,
-    pending: memoryPendingStore(),
+    pending,
     stackName: 'deployz-app',
     installationId: 'inst-test',
     unappliedConfiguration: (definition) => unappliedConfigurationKeys(configDeps, definition),

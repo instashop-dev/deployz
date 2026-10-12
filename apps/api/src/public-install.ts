@@ -497,7 +497,7 @@ export async function confirmPublicInstall(
       await setConfig(link.applicationId, customerId, config, {
         ...configDeps,
         store: createConfigStore(tx),
-        secretWriter: createRelaySecretWriter(),
+        secretWriter: createRelaySecretWriter(tx),
         pendingSecrets: createDrizzlePendingSecretStore(tx, configDeps.cipher),
         findScopeDeployments: createScopeDeploymentsFinder(tx),
         findApplicationOrganizationId: async (applicationId) => {

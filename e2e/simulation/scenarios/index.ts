@@ -10,6 +10,7 @@ import { happyPath } from './happy-path.js';
 import { healthcheckFailure } from './healthcheck-failure.js';
 import { lifecycleSweep } from './lifecycle-sweep.js';
 import { migrationFailure } from './migration-failure.js';
+import { configUpdateFailure } from './config-update-failure.js';
 import { migrationSuccess } from './migration-success.js';
 import { multiWorkerSweep } from './multi-worker-sweep.js';
 import { mysqlSweep } from './mysql-sweep.js';
@@ -51,6 +52,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [healthcheckFailure.id]: healthcheckFailure,
   [lifecycleSweep.id]: lifecycleSweep,
   [migrationFailure.id]: migrationFailure,
+  [configUpdateFailure.id]: configUpdateFailure,
   [migrationSuccess.id]: migrationSuccess,
   [multiWorkerSweep.id]: multiWorkerSweep,
   [mysqlSweep.id]: mysqlSweep,
@@ -98,6 +100,7 @@ export {
   healthcheckFailure,
   lifecycleSweep,
   migrationFailure,
+  configUpdateFailure,
   migrationSuccess,
   multiWorkerSweep,
   mysqlSweep,
