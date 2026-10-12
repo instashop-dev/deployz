@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { analyseRepo } from '../src/analyser.js';
 import { migrationRunnerVerdict, type FileTree } from '../src/detectors.js';
+import { manifestToApplicationGraph } from '../src/graph.js';
 import { evaluateManifestReadiness, normalizeDeploymentManifest } from '../src/manifest.js';
 import { buildReadinessReport, reconcileReadiness } from '../src/readiness-report.js';
 
@@ -104,5 +105,35 @@ describe('the migration "Needs input" question', () => {
     );
     expect(decided.migration.needsCommand).toBeUndefined();
     expect(evaluateManifestReadiness(decided).findings.map((finding) => finding.id)).not.toContain('migration-command-needs-input');
+  });
+});
+
+describe('the explicit "No separate migration" choice', () => {
+  const unknown = analyseRepo(tree(['FROM golang:1.22'], { dependencies: { pg: '8' } }));
+  const metadata = { ...unknown.metadata, postgres: { required: true }, migrationMode: 'unknown' };
+  const questions = (manifest: ReturnType<typeof normalizeDeploymentManifest>) =>
+    manifestToApplicationGraph(manifest).unresolved.map((entry) => entry.field);
+
+  it('is frozen as mode none and closes the migration strategy question', () => {
+    const open = normalizeDeploymentManifest({ metadata }, {});
+    expect(open.migration.mode).toBe('unknown');
+    expect(questions(open)).toContain('migration_strategy');
+
+    const decided = normalizeDeploymentManifest({ metadata: { ...metadata, vendorOverrides: ['migrationCommand'] } }, {});
+    expect(decided.migration).toMatchObject({ mode: 'none', command: null });
+    expect(questions(decided)).not.toContain('migration_strategy');
+  });
+
+  it('keeps startup mode and a vendor command untouched', () => {
+    const startup = normalizeDeploymentManifest(
+      { metadata: { ...metadata, migrationMode: 'startup', vendorOverrides: ['migrationCommand'] } },
+      {},
+    );
+    expect(startup.migration.mode).toBe('startup');
+    const command = normalizeDeploymentManifest(
+      { metadata: { ...metadata, vendorOverrides: ['migrationCommand'] } },
+      { migrationCommand: 'node migrate.js' },
+    );
+    expect(command.migration).toMatchObject({ mode: 'unknown', command: 'node migrate.js' });
   });
 });
