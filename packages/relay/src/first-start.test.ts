@@ -165,10 +165,13 @@ const RESOURCES: StackResource[] = [
 
 const cfn: CloudFormationReader = {
   async describeStack() {
-    return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+    return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {}, stackId: 'stack-id-deployz-app' } };
   },
   async describeStackResources() {
     return RESOURCES;
+  },
+  async listStackResources() {
+    return { resources: RESOURCES };
   },
 };
 

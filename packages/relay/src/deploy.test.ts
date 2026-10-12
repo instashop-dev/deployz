@@ -1513,8 +1513,9 @@ describe('one-shot families shared with another installation', () => {
       createEcsDeployExecutor({ ...d, cfn: { ...d.cfn, listStackResources: async () => null } }),
       migrationDeploy(),
     );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('could not be read');
+    // Unreadable inventory is no verdict: deferred, never failed.
+    expect(result.deferred).toBe(true);
+    expect(result.error).toBeUndefined();
     expect(state.registered).toHaveLength(0);
     expect(state.runTasks).toHaveLength(0);
     expect(state.updates).toHaveLength(0);
@@ -1550,6 +1551,75 @@ describe('createEcsDeployResumer', () => {
     const results = await createEcsDeployResumer(d)();
     expect(results).toHaveLength(1);
     expect(results[0]!.success).toBe(true);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('keeps the marker and reports nothing when the stack resources cannot be read', async () => {
+    const state = baseState();
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    const results = await createEcsDeployResumer({ ...d, cfn: { ...d.cfn, listStackResources: async () => null } })();
+    expect(results).toHaveLength(0);
+    expect(await d.pending.read()).not.toBeNull();
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('finds the ECS services of a stack past the first 100 resources (paged)', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    const d = deps(state);
+    const all = (await d.cfn.listStackResources!('deployz-app'))!.resources;
+    const filler: StackResource[] = Array.from({ length: 100 }, (_, i) => ({
+      logicalId: `Filler${i}`,
+      type: 'AWS::S3::Bucket',
+      status: 'CREATE_COMPLETE',
+    }));
+    // describeStackResources would stop at 100 and miss the service; the
+    // paged read reaches page two.
+    const cfn: CloudFormationReader = {
+      ...d.cfn,
+      describeStackResources: async () => filler,
+      listStackResources: async (_name, token) =>
+        token === undefined ? { resources: filler, nextToken: 'page-2' } : { resources: all },
+    };
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    const results = await createEcsDeployResumer({ ...d, cfn })();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it('still fails a deploy whose readable stack has no ECS service', async () => {
+    const state = baseState();
+    const d = deps(state, false);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.error).toContain('No ECS service found');
     expect(await d.pending.read()).toBeNull();
   });
 
@@ -1729,6 +1799,19 @@ describe('createRestartExecutor', () => {
     });
   });
 
+  it('does not fail a restart whose stack resources cannot be read', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const result = await run(
+      createRestartExecutor({ ...d, cfn: { ...d.cfn, listStackResources: async () => null } }),
+      deployCommand({}, 'RESTART' as never),
+    );
+    expect(result.success).toBe(false);
+    expect(result.deferred).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(state.updates).toHaveLength(0);
+  });
+
   it('fails when there is no service to restart', async () => {
     const state = baseState();
     const result = await run(
@@ -1742,11 +1825,12 @@ describe('createRestartExecutor', () => {
     const state = baseState();
     const d = deps(state);
     // Two services in the stack.
-    (d.cfn as { describeStackResources(): Promise<StackResource[]> }).describeStackResources =
-      async () => [
-        { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
-        { logicalId: 'EmailWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: WORKER_SERVICE_ARN },
-      ];
+    const services: StackResource[] = [
+      { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
+      { logicalId: 'EmailWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: WORKER_SERVICE_ARN },
+    ];
+    (d.cfn as { listStackResources(): Promise<{ resources: StackResource[] }> }).listStackResources =
+      async () => ({ resources: services });
     const fake = d.ecs as unknown as {
       describeServices(input: { services: string[] }): Promise<{ services: unknown[] }>;
     };
@@ -1799,10 +1883,13 @@ function multiCfnWith(service: boolean): CloudFormationReader {
     : [{ logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' }];
   return {
     async describeStack() {
-      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {}, stackId: 'stack-id-deployz-app' } };
     },
     async describeStackResources() {
       return resources;
+    },
+    async listStackResources() {
+      return { resources };
     },
   };
 }
