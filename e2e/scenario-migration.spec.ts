@@ -259,7 +259,7 @@ test.describe('migration recovery on an existing deployment', () => {
     // The same release image ran a second, corrected migration revision.
     expect(relay!.account.migrationRuns).toBe(2);
     const corrected = relay!.account.lastMigrationDefinition()!;
-    expect(corrected.family).toBe('DeployzAppMigration');
+    expect(corrected.family).toBe(relay!.account.taskFamily('Migration'));
     const [app, init] = corrected.containerDefinitions;
     expect(app).toMatchObject({ name: 'App', command: ['sh', '-c', 'node scripts/migrate.js'] });
     expect(app?.image).toBe(frozen?.containerDefinitions[0]?.image);
