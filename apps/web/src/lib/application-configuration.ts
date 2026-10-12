@@ -289,8 +289,7 @@ function buildWorkerRow(workerCommand: string): ConfigurationRow {
 
 /** The Fix action for a row carrying a required finding: an editable field
  *  when `requiredChangeFix` resolves to one (the port or the migration choice),
- *  otherwise the Fix-instructions dialog. A recommended-only row always
- *  opens the instructions dialog — there is no "recommended edit" shortcut. */
+ *  otherwise the Fix-instructions dialog. */
 function fixAction(required: ReadinessFinding | undefined): ConfigurationRowAction {
   if (!required) return { label: 'Fix', kind: 'fix' };
   const fix = requiredChangeFix(required);
@@ -315,7 +314,9 @@ function buildExtraFindingRow(finding: ReadinessFinding): ConfigurationRow {
 /** Fold a row's mapped findings in: a required finding always wins the
  *  result and routes Fix the same way the required-changes panel does
  *  (`requiredChangeFix`) — a health row's Fix opens instructions, a port
- *  row's Fix opens the port editor, never the other way round. */
+ *  row's Fix opens the port editor, never the other way round. A
+ *  recommended-only row keeps its own action, so the setting stays editable;
+ *  a row with no action of its own opens the instructions dialog. */
 function applyFindings(row: ConfigurationRow, findings: ReadinessFinding[]): ConfigurationRow {
   if (findings.length === 0) return row;
   const required = findings.find((finding) => finding.severity === 'required');
@@ -324,7 +325,7 @@ function applyFindings(row: ConfigurationRow, findings: ReadinessFinding[]): Con
     ...row,
     result: required ? CHANGE_REQUIRED : RECOMMENDED,
     blocking: required !== undefined,
-    action: fixAction(required),
+    action: required || !row.action ? fixAction(required) : row.action,
     help: chosen.plainEnglishExplanation,
     findingIds: findings.map((finding) => finding.id),
   };
@@ -379,7 +380,9 @@ export function deriveConfigurationRows(application: Application, readiness: App
   const findingsByRow = new Map<string, ReadinessFinding[]>();
   const extraRows: ConfigurationRow[] = [];
 
+  const databaseUsed = readiness.requirements?.database.effective !== false;
   for (const finding of readiness.findings) {
+    if (finding.id === 'database-migrations' && !databaseUsed) continue;
     const targetId = CATEGORY_TO_ROW_ID[finding.category];
     if (targetId && rowIds.has(targetId)) {
       const existing = findingsByRow.get(targetId) ?? [];

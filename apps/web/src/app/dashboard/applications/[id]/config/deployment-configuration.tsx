@@ -460,6 +460,17 @@ function ServiceRow({ row, onAction }: { row: InventoryRow; onAction: (action: I
               </PopoverTrigger>
               <PopoverContent align="start" className="w-72">
                 <p className="text-sm text-muted-foreground">{row.help}</p>
+                {row.fixInstructions ? (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="mt-2 h-auto p-0"
+                    onClick={() => onAction(row.fixInstructions!)}
+                    data-testid={row.fixInstructions.testId}
+                  >
+                    {row.fixInstructions.label}
+                  </Button>
+                ) : null}
               </PopoverContent>
             </Popover>
           ) : null}

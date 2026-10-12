@@ -370,6 +370,45 @@ describe('Finding to row mapping', () => {
     expect(database.findingIds.sort()).toEqual(['db-recommendation', 'db-required']);
   });
 
+  it('keeps the setting edit action when its findings are only recommended', () => {
+    const rows = deriveConfigurationRows(
+      applicationFixture(),
+      readinessFixture({ findings: [finding({ id: 'db-recommendation', category: 'database', severity: 'recommended' })] }),
+    );
+    const database = rows.find((r) => r.id === 'database')!;
+    expect(database.result.label).toBe('Recommended');
+    expect(database.blocking).toBe(false);
+    expect(database.action).toEqual({ label: 'Edit', kind: 'edit', field: 'databaseRequired' });
+    expect(database.help).toBe('Deployz requires an HTTP health endpoint.');
+  });
+
+  it('opens fix instructions for a recommended-only row that has no action of its own', () => {
+    const rows = deriveConfigurationRows(
+      applicationFixture({ workerCommand: 'node worker.js' }),
+      readinessFixture({ findings: [finding({ id: 'worker-note', category: 'workers', severity: 'recommended' })] }),
+    );
+    expect(rows.find((r) => r.id === 'worker')!.action).toEqual({ label: 'Fix', kind: 'fix' });
+  });
+
+  it('hides the migration recommendation once the vendor sets the database to Not used', () => {
+    const migrations = finding({ id: 'database-migrations', category: 'database', severity: 'recommended' });
+    const notUsed = deriveConfigurationRows(
+      applicationFixture(),
+      readinessFixture({
+        findings: [migrations],
+        requirements: requirementsFixture({ database: { detected: true, effective: false, overridden: true } }),
+      }),
+    );
+    const database = notUsed.find((r) => r.id === 'database')!;
+    expect(database.value).toBe('Not used');
+    expect(database.findingIds).toEqual([]);
+    expect(database.help).toBeNull();
+    expect(notUsed.some((r) => r.id === 'finding-database-migrations')).toBe(false);
+
+    const used = deriveConfigurationRows(applicationFixture(), readinessFixture({ findings: [migrations] }));
+    expect(used.find((r) => r.id === 'database')!.findingIds).toEqual(['database-migrations']);
+  });
+
   it('gives an unknown-category finding its own extra row', () => {
     const rows = deriveConfigurationRows(
       applicationFixture(),

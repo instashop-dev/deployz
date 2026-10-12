@@ -79,6 +79,8 @@ export interface InventoryRow {
   afterRemoval: RowAfterRemoval;
   issues: InventoryIssue[];
   action: InventoryAction | null;
+  /** Fix instructions for a recommendation on a row whose own action edits the setting. */
+  fixInstructions?: InventoryAction;
   testId: string;
   /** Readiness findings and architecture questions (by index) shown on this row — the attention summary links to it. */
   findingIds: string[];
@@ -303,6 +305,9 @@ function settingRow(row: ConfigurationRow, overrides: Partial<InventoryRow> = {}
     afterRemoval: null,
     issues: settingIssues(row),
     action: settingAction(row, label),
+    ...(row.result.label === 'Recommended' && row.action?.kind === 'edit'
+      ? { fixInstructions: { kind: 'fix', label: 'Get fix instructions', testId: `readiness-finding-fix-${row.findingIds[0]}` } as const }
+      : {}),
     testId: finding ? `readiness-finding-${row.findingIds[0]}` : `readiness-setting-${row.id}`,
     findingIds: row.findingIds,
     questionIndexes: [],
