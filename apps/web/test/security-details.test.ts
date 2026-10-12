@@ -4,186 +4,177 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
+  CONNECTOR_ROLE,
+  EXECUTION_ROLE,
+  INSTALL_HELPER_ROLES,
+  isGrantedToConnector,
+  type PermissionRole,
+} from '../src/lib/bootstrap-permissions';
+import {
   DATA_NOT_SENT_TO_DEPLOYZ,
   DENIED_LOG_READ_ACTIONS,
-  PASS_ROLE_RESOURCE_ARN,
-  PASSED_TO_SERVICE,
-  PHASE_1_LOG_WRITE_ACTIONS,
-  PHASE_1_SECRET_ACTIONS,
-  PHASE_2_ACM_MANAGE_ACTIONS,
-  PHASE_2_ACM_REQUEST_ACTIONS,
-  PHASE_2_APP_RESOURCE_ACTIONS,
-  PHASE_2_CACHE_ACTIONS,
-  PHASE_2_CONFIG_SECRET_ACTIONS,
-  PHASE_2_CREATE_STACK_ACTIONS,
-  PHASE_2_DOMAIN_INGRESS_ACTIONS,
-  PHASE_2_MANAGE_STACK_ACTIONS,
-  PHASE_2_PASS_ROLE_ACTION,
-  PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS,
-  REQUEST_TAG_CONDITION,
-  RESOURCE_TAG_CONDITION,
   SECRET_HANDLING_STATEMENT,
-  TAG_BOUNDARY_KEY,
 } from '../src/lib/security-details';
 
-// §45 copy-truthfulness lock: the Security Details page renders its
-// permission claims from src/lib/security-details.ts, and this test reads the
-// ACTUAL policy statements in packages/cdk/src/bootstrap/bootstrap-stack.ts
-// (the template the customer deploys) and asserts the two can never drift.
-// If the bootstrap stack's permissions change, this test fails until the
-// trust story is updated to match.
+// §45 copy-truthfulness lock. The Security Details page reads its IAM
+// permissions from packages/cdk/artifacts/bootstrap-template-v1.json, the
+// template the customer deploys (packages/cdk/test/artifacts.test.ts keeps it
+// equal to a fresh synth). This test reads the same template independently
+// and checks that the page model drops nothing, and that the page's fixed
+// claims about the template are still true.
 
-const BOOTSTRAP_STACK_PATH = fileURLToPath(
-  new URL('../../../packages/cdk/src/bootstrap/bootstrap-stack.ts', import.meta.url),
+type Statement = {
+  Sid?: string;
+  Effect: string;
+  Action: string | string[];
+  Resource: unknown;
+  Condition?: Record<string, Record<string, unknown>>;
+};
+type Resource = { Type: string; Properties: Record<string, unknown> };
+
+const TEMPLATE_PATH = fileURLToPath(
+  new URL('../../../packages/cdk/artifacts/bootstrap-template-v1.json', import.meta.url),
 );
-const source = readFileSync(BOOTSTRAP_STACK_PATH, 'utf8');
+const resources = (JSON.parse(readFileSync(TEMPLATE_PATH, 'utf8')) as { Resources: Record<string, Resource> })
+  .Resources;
 
-type TemplateStatement = { Sid?: string; Action: string | string[]; Resource: unknown; Condition?: unknown };
-type TemplateResource = { Type: string; Properties: Record<string, unknown> };
-
-// The generated artifact the customer actually deploys (synth:bootstrap).
-const template = JSON.parse(
-  readFileSync(
-    fileURLToPath(new URL('../../../packages/cdk/artifacts/bootstrap-template-v1.json', import.meta.url)),
-    'utf8',
-  ),
-) as { Resources: Record<string, TemplateResource> };
-const relayRoleId = Object.keys(template.Resources).find(
-  (id) => template.Resources[id]?.Type === 'AWS::IAM::Role' && template.Resources[id]?.Properties['PermissionsBoundary'],
-)!;
-const relayRole = template.Resources[relayRoleId]!;
-function statementsOf(logicalId: string): TemplateStatement[] {
-  return (template.Resources[logicalId]?.Properties['PolicyDocument'] as { Statement: TemplateStatement[] }).Statement;
-}
-function actionsOf(statement: TemplateStatement | undefined): string[] {
-  return statement === undefined ? [] : ([] as string[]).concat(statement.Action);
+function logicalId(prefix: string, type: string): string {
+  const id = Object.keys(resources).find((key) => key.startsWith(prefix) && resources[key]?.Type === type);
+  if (!id) throw new Error(`${prefix} (${type}) not found in the bootstrap template`);
+  return id;
 }
 
-/** Extracts a `const NAME = [ 'a', 'b' ] as const;` action list from the source. */
-function extractActions(name: string): string[] {
-  const match = source.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\] as const;`));
-  if (!match) {
-    throw new Error(`${name} not found in bootstrap-stack.ts — has the source moved?`);
-  }
-  return [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+function statementsOf(policyId: string): Statement[] {
+  return (resources[policyId]?.Properties.PolicyDocument as { Statement: Statement[] }).Statement;
 }
 
-describe('security-details ↔ bootstrap-stack truthfulness', () => {
-  it('phase 1 log-write actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_1_LOG_WRITE_ACTIONS]).toEqual(extractActions('PHASE_1_LOG_WRITE_ACTIONS'));
-  });
+function actionsOf(statements: Statement[]): string[] {
+  return statements.flatMap((statement) => [statement.Action].flat());
+}
 
-  it('phase 1 credential-secret actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_1_SECRET_ACTIONS]).toEqual(extractActions('PHASE_1_SECRET_ACTIONS'));
-  });
+const relayRoleId = logicalId('RelayRole', 'AWS::IAM::Role');
+const relayRole = resources[relayRoleId]!;
+const provisionerPolicyId = logicalId('ProvisionerPolicy', 'AWS::IAM::ManagedPolicy');
+const boundaryId = logicalId('PermissionsBoundary', 'AWS::IAM::ManagedPolicy');
+const executionRoleId = logicalId('ApplicationExecutionRole', 'AWS::IAM::Role');
 
-  it('phase 2 secret actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS]).toEqual(
-      extractActions('PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS'),
-    );
-    expect([...PHASE_2_CONFIG_SECRET_ACTIONS]).toEqual(extractActions('PHASE_2_CONFIG_SECRET_ACTIONS'));
-  });
+/** Every inline IAM::Policy statement the template attaches to a role. */
+function inlinePolicyStatements(roleId: string): Statement[] {
+  return Object.values(resources)
+    .filter(
+      (resource) =>
+        resource.Type === 'AWS::IAM::Policy' &&
+        (resource.Properties.Roles as { Ref?: string }[]).some((role) => role.Ref === roleId),
+    )
+    .flatMap((resource) => (resource.Properties.PolicyDocument as { Statement: Statement[] }).Statement);
+}
 
-  it('phase 2 create/update actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_2_CREATE_STACK_ACTIONS]).toEqual(extractActions('PHASE_2_CREATE_STACK_ACTIONS'));
-  });
+function modelActions(role: PermissionRole): string[] {
+  return role.statements.flatMap((statement) => statement.actions);
+}
 
-  it('phase 2 manage/delete actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_2_MANAGE_STACK_ACTIONS]).toEqual(extractActions('PHASE_2_MANAGE_STACK_ACTIONS'));
-  });
-
-  it('phase 2 application-resource actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_2_APP_RESOURCE_ACTIONS]).toEqual(
-      extractActions('PHASE_2_APP_RESOURCE_ACTIONS'),
-    );
-  });
-
-  it('phase 2 ACM request actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_2_ACM_REQUEST_ACTIONS]).toEqual(
-      extractActions('PHASE_2_ACM_REQUEST_ACTIONS'),
-    );
-  });
-
-  it('phase 2 ACM manage actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_2_ACM_MANAGE_ACTIONS]).toEqual(
-      extractActions('PHASE_2_ACM_MANAGE_ACTIONS'),
-    );
-  });
-
-  it('phase 2 domain-ingress actions match the bootstrap stack exactly', () => {
-    expect([...PHASE_2_DOMAIN_INGRESS_ACTIONS]).toEqual(
-      extractActions('PHASE_2_DOMAIN_INGRESS_ACTIONS'),
-    );
-  });
-
-  it('phase 2 ElastiCache cache actions match the bootstrap stack exactly (Redis MVP)', () => {
-    expect([...PHASE_2_CACHE_ACTIONS]).toEqual(extractActions('PHASE_2_CACHE_ACTIONS'));
-  });
-
-  it('pass-role disclosure matches the bootstrap stack (action, ARN, service)', () => {
-    expect(source).toContain(`'${PHASE_2_PASS_ROLE_ACTION}'`);
-    expect(source).toContain(`'${PASS_ROLE_RESOURCE_ARN}'`);
-    expect(source).toContain(`'iam:PassedToService': '${PASSED_TO_SERVICE}'`);
-  });
-
-  it('tag-boundary condition keys match the bootstrap stack', () => {
-    expect(source).toContain(`'${REQUEST_TAG_CONDITION}'`);
-    expect(source).toContain(`'${RESOURCE_TAG_CONDITION}'`);
-    expect(TAG_BOUNDARY_KEY).toBe('deployz:installation');
-    expect(source).toContain(`'${TAG_BOUNDARY_KEY}'`);
-  });
-
-  it('denied log-read actions are granted NOWHERE in the bootstrap stack (§16)', () => {
-    const granted = [
-      ...extractActions('PHASE_1_LOG_WRITE_ACTIONS'),
-      ...extractActions('PHASE_1_SECRET_ACTIONS'),
-      ...extractActions('PHASE_2_CREATE_STACK_ACTIONS'),
-      ...extractActions('PHASE_2_MANAGE_STACK_ACTIONS'),
-      ...extractActions('PHASE_2_APP_RESOURCE_ACTIONS'),
-      ...extractActions('PHASE_2_ACM_REQUEST_ACTIONS'),
-      ...extractActions('PHASE_2_ACM_MANAGE_ACTIONS'),
-      ...extractActions('PHASE_2_DOMAIN_INGRESS_ACTIONS'),
-      ...extractActions('PHASE_2_CACHE_ACTIONS'),
+describe('bootstrap permissions ↔ deployed template', () => {
+  it('the connector role model holds every action of its inline and provisioner policies', () => {
+    const expected = [
+      ...inlinePolicyStatements(relayRoleId),
+      ...statementsOf(provisionerPolicyId),
     ];
-    for (const denied of DENIED_LOG_READ_ACTIONS) {
-      expect(granted).not.toContain(denied);
+    expect(CONNECTOR_ROLE.statements).toHaveLength(expected.length);
+    expect(modelActions(CONNECTOR_ROLE)).toEqual(actionsOf(expected));
+  });
+
+  it('the execution role model holds every action of its policies', () => {
+    const expected = inlinePolicyStatements(executionRoleId);
+    expect(EXECUTION_ROLE.statements).toHaveLength(expected.length);
+    expect(modelActions(EXECUTION_ROLE)).toEqual(actionsOf(expected));
+  });
+
+  it('every other role is shown as an installation helper', () => {
+    const roleIds = Object.keys(resources).filter((key) => resources[key]?.Type === 'AWS::IAM::Role');
+    expect(INSTALL_HELPER_ROLES.map((role) => role.logicalId).sort()).toEqual(
+      roleIds.filter((id) => id !== relayRoleId && id !== executionRoleId).sort(),
+    );
+    for (const role of INSTALL_HELPER_ROLES) {
+      expect(role.statements).toHaveLength(inlinePolicyStatements(role.logicalId).length);
+      expect(role.label).not.toBe(role.logicalId);
     }
   });
 
-  it('the generated template attaches the provisioner policy and the boundary at install', () => {
-    // The page claims both phases are granted at install, under a ceiling
-    // fixed at install time.
-    const managed = relayRole.Properties['ManagedPolicyArns'] as Array<{ Ref: string }>;
-    expect(managed.map((ref) => template.Resources[ref.Ref]?.Type)).toEqual(['AWS::IAM::ManagedPolicy']);
-    expect(statementsOf(managed[0]!.Ref).map((s) => s.Sid)).toContain('ProvisionerCreateStacks');
-    const boundary = relayRole.Properties['PermissionsBoundary'] as { Ref: string };
-    expect(template.Resources[boundary.Ref]?.Type).toBe('AWS::IAM::ManagedPolicy');
+  it('every statement Sid has a plain-English label', () => {
+    for (const statement of [...CONNECTOR_ROLE.statements, ...EXECUTION_ROLE.statements]) {
+      expect(statement.sid).not.toBeNull();
+      expect(statement.label).not.toBe(statement.sid);
+    }
   });
 
-  it('the generated template scopes the access-key grant to the connector’s own credential secret', () => {
-    const credentialArn = {
-      'Fn::If': ['HasRelayCredential', { Ref: 'RelayCredentialFromParam' }, { Ref: 'RelayCredentialGenerated' }],
-    };
-    const inline = Object.keys(template.Resources).find(
-      (id) =>
-        template.Resources[id]?.Type === 'AWS::IAM::Policy' &&
-        (template.Resources[id]?.Properties['Roles'] as Array<{ Ref: string }>).some((r) => r.Ref === relayRoleId),
-    )!;
-    const grant = statementsOf(inline).find((s) => s.Sid === 'RelayAccessCredential');
-    expect(actionsOf(grant)).toEqual([...PHASE_1_SECRET_ACTIONS]);
-    expect(grant?.Resource).toEqual(credentialArn);
-    expect(grant?.Condition).toBeUndefined();
+  it('classifies tag-conditioned statements as installation-scoped', () => {
+    for (const statement of [...CONNECTOR_ROLE.statements, ...EXECUTION_ROLE.statements]) {
+      const tagged = statement.conditions.some((condition) =>
+        /aws:(Request|Resource)Tag\/deployz:installation/.test(condition),
+      );
+      if (tagged) expect(statement.scope).toBe('installation');
+    }
+    const bySid = (sid: string) =>
+      [...CONNECTOR_ROLE.statements, ...EXECUTION_ROLE.statements].find((s) => s.sid === sid);
+    expect(bySid('RelayPendingCommandState')?.scope).toBe('installation');
+    expect(bySid('ProvisionerPassRole')?.scope).toBe('limited');
+    expect(bySid('RelayAccessCredential')?.scope).toBe('installation');
   });
 
-  it('the generated template matches the secret disclosures (tag-scoped values, condition-free metadata)', () => {
-    const managed = relayRole.Properties['ManagedPolicyArns'] as Array<{ Ref: string }>;
-    const statements = statementsOf(managed[0]!.Ref);
-    const values = statements.find((s) => s.Sid === 'RelayInstallationSecrets');
-    for (const action of PHASE_2_CONFIG_SECRET_ACTIONS) expect(actionsOf(values)).toContain(action);
-    expect(JSON.stringify(values?.Condition)).toContain(RESOURCE_TAG_CONDITION);
-    const discovery = statements.find((s) => s.Sid === 'RelayPurgeSecretsList');
-    expect(actionsOf(discovery)).toEqual([...PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS]);
-    expect(discovery?.Condition).toBeUndefined();
+  it('limits the credential grant to the connector’s own credential secret', () => {
+    const grant = CONNECTOR_ROLE.statements.find((s) => s.sid === 'RelayAccessCredential');
+    expect(grant?.resources).toEqual(['${RelayCredentialFromParam} or ${RelayCredentialGenerated}']);
+    // No connector statement reads or writes secret values on any resource.
+    const secretValueActions = ['secretsmanager:GetSecretValue', 'secretsmanager:PutSecretValue', 'secretsmanager:UpdateSecret'];
+    for (const statement of CONNECTOR_ROLE.statements) {
+      if (statement.actions.some((action) => secretValueActions.includes(action))) {
+        expect(statement.scope, statement.sid ?? '').toBe('installation');
+      }
+    }
+  });
+
+  // The page states these facts in words; each must stay true.
+  it('attaches the provisioner policy at install, capped by the permissions boundary', () => {
+    expect(relayRole.Properties.ManagedPolicyArns).toEqual([{ Ref: provisionerPolicyId }]);
+    expect(relayRole.Properties.PermissionsBoundary).toEqual({ Ref: boundaryId });
+    expect(CONNECTOR_ROLE.hasPermissionsBoundary).toBe(true);
+    const boundary = new Set(actionsOf(statementsOf(boundaryId)));
+    for (const action of modelActions(CONNECTOR_ROLE)) expect(boundary).toContain(action);
+  });
+
+  it('lets only CloudFormation use the execution role, which has no boundary', () => {
+    const trust = (resources[executionRoleId]!.Properties.AssumeRolePolicyDocument as {
+      Statement: { Principal: { Service: string } }[];
+    }).Statement;
+    expect(trust.map((statement) => statement.Principal.Service)).toEqual([
+      'cloudformation.amazonaws.com',
+    ]);
+    expect(EXECUTION_ROLE.hasPermissionsBoundary).toBe(false);
+    expect(modelActions(EXECUTION_ROLE)).toEqual(
+      expect.arrayContaining(['iam:CreateRole', 'iam:AttachRolePolicy']),
+    );
+  });
+
+  it('grants the log-read actions nowhere (§16)', () => {
+    for (const action of DENIED_LOG_READ_ACTIONS) expect(isGrantedToConnector(action)).toBe(false);
+    expect(isGrantedToConnector('logs:PutLogEvents')).toBe(true);
+  });
+
+  it('creates the connector resources the page lists', () => {
+    const types = Object.values(resources).map((resource) => resource.Type);
+    for (const type of [
+      'AWS::Lambda::Function',
+      'AWS::Events::Rule',
+      'AWS::SecretsManager::Secret',
+      'AWS::IAM::ManagedPolicy',
+      'Custom::LogRetention',
+    ]) {
+      expect(types).toContain(type);
+    }
+    const schedule = resources[logicalId('RelaySchedule', 'AWS::Events::Rule')]!;
+    expect(schedule.Properties.ScheduleExpression).toBe('rate(5 minutes)');
+    const retention = resources[logicalId('RelayFunctionLogRetention', 'Custom::LogRetention')]!;
+    expect(retention.Properties.RetentionInDays).toBe(7);
   });
 });
 

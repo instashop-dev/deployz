@@ -1,17 +1,27 @@
-import { JSDOM } from 'jsdom';
-import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type { DeploymentPlan } from '@deployz/contracts';
 
 import { SecurityDetailsContent } from '../src/components/security-details-content';
-import { OWNERSHIP_NOTE } from '../src/lib/security-details';
+import { CONNECTOR_ROLE, EXECUTION_ROLE } from '../src/lib/bootstrap-permissions';
+import {
+  DENIED_LOG_READ_ACTIONS,
+  OWNERSHIP_NOTE,
+  REVOKE_ORDER_NOTE,
+  SECRET_HANDLING_STATEMENT,
+} from '../src/lib/security-details';
 
-// The Security Details page body is plan-driven: the "Exact AWS resources
-// created" list and the architecture diagram render the deployment's saved
-// DeploymentPlan, and a null plan shows honest unavailable states instead of
-// a static catalogue. The component uses next/link, so it is rendered with
-// react-dom/server and parsed with jsdom (the repo's pattern for that).
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// The Security Details page: three tabs (Overview, AWS permissions, Data &
+// control). The resource list and the diagram are plan-driven, and a null
+// plan shows unavailable states. Every IAM action comes from the deployed
+// bootstrap template. Rendered interactively, so the tab and accordion
+// behavior is exercised the way a customer uses it.
 
 const BACK_HREF = '/install/11111111-1111-1111-1111-111111111111';
 
@@ -110,170 +120,259 @@ function installPlan({ postgres, redis }: { postgres: boolean; redis: boolean })
   };
 }
 
-function renderContent(plan: DeploymentPlan | null): Document {
-  const html = renderToString(<SecurityDetailsContent plan={plan} backHref={BACK_HREF} />);
-  return new JSDOM(html).window.document;
+const STATELESS = installPlan({ postgres: false, redis: false });
+
+const cleanups: Array<() => void> = [];
+
+function render(plan: DeploymentPlan | null): HTMLElement {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root: Root = createRoot(container);
+  act(() => {
+    root.render(<SecurityDetailsContent plan={plan} backHref={BACK_HREF} />);
+  });
+  cleanups.push(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+  return container;
 }
 
-/** The text of the two plan-driven sections — the resource list and the
- * architecture diagram. Everything else (trust story, deletion copy) mentions
- * "database" and "cache" unconditionally, so absence is only meaningful
- * here. */
-function planDrivenSectionText(doc: Document): string[] {
-  return ['resources-created', 'architecture'].map(
-    (id) => doc.querySelector(`[aria-labelledby="${id}"]`)?.textContent ?? '',
+afterEach(() => {
+  while (cleanups.length) {
+    cleanups.pop()?.();
+  }
+  document.body.innerHTML = '';
+});
+
+function tab(container: HTMLElement, name: string): HTMLElement {
+  const found = [...container.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (candidate) => candidate.textContent === name,
   );
+  if (!found) throw new Error(`No tab named ${name}`);
+  return found;
 }
 
-describe('SecurityDetailsContent', () => {
-  it('shows no database or cache in the list or diagram for a stateless plan', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: false }));
-    for (const text of planDrivenSectionText(doc)) {
-      expect(text).not.toMatch(/database/i);
-      expect(text).not.toContain('PostgreSQL');
-      expect(text).not.toContain('RDS');
-      expect(text).not.toMatch(/cache/i);
-      expect(text).not.toContain('Valkey');
-      expect(text).not.toContain('ElastiCache');
-    }
-  });
-
-  it('shows the database row and box, and no cache anywhere, for a PostgreSQL-only plan', () => {
-    const doc = renderContent(installPlan({ postgres: true, redis: false }));
-    const [resources, architecture] = planDrivenSectionText(doc);
-    expect(resources).toContain('RDS PostgreSQL database');
-    expect(resources).toContain('Stores persistent application data');
-    expect(architecture).toContain('Database');
-    for (const text of planDrivenSectionText(doc)) {
-      expect(text).not.toMatch(/cache/i);
-      expect(text).not.toContain('Valkey');
-      expect(text).not.toContain('ElastiCache');
-    }
-  });
-
-  it('shows the cache row and box, and no database anywhere, for a Redis-only plan', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: true }));
-    const [resources, architecture] = planDrivenSectionText(doc);
-    expect(resources).toContain('ElastiCache Valkey cache');
-    expect(resources).toContain('Speeds up application requests');
-    expect(architecture).toContain('Cache');
-    for (const text of planDrivenSectionText(doc)) {
-      expect(text).not.toMatch(/database/i);
-      expect(text).not.toContain('PostgreSQL');
-      expect(text).not.toContain('RDS');
-    }
-  });
-
-  it('shows both the database and the cache for a PostgreSQL + Redis plan', () => {
-    const doc = renderContent(installPlan({ postgres: true, redis: true }));
-    const [resources, architecture] = planDrivenSectionText(doc);
-    expect(resources).toContain('RDS PostgreSQL database');
-    expect(resources).toContain('ElastiCache Valkey cache');
-    expect(architecture).toContain('Database');
-    expect(architecture).toContain('Cache');
-  });
-
-  it('renders storage from the plan row, not the outdated conditional wording', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: false }));
-    const [resources, architecture] = planDrivenSectionText(doc);
-    expect(resources).toContain('S3 bucket');
-    expect(resources).toContain('Stores uploaded files');
-    expect(architecture).toContain('Storage');
-    expect(doc.body.textContent).not.toContain('when the application requires file storage');
-  });
-
-  it('states that every permission is granted at install, not after check-in', () => {
-    // The bootstrap stack attaches the provisioner policy at install
-    // (apps/web/test/security-details.test.ts checks the generated template).
-    const text = renderContent(null).body.textContent ?? '';
-    expect(text).toContain('These permissions are granted when you install the connector, not added later.');
-    expect(text).toContain('Phase 2 — also granted at install time');
-    expect(text).not.toMatch(/\bafter (it checks in|check-in|the connector.s first check-in)/i);
-    expect(text).not.toContain('almost nothing');
-  });
-
-  it('renders the group headings from the shared resource groups', () => {
-    const doc = renderContent(installPlan({ postgres: true, redis: true }));
-    const [resources] = planDrivenSectionText(doc);
-    expect(resources).toContain('Compute & Networking');
-    expect(resources).toContain('Data');
-    expect(resources).toContain('Security & Operations');
-  });
-
-  it('keeps the plan-driven resource names collapsed inside a details element', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: false }));
-    const section = doc.querySelector('[aria-labelledby="resources-created"]')!;
-    // The catalog names (VPC, ECS, IAM) only appear inside a collapsed
-    // disclosure, so they stay out of the visible top-level text.
-    const details = section.querySelector('details')!;
-    expect(details.hasAttribute('open')).toBe(false);
-    expect(details.textContent).toContain('ECS Fargate service');
-    expect(details.textContent).toContain('The Deployz connector (a small scheduled job)');
-    // The section heading and the plain-English lead-in stay visible outside.
-    const heading = section.querySelector('h2')!;
-    expect(heading.textContent).toBe('Exact AWS resources created');
-    expect(heading.closest('details')).toBeNull();
-    const leadIn = [...section.children].find(
-      (child) => child.tagName === 'P' && child.textContent?.includes('provisioned in your account'),
-    )!;
-    expect(leadIn.closest('details')).toBeNull();
-  });
-
-  it('shows honest unavailable states and no resources or diagram when the plan is null', () => {
-    const doc = renderContent(null);
-    expect(
-      [...doc.querySelectorAll('h3')].filter(
-        (heading) => heading.textContent === 'Infrastructure details are unavailable',
-      ),
-    ).toHaveLength(2);
-    for (const text of planDrivenSectionText(doc)) {
-      expect(text).toContain('Infrastructure details are unavailable');
-      expect(text).toContain('could not be read');
-      expect(text).not.toContain('ECS');
-      expect(text).not.toContain('Load Balancer');
-      expect(text).not.toContain('S3 bucket');
-      expect(text).not.toContain('Your AWS account');
-    }
-    // The rest of the page still renders.
-    const body = doc.body.textContent ?? '';
-    expect(body).toContain('What the Deployz connector can do');
-    expect(body).toContain('How to revoke Deployz');
-    expect(body).toContain('How deletion works');
-    expect(body).toContain('Technical details');
-  });
-
-  it('replaces the absolute tag-scope claim with the accurate read-only exception', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: false }));
-    const body = doc.body.textContent ?? '';
-    expect(body).not.toContain('every action is limited to resources carrying your installation');
-    expect(body).toContain('restricted to Deployz-managed resources');
-    expect(body).toContain('read-only lookup');
-    expect(body).toContain('Describe actions cannot be restricted by tag');
-    expect(body).toContain('The exact permissions remain listed in the technical details below');
-  });
-
-  it('keeps the exact IAM actions inside collapsed details sections', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: false }));
-    const actionCodes = [...doc.querySelectorAll('code')].filter((code) =>
-      (code.textContent ?? '').startsWith('cloudformation:'),
+/** Radix activates a tab on mouse down, not on click. */
+function openTab(container: HTMLElement, name: string): void {
+  act(() => {
+    tab(container, name).dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }),
     );
-    expect(actionCodes.length).toBeGreaterThan(0);
-    for (const code of actionCodes) {
-      expect(code.closest('details')).not.toBeNull();
-    }
+  });
+}
+
+function accordionTrigger(container: HTMLElement, name: string): HTMLElement {
+  const found = [
+    ...container.querySelectorAll<HTMLElement>('[data-slot="accordion-trigger"]'),
+  ].find((trigger) => trigger.textContent === name);
+  if (!found) throw new Error(`No accordion item named ${name}`);
+  return found;
+}
+
+function expanded(container: HTMLElement, name: string): string | null {
+  return accordionTrigger(container, name).getAttribute('aria-expanded');
+}
+
+function click(element: HTMLElement): void {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+}
+
+const PERMISSION_SECTIONS = [
+  'AWS resources created',
+  'Initial installation permissions',
+  'Ongoing connector permissions',
+  'Read-only permissions and exceptions',
+];
+
+function openAllPermissions(container: HTMLElement): void {
+  openTab(container, 'AWS permissions');
+  for (const name of PERMISSION_SECTIONS) click(accordionTrigger(container, name));
+}
+
+function activePanel(container: HTMLElement): HTMLElement {
+  return container.querySelector<HTMLElement>('[role="tabpanel"][data-state="active"]')!;
+}
+
+describe('SecurityDetailsContent layout', () => {
+  it('renders the title, subtitle and three highlights above the tabs', () => {
+    const container = render(STATELESS);
+    expect(container.querySelector('h1')?.textContent).toBe('Security & AWS access');
+    expect(container.textContent).toContain(
+      'Review what Deployz installs, what it can access, and how you stay in control.',
+    );
+    const highlights = container.querySelector('[aria-label="Security highlights"]')!;
+    expect(
+      [...highlights.querySelectorAll('li')].map((item) => item.querySelector('p')?.textContent),
+    ).toEqual(['Your AWS account', 'Outbound connection', 'IAM permissions']);
+    expect(highlights.closest('[role="tabpanel"]')).toBeNull();
+    expect(container.textContent).not.toContain('The honest version');
   });
 
-  it('renders the shared ownership note near the revoke steps', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: false }));
-    const revoke = doc.querySelector('[aria-labelledby="revoke"]');
-    expect(revoke?.textContent).toContain(OWNERSHIP_NOTE);
+  it('defaults to the Overview tab and switches tabs in place', () => {
+    const container = render(STATELESS);
+    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual([
+      'Overview',
+      'AWS permissions',
+      'Data & control',
+    ]);
+    expect(tab(container, 'Overview').getAttribute('aria-selected')).toBe('true');
+    expect(activePanel(container).textContent).toContain('How it works');
+
+    openTab(container, 'Data & control');
+    expect(tab(container, 'Data & control').getAttribute('aria-selected')).toBe('true');
+    expect(activePanel(container).querySelector('#revoke')?.textContent).toBe('Revoke access');
+
+    openTab(container, 'AWS permissions');
+    expect(activePanel(container).textContent).toContain('AWS resources created');
+  });
+
+  it('opens the AWS permissions tab from the Overview pointer', () => {
+    const container = render(STATELESS);
+    const pointer = [...container.querySelectorAll<HTMLElement>('button')].find(
+      (button) => button.textContent === 'Review AWS permissions',
+    )!;
+    click(pointer);
+    expect(tab(container, 'AWS permissions').getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tab(container, 'AWS permissions'));
+  });
+
+  it('keeps every accordion collapsed by default and expands each independently', () => {
+    const container = render(STATELESS);
+    openTab(container, 'AWS permissions');
+    for (const name of PERMISSION_SECTIONS) expect(expanded(container, name)).toBe('false');
+    expect(container.textContent).not.toContain('cloudformation:CreateStack');
+
+    click(accordionTrigger(container, 'Ongoing connector permissions'));
+    click(accordionTrigger(container, 'AWS resources created'));
+    expect(expanded(container, 'Ongoing connector permissions')).toBe('true');
+    expect(expanded(container, 'AWS resources created')).toBe('true');
+    expect(expanded(container, 'Initial installation permissions')).toBe('false');
+    expect(container.textContent).toContain('cloudformation:CreateStack');
+
+    click(accordionTrigger(container, 'AWS resources created'));
+    expect(expanded(container, 'AWS resources created')).toBe('false');
+    expect(expanded(container, 'Ongoing connector permissions')).toBe('true');
   });
 
   it('links back to the given backHref', () => {
-    const doc = renderContent(installPlan({ postgres: false, redis: false }));
-    const back = [...doc.querySelectorAll('a')].find(
-      (anchor) => anchor.textContent === 'Back to install',
+    const container = render(STATELESS);
+    const back = [...container.querySelectorAll('a')].find(
+      (anchor) => anchor.textContent === 'Back to installation',
     );
     expect(back?.getAttribute('href')).toBe(BACK_HREF);
+  });
+});
+
+describe('SecurityDetailsContent plan-driven content', () => {
+  function resourcesText(container: HTMLElement): string {
+    openTab(container, 'AWS permissions');
+    click(accordionTrigger(container, 'AWS resources created'));
+    return activePanel(container).textContent ?? '';
+  }
+
+  function diagramText(container: HTMLElement): string {
+    return container.querySelector('figure')?.textContent ?? '';
+  }
+
+  it('shows no database or cache for a stateless plan', () => {
+    const container = render(STATELESS);
+    const diagram = diagramText(container);
+    expect(diagram).not.toMatch(/database|cache/i);
+    const resources = resourcesText(container);
+    expect(resources).not.toContain('PostgreSQL');
+    expect(resources).not.toContain('Valkey');
+  });
+
+  it('shows the database and cache when the plan includes them', () => {
+    const container = render(installPlan({ postgres: true, redis: true }));
+    expect(diagramText(container)).toContain('Database');
+    expect(diagramText(container)).toContain('Cache');
+    const resources = resourcesText(container);
+    expect(resources).toContain('RDS PostgreSQL database');
+    expect(resources).toContain('ElastiCache Valkey cache');
+    expect(resources).toContain('Compute & Networking');
+    expect(resources).toContain('Security & Operations');
+  });
+
+  it('shows the account boundary, the connector and the outbound HTTPS link', () => {
+    const diagram = diagramText(render(STATELESS));
+    expect(diagram).toContain('Your AWS account');
+    expect(diagram).toContain('Deployz connector');
+    expect(diagram).toContain('Outbound HTTPS');
+    expect(diagram).toContain('Deployz control plane');
+  });
+
+  it('shows unavailable states, and still the connector stack, when the plan is null', () => {
+    const container = render(null);
+    expect(container.querySelector('figure')).toBeNull();
+    expect(activePanel(container).textContent).toContain('Infrastructure details are unavailable');
+    const resources = resourcesText(container);
+    expect(resources).toContain('Infrastructure details are unavailable');
+    expect(resources).not.toContain('S3 bucket');
+    expect(resources).toContain('Connector role');
+  });
+});
+
+describe('SecurityDetailsContent permissions from the template', () => {
+  it('renders every action and Sid of both roles from the bootstrap template', () => {
+    const container = render(STATELESS);
+    openAllPermissions(container);
+    const codes = new Set([...container.querySelectorAll('code')].map((code) => code.textContent));
+    for (const role of [CONNECTOR_ROLE, EXECUTION_ROLE]) {
+      for (const statement of role.statements) {
+        for (const action of statement.actions) expect(codes).toContain(action);
+        if (statement.sid) expect(codes).toContain(statement.sid);
+      }
+    }
+  });
+
+  it('discloses the tag conditions, the exceptions and the role facts', () => {
+    const container = render(STATELESS);
+    openAllPermissions(container);
+    const text = container.textContent ?? '';
+    expect(text).toContain('aws:RequestTag/deployz:installation');
+    expect(text).toContain('aws:ResourceTag/deployz:installation');
+    expect(text).toContain("Only when the request carries this installation's tag.");
+    expect(text).toContain('Any resource in the account.');
+    expect(text).not.toContain('any secret in the account');
+    expect(text).toContain('${RelayCredentialFromParam} or ${RelayCredentialGenerated}');
+    expect(text).toContain('not after its first check-in');
+    expect(text).toContain('A permissions boundary caps the role at these permissions.');
+    expect(text).toContain('It can create IAM roles for your application and attach any policy to them.');
+    expect(text).toContain('It has no permissions boundary.');
+  });
+
+  it('lists the log-read actions as not granted', () => {
+    const container = render(STATELESS);
+    openAllPermissions(container);
+    const exceptions = accordionTrigger(container, 'Read-only permissions and exceptions').closest(
+      '[data-slot="accordion-item"]',
+    )!;
+    expect(exceptions.textContent).toContain('Not granted');
+    for (const action of DENIED_LOG_READ_ACTIONS) expect(exceptions.textContent).toContain(action);
+  });
+});
+
+describe('SecurityDetailsContent data and control', () => {
+  it('shows the five sections with the verified secret, revoke and deletion copy', () => {
+    const container = render(STATELESS);
+    openTab(container, 'Data & control');
+    const panel = activePanel(container);
+    expect([...panel.querySelectorAll('h2')].map((heading) => heading.textContent)).toEqual([
+      'Application data',
+      'Secrets & credentials',
+      'Data shared with Deployz',
+      'Revoke access',
+      'Deletion & retained resources',
+    ]);
+    expect(panel.textContent).toContain(SECRET_HANDLING_STATEMENT);
+    expect(panel.querySelector('[aria-labelledby="revoke"]')?.textContent).toContain(OWNERSHIP_NOTE);
+    expect(panel.textContent).toContain(REVOKE_ORDER_NOTE);
+    expect(panel.textContent).toContain('Delete retained data');
   });
 });

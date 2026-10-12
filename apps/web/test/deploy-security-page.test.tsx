@@ -90,8 +90,9 @@ describe('DeploySecurityPage', () => {
     mocks.fetchDeployLinkData.mockResolvedValue({ ok: true, data: resolvedData() });
     const doc = await renderPage();
 
-    expect(doc.body.textContent).toContain('Security details');
-    expect(doc.body.textContent).toContain('RDS PostgreSQL database');
+    expect(doc.querySelector('h1')?.textContent).toBe('Security & AWS access');
+    // The Overview tab renders first; its diagram draws the plan's database.
+    expect(doc.querySelector('figure')?.textContent).toContain('Database');
     expect(mocks.fetchDeployLinkData).toHaveBeenCalledWith(PUBLIC_ID, TOKEN);
   });
 
@@ -119,8 +120,8 @@ describe('DeploySecurityPage', () => {
     const doc = await renderPage();
 
     expect(doc.body.textContent).toContain('Infrastructure details are unavailable');
-    expect(doc.body.textContent).toContain('Security details');
-    expect(doc.body.textContent).not.toContain('RDS PostgreSQL database');
+    expect(doc.querySelector('h1')?.textContent).toBe('Security & AWS access');
+    expect(doc.querySelector('figure')).toBeNull();
   });
 
   it('treats a missing token as an invalid link', async () => {
