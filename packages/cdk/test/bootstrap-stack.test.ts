@@ -1085,15 +1085,25 @@ describe('BootstrapStack — application provisioning', () => {
   // IAM refuses a managed policy over 6,144 non-whitespace characters, and
   // CloudFormation reports it as a failed CreateStack for every new install
   // ("Cannot exceed quota for PolicySize") — seen live once the purge sweeps
-  // pushed the boundary to 6,350. Measured on the synthesized template, the
-  // same document CloudFormation submits.
+  // pushed the boundary to 6,350. IAM measures the document after
+  // CloudFormation resolves its intrinsics, so each policy is measured as
+  // synthesized and as resolved to the longest values each intrinsic can
+  // take, for both credential branches.
   it('keeps both managed policies under the IAM policy-size quota', () => {
     const { template } = synth();
     const policies = template.findResources('AWS::IAM::ManagedPolicy');
     expect(Object.keys(policies).length).toBeGreaterThanOrEqual(2);
     for (const [logicalId, resource] of Object.entries(policies)) {
-      const size = JSON.stringify(resource['Properties']?.['PolicyDocument']).replace(/\s/g, '').length;
-      expect(size, `${logicalId} policy document is ${size} chars`).toBeLessThan(IAM_MANAGED_POLICY_MAX_CHARS);
+      const document = resource['Properties']?.['PolicyDocument'];
+      const documents = [
+        document,
+        resolveIntrinsics(document, { hasRelayCredential: true, ...WORST_CASE_ENV }),
+        resolveIntrinsics(document, { hasRelayCredential: false, ...WORST_CASE_ENV }),
+      ];
+      for (const json of documents.map((d) => JSON.stringify(d))) {
+        const size = json.replace(/\s/g, '').length;
+        expect(size, `${logicalId} policy document is ${size} chars`).toBeLessThan(IAM_MANAGED_POLICY_MAX_CHARS);
+      }
     }
   });
 
@@ -1181,4 +1191,301 @@ describe('BootstrapStack — the relay credential secret value', () => {
     expect(generate?.['GenerateStringKey']).toBe('token');
     expect(generate?.['SecretStringTemplate']).toBe('{}');
   });
+});
+
+/** The values each intrinsic in the relay's IAM policies resolves to. */
+type IntrinsicEnv = {
+  hasRelayCredential: boolean;
+  partition: string;
+  region: string;
+  account: string;
+  installationId: string;
+};
+
+const TEST_ENV = {
+  partition: 'aws',
+  region: 'eu-west-1',
+  account: '123456789012',
+  installationId: '11111111-1111-4111-8111-111111111111',
+};
+
+// The longest value each intrinsic can resolve to: `aws-us-gov` is the
+// longest partition, 14 characters the longest region name.
+const WORST_CASE_ENV = {
+  partition: 'aws-us-gov',
+  region: 'ap-southeast-4',
+  account: '123456789012',
+  installationId: '11111111-1111-4111-8111-111111111111',
+};
+
+/**
+ * The ARN CloudFormation gives an unnamed secret: `<logical id>-<12 chars>`,
+ * plus Secrets Manager's `-<6 chars>` suffix (as seen on real AWS:
+ * `secret:RelayCredentialFromParam-84TbUNfHetTK-t2AbJ7`).
+ */
+function generatedSecretArn(logicalId: string, env: Omit<IntrinsicEnv, 'hasRelayCredential'>): string {
+  return `arn:${env.partition}:secretsmanager:${env.region}:${env.account}:secret:${logicalId}-AbCdEfGhIjKl-AbCdEf`;
+}
+
+/** Resolve the intrinsics the relay's IAM policies use; any other intrinsic fails the test. */
+function resolveIntrinsics(node: unknown, env: IntrinsicEnv): unknown {
+  if (Array.isArray(node)) return node.map((item) => resolveIntrinsics(item, env));
+  if (!node || typeof node !== 'object') return node;
+  const entries = Object.entries(node as Record<string, unknown>);
+  const [key, value] = entries[0] ?? [];
+  if (entries.length === 1 && key === 'Fn::If') {
+    const [condition, whenTrue, whenFalse] = value as [string, unknown, unknown];
+    const conditions: Record<string, boolean> = {
+      HasRelayCredential: env.hasRelayCredential,
+      NoRelayCredential: !env.hasRelayCredential,
+    };
+    if (!(condition in conditions)) throw new Error(`Unknown condition ${condition}`);
+    return resolveIntrinsics(conditions[condition] ? whenTrue : whenFalse, env);
+  }
+  if (entries.length === 1 && key === 'Ref') {
+    const refs: Record<string, string> = {
+      'AWS::Partition': env.partition,
+      'AWS::Region': env.region,
+      'AWS::AccountId': env.account,
+      RelayCredentialFromParam: generatedSecretArn('RelayCredentialFromParam', env),
+      RelayCredentialGenerated: generatedSecretArn('RelayCredentialGenerated', env),
+    };
+    if (!(String(value) in refs)) throw new Error(`Unknown Ref ${String(value)}`);
+    return refs[String(value)];
+  }
+  if (entries.length === 1 && key === 'Fn::GetAtt') {
+    const [logicalId, attribute] = value as [string, string];
+    if (logicalId !== 'InstallationId' || attribute !== 'InstallationId') {
+      throw new Error(`Unknown Fn::GetAtt ${logicalId}.${attribute}`);
+    }
+    return env.installationId;
+  }
+  if (entries.length === 1 && key === 'Fn::Join') {
+    const [separator, parts] = value as [string, unknown[]];
+    return (resolveIntrinsics(parts, env) as unknown[]).join(separator);
+  }
+  if (key?.startsWith('Fn::')) throw new Error(`Unsupported intrinsic ${key}`);
+  return Object.fromEntries(entries.map(([k, v]) => [k, resolveIntrinsics(v, env)]));
+}
+
+type Statement = {
+  Effect: string;
+  Action?: string | string[];
+  Resource?: unknown;
+  Condition?: Record<string, Record<string, string | string[]>>;
+  NotAction?: unknown;
+  NotResource?: unknown;
+};
+
+/** The secret-value actions: anything that reads or writes a secret's contents. */
+const SECRET_VALUE_ACTIONS = [
+  'secretsmanager:GetSecretValue',
+  'secretsmanager:PutSecretValue',
+  'secretsmanager:UpdateSecret',
+] as const;
+
+function asList<T>(value: T | T[] | undefined): T[] {
+  return value === undefined ? [] : Array.isArray(value) ? value : [value];
+}
+
+function globMatches(pattern: string, value: string, ignoreCase: boolean): boolean {
+  const source = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  return new RegExp(`^${source}$`, ignoreCase ? 'i' : '').test(value);
+}
+
+/**
+ * IAM condition evaluation for the keys the relay's statements use. An
+ * absent key fails every operator except `ForAllValues:*`, which IAM treats
+ * as true; an operator this helper does not model fails the test.
+ */
+function conditionsHold(condition: Statement['Condition'], context: Record<string, string>): boolean {
+  for (const [operator, keys] of Object.entries(condition ?? {})) {
+    for (const [key, expected] of Object.entries(keys)) {
+      const actual = context[key];
+      if (actual === undefined) {
+        if (operator.startsWith('ForAllValues:')) continue;
+        return false;
+      }
+      if (operator === 'StringEquals') {
+        if (!asList(expected).includes(actual)) return false;
+      } else if (operator === 'StringLike') {
+        if (!asList(expected).some((pattern) => globMatches(pattern, actual, false))) return false;
+      } else {
+        throw new Error(`Unsupported condition operator ${operator} on ${key}`);
+      }
+    }
+  }
+  return true;
+}
+
+function statementAllows(
+  statement: Statement,
+  action: string,
+  resource: string,
+  context: Record<string, string>,
+): boolean {
+  if (statement.NotAction !== undefined || statement.NotResource !== undefined) {
+    throw new Error('NotAction/NotResource is not modelled');
+  }
+  return (
+    statement.Effect === 'Allow' &&
+    asList(statement.Action).some((pattern) => globMatches(pattern, action, true)) &&
+    asList(statement.Resource as string | string[]).some((pattern) => globMatches(pattern, resource, false)) &&
+    conditionsHold(statement.Condition, context)
+  );
+}
+
+/**
+ * The relay role's identity statements (its inline policy and the attached
+ * provisioner policy) and its permissions boundary, resolved for one
+ * credential branch. The template has no Deny statements, so an action is
+ * allowed when an identity statement AND a boundary statement allow it.
+ */
+function relayPolicies(template: Template, env: IntrinsicEnv) {
+  const resources = allResources(template);
+  const roleId = Object.keys(resources).find(
+    (id) => resources[id]?.Type === 'AWS::IAM::Role' && resources[id]?.Properties?.['PermissionsBoundary'],
+  )!;
+  const roleProps = resources[roleId]!.Properties!;
+  expect(roleProps['Policies']).toBeUndefined();
+  const documentOf = (id: string) =>
+    resolveIntrinsics(resources[id]?.Properties?.['PolicyDocument'], env) as { Statement: Statement[] };
+
+  const boundaryId = (roleProps['PermissionsBoundary'] as { Ref: string }).Ref;
+  const managedIds = (roleProps['ManagedPolicyArns'] as Array<{ Ref: string }>).map((ref) => ref.Ref);
+  const inlineIds = Object.keys(resources).filter(
+    (id) =>
+      resources[id]?.Type === 'AWS::IAM::Policy' &&
+      ((resources[id]?.Properties?.['Roles'] as Array<{ Ref?: string }>) ?? []).some((r) => r.Ref === roleId),
+  );
+
+  const identity = [...managedIds, ...inlineIds].flatMap((id) => documentOf(id).Statement);
+  const boundary = documentOf(boundaryId).Statement;
+  const allows = (action: string, resource: string, context: Record<string, string> = {}) =>
+    identity.some((s) => statementAllows(s, action, resource, context)) &&
+    boundary.some((s) => statementAllows(s, action, resource, context));
+  return { identity, boundary, allows };
+}
+
+describe('BootstrapStack — the relay credential grant scope', () => {
+  const OWN_TAG = { 'aws:ResourceTag/deployz:installation': TEST_ENV.installationId };
+  const credentialStatements = (statements: Statement[]) =>
+    statements.filter((s) => asList(s.Action).includes('secretsmanager:UpdateSecret'));
+
+  it('grants the credential actions on the conditional credential ARN, in the role and the boundary', () => {
+    const { stack, template } = synth();
+    const credentialArn = {
+      'Fn::If': ['HasRelayCredential', { Ref: 'RelayCredentialFromParam' }, { Ref: 'RelayCredentialGenerated' }],
+    };
+    const resources = allResources(template);
+    const statementsOf = (id: string) =>
+      (resources[id]?.Properties?.['PolicyDocument'] as { Statement: Statement[] }).Statement;
+    const relayRoleId = (stack.resolve(stack.relayRole.roleName) as { Ref: string }).Ref;
+    const roleStatements = Object.keys(resources)
+      .filter(
+        (id) =>
+          resources[id]?.Type === 'AWS::IAM::Policy' &&
+          (resources[id]?.Properties?.['Roles'] as Array<{ Ref?: string }>).some((r) => r.Ref === relayRoleId),
+      )
+      .flatMap((id) => credentialStatements(statementsOf(id)));
+    const boundaryId = (stack.resolve(stack.permissionsBoundary.managedPolicyArn) as { Ref: string }).Ref;
+
+    for (const statements of [roleStatements, credentialStatements(statementsOf(boundaryId))]) {
+      expect(statements).toHaveLength(1);
+      expect(statements[0]?.Condition).toBeUndefined();
+      expect(statements[0]?.Resource).toEqual(credentialArn);
+      expect([...asList(statements[0]?.Action)].sort()).toEqual([
+        'secretsmanager:DescribeSecret',
+        'secretsmanager:GetSecretValue',
+        'secretsmanager:PutSecretValue',
+        'secretsmanager:UpdateSecret',
+      ]);
+    }
+    // The same ARN the relay reads its credential from.
+    expect(stack.resolve(stack.credentialSecretArn)).toEqual(credentialArn);
+  });
+
+  it.each([
+    { hasRelayCredential: true, created: 'RelayCredentialFromParam', absent: 'RelayCredentialGenerated' },
+    { hasRelayCredential: false, created: 'RelayCredentialGenerated', absent: 'RelayCredentialFromParam' },
+  ])('selects the created secret when HasRelayCredential is $hasRelayCredential', ({ hasRelayCredential, created, absent }) => {
+    const { template } = synth();
+    const conditionOf = (id: string) =>
+      (template.toJSON().Resources as Record<string, { Condition?: string }>)[id]?.Condition;
+    expect(conditionOf(created)).toBe(hasRelayCredential ? 'HasRelayCredential' : 'NoRelayCredential');
+    expect(conditionOf(absent)).toBe(hasRelayCredential ? 'NoRelayCredential' : 'HasRelayCredential');
+
+    const env = { hasRelayCredential, ...TEST_ENV };
+    const { identity, boundary, allows } = relayPolicies(template, env);
+    for (const statements of [identity, boundary]) {
+      expect(credentialStatements(statements).map((s) => s.Resource)).toEqual([generatedSecretArn(created, env)]);
+    }
+    for (const action of [...SECRET_VALUE_ACTIONS, 'secretsmanager:DescribeSecret']) {
+      expect(allows(action, generatedSecretArn(created, env), OWN_TAG), action).toBe(true);
+      // The grant does not depend on the tag, so enrollment and refresh work
+      // even before CloudFormation has tagged the secret.
+      expect(allows(action, generatedSecretArn(created, env)), `${action} untagged`).toBe(true);
+    }
+  });
+
+  it.each([true, false])(
+    'denies secret-value access to unrelated and other installations’ secrets (HasRelayCredential %s)',
+    (hasRelayCredential) => {
+      const { template } = synth();
+      const { allows } = relayPolicies(template, { hasRelayCredential, ...TEST_ENV });
+      const arn = (name: string) => `arn:aws:secretsmanager:eu-west-1:123456789012:secret:${name}`;
+      const otherInstallation = { 'aws:ResourceTag/deployz:installation': '22222222-2222-4222-8222-222222222222' };
+
+      const denied: Array<[string, Record<string, string>]> = [
+        [arn('prod/payments/api-key-XyZ123'), {}],
+        [arn('prod/payments/api-key-XyZ123'), { 'aws:ResourceTag/team': 'payments' }],
+        [arn('RelayCredentialGenerated-ZyXwVuTsRqPo-ZyXwVu'), otherInstallation],
+        [arn('AppConfigSecret251CAC1E-ZyXwVuTsRqPo-ZyXwVu'), otherInstallation],
+      ];
+      for (const [secret, context] of denied) {
+        for (const action of SECRET_VALUE_ACTIONS) {
+          expect(allows(action, secret, context), `${action} on ${secret}`).toBe(false);
+        }
+        // Metadata discovery stays condition-free (disclosed on Security
+        // Details): the purge sweep reads tags to find its retained secrets.
+        expect(allows('secretsmanager:DescribeSecret', secret, context)).toBe(true);
+      }
+    },
+  );
+
+  it.each([true, false])(
+    'keeps application configuration delivery on the installation’s own secret (HasRelayCredential %s)',
+    (hasRelayCredential) => {
+      const { template } = synth();
+      const { allows } = relayPolicies(template, { hasRelayCredential, ...TEST_ENV });
+      const appConfig =
+        'arn:aws:secretsmanager:eu-west-1:123456789012:secret:AppConfigSecret251CAC1E-AbCdEfGhIjKl-AbCdEf';
+      expect(allows('secretsmanager:GetSecretValue', appConfig, OWN_TAG)).toBe(true);
+      expect(allows('secretsmanager:PutSecretValue', appConfig, OWN_TAG)).toBe(true);
+      expect(allows('secretsmanager:DeleteSecret', appConfig, OWN_TAG)).toBe(true);
+    },
+  );
+
+  it.each([true, false])(
+    'grants secret-value actions only on the credential ARN or behind the installation tag (HasRelayCredential %s)',
+    (hasRelayCredential) => {
+      const { template } = synth();
+      const env = { hasRelayCredential, ...TEST_ENV };
+      const { identity, boundary } = relayPolicies(template, env);
+      const credential = generatedSecretArn(
+        hasRelayCredential ? 'RelayCredentialFromParam' : 'RelayCredentialGenerated',
+        env,
+      );
+      for (const statement of [...identity, ...boundary]) {
+        const grantsSecretValue = SECRET_VALUE_ACTIONS.some((action) =>
+          asList(statement.Action).some((pattern) => globMatches(pattern, action, true)),
+        );
+        if (!grantsSecretValue) continue;
+        const scopedToCredential = asList(statement.Resource).every((resource) => resource === credential);
+        const scopedToInstallation =
+          statement.Condition?.['StringEquals']?.['aws:ResourceTag/deployz:installation'] === TEST_ENV.installationId;
+        expect(scopedToCredential || scopedToInstallation, JSON.stringify(statement)).toBe(true);
+      }
+    },
+  );
 });

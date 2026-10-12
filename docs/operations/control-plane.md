@@ -135,6 +135,27 @@ Quick Create) on the customer side. With the repository variable
 identity needs `s3:GetBucketLocation`, `s3:PutObject` and
 `cloudformation:ValidateTemplate` on every bucket for that step to succeed.
 
+An IAM change in the bootstrap template follows the same rule. An existing
+connector keeps its old permissions until its stack is updated or
+recreated. Deployz cannot update a customer's stack. To apply an IAM change
+in place, the customer must authorize and do the update:
+
+1. Open the `deployz-bootstrap-…` stack in the CloudFormation console.
+2. Select **Update**, then **Replace existing template**.
+3. Enter the Region's published bootstrap template URL (the `templateURL` in
+   the install page's Quick Create link).
+4. Keep every parameter at its existing value, including `RelayCredential`
+   and `EnrollmentCode`.
+5. Review the change set before you execute it. Expect `Modify` with
+   `Replacement: False` on the relay role, its default policy and
+   `PermissionsBoundary`. Stop if the change set replaces a resource or
+   changes the credential secret.
+
+The installation identity and the enrollment do not change. The
+`AWS::IAM::ManagedPolicy` descriptions stay the same on purpose:
+`Description` is a replacement property, so a new description would replace
+both managed policies.
+
 Until `BOOTSTRAP_TEMPLATE_URL` is set, the API returns no Quick Create URL
 and the install page says no template has been published. A Region that is
 not in `DEPLOYABLE_AWS_REGIONS` is rejected at deployment creation. When the

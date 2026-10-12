@@ -182,6 +182,16 @@ describe('SecurityDetailsContent', () => {
     expect(doc.body.textContent).not.toContain('when the application requires file storage');
   });
 
+  it('states that every permission is granted at install, not after check-in', () => {
+    // The bootstrap stack attaches the provisioner policy at install
+    // (apps/web/test/security-details.test.ts checks the generated template).
+    const text = renderContent(null).body.textContent ?? '';
+    expect(text).toContain('These permissions are granted when you install the connector, not added later.');
+    expect(text).toContain('Phase 2 — also granted at install time');
+    expect(text).not.toMatch(/\bafter (it checks in|check-in|the connector.s first check-in)/i);
+    expect(text).not.toContain('almost nothing');
+  });
+
   it('renders the group headings from the shared resource groups', () => {
     const doc = renderContent(installPlan({ postgres: true, redis: true }));
     const [resources] = planDrivenSectionText(doc);

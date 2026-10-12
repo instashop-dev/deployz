@@ -168,7 +168,7 @@ test('security page top level is jargon-free and tells the honest story', async 
   await expect(page.getByRole('heading', { name: 'How deletion works' })).toBeVisible();
 
   // §45 honesty: no overclaiming "tightly scoped" — the page says the
-  // post-check-in permissions are substantial but bounded.
+  // install-time permissions are substantial but bounded.
   await expect(page.getByText(/won.t claim these permissions are tiny/)).toBeVisible();
   await expect(page.getByText(/substantial permissions/)).toBeVisible();
 
@@ -195,10 +195,10 @@ test('security page reveals the actual permissions only after expanding', async 
   }
 
   text = await page.locator('body').innerText();
-  // Phase 1 (install-time) permissions.
+  // Phase 1 permissions (granted at install).
   expect(text).toContain('logs:PutLogEvents');
   expect(text).toContain('secretsmanager:GetSecretValue');
-  // Phase 2 (post-first-contact) permissions + the tag boundary.
+  // Phase 2 permissions (also granted at install) + the tag boundary.
   expect(text).toContain('cloudformation:CreateStack');
   expect(text).toContain('cloudformation:DeleteStack');
   expect(text).toContain('ecs:UpdateService');

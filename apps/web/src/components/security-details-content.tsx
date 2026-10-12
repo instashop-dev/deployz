@@ -21,10 +21,12 @@ import {
   PHASE_2_ACM_REQUEST_ACTIONS,
   PHASE_2_APP_RESOURCE_ACTIONS,
   PHASE_2_CACHE_ACTIONS,
+  PHASE_2_CONFIG_SECRET_ACTIONS,
   PHASE_2_CREATE_STACK_ACTIONS,
   PHASE_2_DOMAIN_INGRESS_ACTIONS,
   PHASE_2_MANAGE_STACK_ACTIONS,
   PHASE_2_PASS_ROLE_ACTION,
+  PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS,
   RAW_LOGS_GUARANTEE,
   REQUEST_TAG_CONDITION,
   RESOURCE_TAG_CONDITION,
@@ -189,15 +191,14 @@ export function SecurityDetailsContent({
         </h2>
         <ul className="flex list-disc flex-col gap-3 pl-5 text-sm text-muted-foreground">
           <li>
-            <strong className="font-medium text-foreground">At install time: almost nothing.</strong>{' '}
-            It can write its own activity log, and it can read and refresh its own access key.
-            That&apos;s the complete list.
+            <strong className="font-medium text-foreground">Use its own access key.</strong> It
+            can write its own activity log, and it can read and refresh its own access key. Its
+            access-key permission covers that one secret only.
           </li>
           <li>
-            <strong className="font-medium text-foreground">
-              After it checks in with Deployz: set up and maintain your app.
-            </strong>{' '}
-            It can create, update, and remove the resources that make up your application. Where AWS
+            <strong className="font-medium text-foreground">Set up and maintain your app.</strong>{' '}
+            These permissions are granted when you install the connector, not added later. It can
+            create, update, and remove the resources that make up your application. Where AWS
             supports it, actions that change resources are restricted to Deployz-managed resources —
             the resources tagged for your installation. Some read-only lookup and Describe actions
             cannot be restricted by tag.
@@ -221,8 +222,8 @@ export function SecurityDetailsContent({
           </li>
           <li>
             <strong className="font-medium text-foreground">Grow its own permissions.</strong> A
-            ceiling is fixed at install time. Even after check-in, the connector can never exceed
-            what you see on this page.
+            ceiling is fixed at install time. The connector can never exceed what you see on this
+            page.
           </li>
           <li>
             <strong className="font-medium text-foreground">Act as anyone else.</strong> The
@@ -241,7 +242,7 @@ export function SecurityDetailsContent({
           The honest version
         </h2>
         <p className="text-sm text-muted-foreground">
-          We won&apos;t claim these permissions are tiny. After check-in, the connector holds
+          We won&apos;t claim these permissions are tiny. From install, the connector holds
           substantial permissions — enough to install and update your app without asking you to
           click through setup screens. The boundary keeps that safe. Where AWS supports it, actions
           that change resources are restricted to Deployz-managed resources — the resources tagged
@@ -317,11 +318,13 @@ export function SecurityDetailsContent({
           <DetailSection title="Phase 1 — granted at install time">
             <p>Write its own activity log:</p>
             <ActionList actions={PHASE_1_LOG_WRITE_ACTIONS} />
-            <p>Read and refresh its own access key (scoped to that one secret, nothing else):</p>
+            <p>
+              Read and refresh its own access key — only on that one secret, by its exact ARN:
+            </p>
             <ActionList actions={PHASE_1_SECRET_ACTIONS} />
           </DetailSection>
 
-          <DetailSection title="Phase 2 — granted only after the connector's first check-in">
+          <DetailSection title="Phase 2 — also granted at install time">
             <p>
               Create and update your app&apos;s resources — only when the request carries your
               installation tag (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
@@ -334,6 +337,18 @@ export function SecurityDetailsContent({
             <ActionList actions={PHASE_2_MANAGE_STACK_ACTIONS} />
             <p>Reconcile your app&apos;s running resources — same tag boundary:</p>
             <ActionList actions={PHASE_2_APP_RESOURCE_ACTIONS} />
+            <p>
+              Read and write your app&apos;s configuration secrets — only on secrets already
+              carrying your tag (
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
+            </p>
+            <ActionList actions={PHASE_2_CONFIG_SECRET_ACTIONS} />
+            <p>
+              List the secrets in your account and read their names and tags, so removal can find
+              your app&apos;s retained secrets — not limited to your installation, and never the
+              secret values:
+            </p>
+            <ActionList actions={PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS} />
             <p>
               Create your app&apos;s managed cache, and tag it as belonging to your installation
               — only when the request carries your installation tag (
@@ -394,9 +409,10 @@ export function SecurityDetailsContent({
               the connector&apos;s permissions can never grow beyond this page. Almost every phase-2
               action is constrained by the{' '}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{TAG_BOUNDARY_KEY}</code>{' '}
-              tag boundary. The exceptions are read-only lookups on the load balancer and the
-              cache — AWS does not support scoping those — and the service-role handoff, which is
-              limited by a role path and a service condition instead.
+              tag boundary. The exceptions are read-only lookups, such as those on the load
+              balancer, the cache, and secret metadata — AWS does not support scoping those — and
+              the service-role handoff, which is limited by a role path and a service condition
+              instead.
             </p>
           </DetailSection>
         </div>

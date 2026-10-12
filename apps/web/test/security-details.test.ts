@@ -14,10 +14,12 @@ import {
   PHASE_2_ACM_REQUEST_ACTIONS,
   PHASE_2_APP_RESOURCE_ACTIONS,
   PHASE_2_CACHE_ACTIONS,
+  PHASE_2_CONFIG_SECRET_ACTIONS,
   PHASE_2_CREATE_STACK_ACTIONS,
   PHASE_2_DOMAIN_INGRESS_ACTIONS,
   PHASE_2_MANAGE_STACK_ACTIONS,
   PHASE_2_PASS_ROLE_ACTION,
+  PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS,
   REQUEST_TAG_CONDITION,
   RESOURCE_TAG_CONDITION,
   SECRET_HANDLING_STATEMENT,
@@ -36,6 +38,27 @@ const BOOTSTRAP_STACK_PATH = fileURLToPath(
 );
 const source = readFileSync(BOOTSTRAP_STACK_PATH, 'utf8');
 
+type TemplateStatement = { Sid?: string; Action: string | string[]; Resource: unknown; Condition?: unknown };
+type TemplateResource = { Type: string; Properties: Record<string, unknown> };
+
+// The generated artifact the customer actually deploys (synth:bootstrap).
+const template = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL('../../../packages/cdk/artifacts/bootstrap-template-v1.json', import.meta.url)),
+    'utf8',
+  ),
+) as { Resources: Record<string, TemplateResource> };
+const relayRoleId = Object.keys(template.Resources).find(
+  (id) => template.Resources[id]?.Type === 'AWS::IAM::Role' && template.Resources[id]?.Properties['PermissionsBoundary'],
+)!;
+const relayRole = template.Resources[relayRoleId]!;
+function statementsOf(logicalId: string): TemplateStatement[] {
+  return (template.Resources[logicalId]?.Properties['PolicyDocument'] as { Statement: TemplateStatement[] }).Statement;
+}
+function actionsOf(statement: TemplateStatement | undefined): string[] {
+  return statement === undefined ? [] : ([] as string[]).concat(statement.Action);
+}
+
 /** Extracts a `const NAME = [ 'a', 'b' ] as const;` action list from the source. */
 function extractActions(name: string): string[] {
   const match = source.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\] as const;`));
@@ -52,6 +75,13 @@ describe('security-details ↔ bootstrap-stack truthfulness', () => {
 
   it('phase 1 credential-secret actions match the bootstrap stack exactly', () => {
     expect([...PHASE_1_SECRET_ACTIONS]).toEqual(extractActions('PHASE_1_SECRET_ACTIONS'));
+  });
+
+  it('phase 2 secret actions match the bootstrap stack exactly', () => {
+    expect([...PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS]).toEqual(
+      extractActions('PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS'),
+    );
+    expect([...PHASE_2_CONFIG_SECRET_ACTIONS]).toEqual(extractActions('PHASE_2_CONFIG_SECRET_ACTIONS'));
   });
 
   it('phase 2 create/update actions match the bootstrap stack exactly', () => {
@@ -120,11 +150,40 @@ describe('security-details ↔ bootstrap-stack truthfulness', () => {
     }
   });
 
-  it('two-phase design markers exist in the bootstrap stack (boundary + unattached provisioner)', () => {
-    // The page claims: a permissions-boundary ceiling fixed at install time,
-    // and a phase-2 provisioner policy defined but not attached at install.
-    expect(source).toContain('permissionsBoundary');
-    expect(source).toContain('ProvisionerPolicy');
+  it('the generated template attaches the provisioner policy and the boundary at install', () => {
+    // The page claims both phases are granted at install, under a ceiling
+    // fixed at install time.
+    const managed = relayRole.Properties['ManagedPolicyArns'] as Array<{ Ref: string }>;
+    expect(managed.map((ref) => template.Resources[ref.Ref]?.Type)).toEqual(['AWS::IAM::ManagedPolicy']);
+    expect(statementsOf(managed[0]!.Ref).map((s) => s.Sid)).toContain('ProvisionerCreateStacks');
+    const boundary = relayRole.Properties['PermissionsBoundary'] as { Ref: string };
+    expect(template.Resources[boundary.Ref]?.Type).toBe('AWS::IAM::ManagedPolicy');
+  });
+
+  it('the generated template scopes the access-key grant to the connector’s own credential secret', () => {
+    const credentialArn = {
+      'Fn::If': ['HasRelayCredential', { Ref: 'RelayCredentialFromParam' }, { Ref: 'RelayCredentialGenerated' }],
+    };
+    const inline = Object.keys(template.Resources).find(
+      (id) =>
+        template.Resources[id]?.Type === 'AWS::IAM::Policy' &&
+        (template.Resources[id]?.Properties['Roles'] as Array<{ Ref: string }>).some((r) => r.Ref === relayRoleId),
+    )!;
+    const grant = statementsOf(inline).find((s) => s.Sid === 'RelayAccessCredential');
+    expect(actionsOf(grant)).toEqual([...PHASE_1_SECRET_ACTIONS]);
+    expect(grant?.Resource).toEqual(credentialArn);
+    expect(grant?.Condition).toBeUndefined();
+  });
+
+  it('the generated template matches the secret disclosures (tag-scoped values, condition-free metadata)', () => {
+    const managed = relayRole.Properties['ManagedPolicyArns'] as Array<{ Ref: string }>;
+    const statements = statementsOf(managed[0]!.Ref);
+    const values = statements.find((s) => s.Sid === 'RelayInstallationSecrets');
+    for (const action of PHASE_2_CONFIG_SECRET_ACTIONS) expect(actionsOf(values)).toContain(action);
+    expect(JSON.stringify(values?.Condition)).toContain(RESOURCE_TAG_CONDITION);
+    const discovery = statements.find((s) => s.Sid === 'RelayPurgeSecretsList');
+    expect(actionsOf(discovery)).toEqual([...PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS]);
+    expect(discovery?.Condition).toBeUndefined();
   });
 });
 

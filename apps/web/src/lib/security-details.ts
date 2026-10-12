@@ -7,10 +7,10 @@
  * the copy can never drift from what the customer actually deploys. Do not
  * paraphrase these lists in JSX; render them from here.
  *
- * The design being disclosed (todo 8, two-phase):
- *   - Phase 1 (install-time): write relay logs + read/write the relay's own
- *     bootstrap-generated credential secret. Nothing else.
- *   - Phase 2 (post-first-contact): provisioner permissions to apply the
+ * The design being disclosed (two permission groups, both granted at install):
+ *   - Phase 1: write relay logs + read/write the relay's own credential
+ *     secret, scoped to that one secret's ARN.
+ *   - Phase 2: provisioner permissions to apply the
  *     versioned application stack. Write actions are constrained by the
  *     `deployz:installation` tag boundary, with one exception: `iam:PassRole`
  *     instead uses a path-restricted role ARN (`arn:aws:iam::*:role/deployz/*`)
@@ -18,8 +18,11 @@
  *     scope. Separately, the load balancer's `Describe*` reads (listeners,
  *     listener certificates, tags, rules) carry no condition at all — AWS
  *     does not support resource-level or condition-key restrictions on those
- *     API calls. Defined at install time but NOT attached until the control
- *     plane attaches it after the relay's first contact. Includes requesting
+ *     API calls. The bootstrap stack attaches this policy to the relay role
+ *     at install. Secret values are readable and writable only on secrets
+ *     carrying the installation tag (the application's own configuration);
+ *     listing secrets and reading their metadata carries no condition, so the
+ *     purge sweep can find its own retained secrets. Includes requesting
  *     and managing the TLS certificate for a custom domain you configure, and
  *     attaching it to the deployment's load balancer (custom-domains MVP).
  *     Also includes creating and reconciling a managed cache for applications
@@ -50,6 +53,18 @@ export const PHASE_1_SECRET_ACTIONS = [
   'secretsmanager:PutSecretValue',
   'secretsmanager:UpdateSecret',
   'secretsmanager:DescribeSecret',
+] as const;
+
+/** Phase 2 — list secrets and read their metadata, not their values (no condition). */
+export const PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS = [
+  'secretsmanager:ListSecrets',
+  'secretsmanager:DescribeSecret',
+] as const;
+
+/** Phase 2 — read/write the application's own configuration secret (requires the resource tag). */
+export const PHASE_2_CONFIG_SECRET_ACTIONS = [
+  'secretsmanager:GetSecretValue',
+  'secretsmanager:PutSecretValue',
 ] as const;
 
 /** Phase 2 — create/update the application stack (requires the request tag). */
