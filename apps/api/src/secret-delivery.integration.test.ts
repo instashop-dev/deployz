@@ -83,7 +83,10 @@ function simulatedCustomerAccount(): SimulatedCustomerAws {
   return {
     cfn: {
       async describeStack() {
-        return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+        return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {}, stackId: 'stack-id-deployz-app' } };
+      },
+      async listStackResources() {
+        return { resources: await this.describeStackResources() };
       },
       async describeStackResources() {
         return [

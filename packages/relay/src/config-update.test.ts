@@ -45,10 +45,13 @@ function cfnWithService(options: { withConfigSecret?: boolean } = {}): CloudForm
   }
   return {
     async describeStack() {
-      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {}, stackId: 'stack-id-deployz-app' } };
     },
     async describeStackResources() {
       return resources;
+    },
+    async listStackResources() {
+      return { resources };
     },
   };
 }
