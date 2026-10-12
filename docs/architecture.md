@@ -406,8 +406,13 @@ currently completed by the web app; see
   `deployz:installation` tag, with documented condition-free exceptions for
   actions AWS cannot tag-condition (reads, S3 bucket actions,
   `GetRandomPassword`, log retention, task-definition deregistration,
-  ElastiCache replication-group lifecycle, `ecs:RunTask`). The relay has no
-  log-reading permissions. Relay-created resources (listener, certificate)
+  ElastiCache replication-group lifecycle, `ecs:RunTask`). The bootstrap
+  stack attaches the provisioner policy at install; nothing is attached
+  later. The relay reads and writes its own credential secret by that
+  secret's ARN only. It reads and writes other secret values only on secrets
+  that carry its `deployz:installation` tag (the application's
+  configuration); it can list secrets and read their metadata without a
+  condition. The relay has no log-reading permissions. Relay-created resources (listener, certificate)
   must carry the installation tag or the relay cannot modify them later.
 - Relay authentication: a per-link credential minted by the API (hash
   stored; plaintext until first registration), presented as a bearer token;

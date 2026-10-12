@@ -57,7 +57,7 @@ export interface PermissionRole {
 /** Plain-English labels, keyed by the template's statement Sid. */
 const STATEMENT_LABELS: Record<string, string> = {
   RelayWriteLogs: 'Write its own activity log',
-  RelayAccessCredential: 'Read and change Secrets Manager secrets (used for its Deployz credential)',
+  RelayAccessCredential: 'Read and refresh its own Deployz credential secret',
   RelayVerifyInstallation: 'Verify its installation stack',
   RelayPendingCommandState: 'Record commands it has not finished',
   ProvisionerCreateStacks: 'Create and update the application stack',
@@ -127,8 +127,21 @@ function render(value: unknown): string {
       const [separator, parts] = record['Fn::Join'] as [string, unknown[]];
       return parts.map(render).join(separator);
     }
+    if (Array.isArray(record['Fn::If'])) {
+      const [, whenTrue, whenFalse] = record['Fn::If'] as [string, unknown, unknown];
+      return `${render(whenTrue)} or ${render(whenFalse)}`;
+    }
   }
   return JSON.stringify(value);
+}
+
+/** True when the value refers to a resource that this stack creates. */
+function refersToStackResource(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(refersToStackResource);
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.Ref === 'string') return record.Ref in resources;
+  return Object.values(record).some(refersToStackResource);
 }
 
 function toList(value: unknown): unknown[] {
@@ -154,7 +167,8 @@ function toStatement(statement: TemplateStatement): PermissionStatement {
 
   const scopedToInstallation =
     conditionKeys.some((key) => INSTALLATION_TAG_KEYS.includes(key)) ||
-    statementResources.some((resource) => resource.includes(INSTALLATION_ID));
+    statementResources.some((resource) => resource.includes(INSTALLATION_ID)) ||
+    toList(statement.Resource).every(refersToStackResource);
   const scope: PermissionScope = scopedToInstallation
     ? 'installation'
     : conditions.length > 0 || statementResources.some((resource) => resource !== '*')

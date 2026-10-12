@@ -36,6 +36,7 @@ import {
   Fn,
   Stack,
   Tags,
+  Token,
   type StackProps,
 } from 'aws-cdk-lib';
 import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
@@ -85,7 +86,7 @@ export interface BootstrapStackProps extends StackProps {
 
 const DEFAULT_CONTROL_PLANE_URL = 'https://api.deployz.dev';
 
-/** Install-time (phase 1) + post-first-contact (phase 2) permission actions. */
+/** Relay (phase 1) + provisioner (phase 2) permission actions, all granted at install. */
 const PHASE_1_LOG_WRITE_ACTIONS = [
   'logs:CreateLogGroup',
   'logs:CreateLogStream',
@@ -807,7 +808,7 @@ export class BootstrapStack extends Stack {
       Fn.ref('RelayCredentialGenerated'),
     );
 
-    this.credentialSecretArn = credentialArn as unknown as string;
+    this.credentialSecretArn = Token.asString(credentialArn);
 
     // ── 3. Execution role — least privilege + permissions boundary ──────
     const phase1LogWrite = new PolicyStatement({
@@ -821,11 +822,11 @@ export class BootstrapStack extends Stack {
       sid: 'RelayAccessCredential',
       effect: Effect.ALLOW,
       actions: [...PHASE_1_SECRET_ACTIONS],
-      // DZ-AUDIT-013: two mutually exclusive CfnSecrets exist; only one is
-      // ever created. A wildcard resource is safe here because the permissions
-      // boundary (below) caps the role, and the secret itself can only be read
-      // from inside the customer account that created the bootstrap stack.
-      resources: ['*'],
+      // Only this connector's own credential secret. DZ-AUDIT-013 creates one
+      // of two mutually exclusive CfnSecrets, so the grant takes the same
+      // Fn::If ARN the relay reads from DEPLOYZ_CREDENTIAL_SECRET_ARN. The
+      // boundary (below) carries this identical statement.
+      resources: [this.credentialSecretArn],
     });
 
     const phase2VerifyStack = new PolicyStatement({
@@ -1254,8 +1255,8 @@ export class BootstrapStack extends Stack {
     ];
 
     // The permissions boundary is the CEILING for the relay role: the union of
-    // phase 1 + phase 2. The role can never exceed it, even after the control
-    // plane attaches the provisioner policy post-first-contact.
+    // phase 1 + phase 2. The role can never exceed it, including the
+    // provisioner policy this stack attaches at install (below).
     //
     // The boundary is ONE managed policy and IAM caps a managed policy at
     // 6,144 non-whitespace characters. With the purge sweeps it reached 6,350
@@ -1264,6 +1265,11 @@ export class BootstrapStack extends Stack {
     // policy below keeps them; the boundary carries the same statements
     // without them (~550 characters). bootstrap-stack.test.ts pins both
     // policies under the quota.
+    //
+    // The ManagedPolicy descriptions below are stale (the provisioner policy
+    // is attached at install, not by the control plane) but kept on purpose:
+    // `Description` is a replacement property of AWS::IAM::ManagedPolicy, and
+    // a stack update would replace both policies on every existing connector.
     this.permissionsBoundary = new ManagedPolicy(this, 'PermissionsBoundary', {
       description:
         'Maximum permissions for the Deployz relay execution role (union of ' +
@@ -1276,9 +1282,8 @@ export class BootstrapStack extends Stack {
       ].map(withoutSid),
     });
 
-    // Phase 2 provisioner policy — DEFINED but NOT attached at install time.
-    // The control plane attaches it to the relay role after the relay's first
-    // contact (the two-phase mechanic). Exported so the control plane can find it.
+    // Phase 2 provisioner policy — attached to the relay role at install
+    // (below). Its ARN is a stack output.
     this.provisionerPolicy = new ManagedPolicy(this, 'ProvisionerPolicy', {
       description:
         'Post-first-contact provisioner permissions for the relay (phase 2). ' +
@@ -1291,7 +1296,7 @@ export class BootstrapStack extends Stack {
       description:
         'Execution role for the Deployz relay Lambda. Least privilege ' +
         '(phase 1) with a permissions boundary; phase 2 provisioner policy is ' +
-        'attached by the control plane after first contact.',
+        'attached at install.',
       permissionsBoundary: this.permissionsBoundary,
     });
     this.relayRole.addToPolicy(phase1LogWrite);

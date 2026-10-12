@@ -339,7 +339,8 @@ describe('SecurityDetailsContent permissions from the template', () => {
     expect(text).toContain('aws:ResourceTag/deployz:installation');
     expect(text).toContain("Only when the request carries this installation's tag.");
     expect(text).toContain('Any resource in the account.');
-    expect(text).toContain('it can read and change any secret in the account');
+    expect(text).not.toContain('any secret in the account');
+    expect(text).toContain('${RelayCredentialFromParam} or ${RelayCredentialGenerated}');
     expect(text).toContain('not after its first check-in');
     expect(text).toContain('A permissions boundary caps the role at these permissions.');
     expect(text).toContain('It can create IAM roles for your application and attach any policy to them.');

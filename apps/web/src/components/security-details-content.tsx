@@ -52,8 +52,6 @@ const HIGHLIGHTS = [
 
 /** Why a statement that is not limited to this installation is still contained. */
 const EXCEPTION_NOTES: Record<string, string> = {
-  RelayAccessCredential:
-    'The connector uses this for its own credential secret, but the statement is not limited to that secret: it can read and change any secret in the account that uses the default AWS managed key.',
   ProvisionApplicationPassRole:
     'No resource limit: only the receiving service is limited.',
   RelayPurgeStorage:

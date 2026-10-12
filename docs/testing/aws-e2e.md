@@ -46,6 +46,29 @@ orphans a `deployz-fresh-<runid>` stack — destroy it by hand
 (`cdk destroy --app "tsx bin/bootstrap.ts"` with `DEPLOYZ_BOOTSTRAP_STACK_NAME`
 set, or the AWS Console).
 
+**Pending qualification — relay credential scope (recorded, not run).**
+The relay role and its permissions boundary now grant the credential
+actions only on the connector's own credential secret (the `Fn::If` of
+`RelayCredentialFromParam` and `RelayCredentialGenerated`). This run is a
+pre-publication gate: do not publish the bootstrap template until it
+passes. With `BOOTSTRAP_REPUBLISH=on`, a merge to `main` that changes
+`packages/cdk` publishes the template, so run this gate before the merge.
+Local tests do not satisfy it. Run `fresh` from the change, once with the
+`RelayCredential` parameter set and once without it, and prove:
+
+1. The relay enrolls (the relay reads the credential).
+2. The relay role may write the credential: `aws iam
+   simulate-principal-policy` on the relay role allows
+   `secretsmanager:PutSecretValue` and `secretsmanager:UpdateSecret` on the
+   `CredentialSecretArn` output.
+3. The relay reads the credential after a fresh start: change the relay
+   function's configuration to force a cold start, invoke it, and find
+   `relay:poll-complete` with no `relay:credential-read-failed`.
+4. The relay role is denied secret values elsewhere: create an untagged
+   test secret in the same account and Region, and confirm the simulation
+   returns `implicitDeny` for `secretsmanager:GetSecretValue` and
+   `secretsmanager:PutSecretValue` on it. Delete the test secret.
+
 Provisioning a real application stack (RDS + ElastiCache, 15-25 minutes) is
 not part of `fresh`'s default run — the version canary's
 `profile --profile redis` covers it through the product's own install path.

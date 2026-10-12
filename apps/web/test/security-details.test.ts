@@ -118,7 +118,19 @@ describe('bootstrap permissions ↔ deployed template', () => {
       [...CONNECTOR_ROLE.statements, ...EXECUTION_ROLE.statements].find((s) => s.sid === sid);
     expect(bySid('RelayPendingCommandState')?.scope).toBe('installation');
     expect(bySid('ProvisionerPassRole')?.scope).toBe('limited');
-    expect(bySid('RelayAccessCredential')?.scope).toBe('unrestricted');
+    expect(bySid('RelayAccessCredential')?.scope).toBe('installation');
+  });
+
+  it('limits the credential grant to the connector’s own credential secret', () => {
+    const grant = CONNECTOR_ROLE.statements.find((s) => s.sid === 'RelayAccessCredential');
+    expect(grant?.resources).toEqual(['${RelayCredentialFromParam} or ${RelayCredentialGenerated}']);
+    // No connector statement reads or writes secret values on any resource.
+    const secretValueActions = ['secretsmanager:GetSecretValue', 'secretsmanager:PutSecretValue', 'secretsmanager:UpdateSecret'];
+    for (const statement of CONNECTOR_ROLE.statements) {
+      if (statement.actions.some((action) => secretValueActions.includes(action))) {
+        expect(statement.scope, statement.sid ?? '').toBe('installation');
+      }
+    }
   });
 
   // The page states these facts in words; each must stay true.

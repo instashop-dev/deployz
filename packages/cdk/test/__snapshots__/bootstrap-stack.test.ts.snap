@@ -508,7 +508,17 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "secretsmanager:DescribeSecret",
               ],
               "Effect": "Allow",
-              "Resource": "*",
+              "Resource": {
+                "Fn::If": [
+                  "HasRelayCredential",
+                  {
+                    "Ref": "RelayCredentialFromParam",
+                  },
+                  {
+                    "Ref": "RelayCredentialGenerated",
+                  },
+                ],
+              },
             },
             {
               "Action": [
@@ -1875,7 +1885,17 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "secretsmanager:DescribeSecret",
               ],
               "Effect": "Allow",
-              "Resource": "*",
+              "Resource": {
+                "Fn::If": [
+                  "HasRelayCredential",
+                  {
+                    "Ref": "RelayCredentialFromParam",
+                  },
+                  {
+                    "Ref": "RelayCredentialGenerated",
+                  },
+                ],
+              },
               "Sid": "RelayAccessCredential",
             },
             {
@@ -1960,7 +1980,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
-        "Description": "Execution role for the Deployz relay Lambda. Least privilege (phase 1) with a permissions boundary; phase 2 provisioner policy is attached by the control plane after first contact.",
+        "Description": "Execution role for the Deployz relay Lambda. Least privilege (phase 1) with a permissions boundary; phase 2 provisioner policy is attached at install.",
         "ManagedPolicyArns": [
           {
             "Ref": "ProvisionerPolicyCCE83F9D",
