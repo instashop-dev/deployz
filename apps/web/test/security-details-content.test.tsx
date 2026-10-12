@@ -238,6 +238,7 @@ describe('SecurityDetailsContent layout', () => {
     )!;
     click(pointer);
     expect(tab(container, 'AWS permissions').getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tab(container, 'AWS permissions'));
   });
 
   it('keeps every accordion collapsed by default and expands each independently', () => {
@@ -338,10 +339,10 @@ describe('SecurityDetailsContent permissions from the template', () => {
     expect(text).toContain('aws:ResourceTag/deployz:installation');
     expect(text).toContain("Only when the request carries this installation's tag.");
     expect(text).toContain('Any resource in the account.');
-    expect(text).toContain('not limited to that secret');
+    expect(text).toContain('it can read and change any secret in the account');
     expect(text).toContain('not after its first check-in');
     expect(text).toContain('A permissions boundary caps the role at these permissions.');
-    expect(text).toContain('It can create IAM roles for your application and attach policies to them.');
+    expect(text).toContain('It can create IAM roles for your application and attach any policy to them.');
     expect(text).toContain('It has no permissions boundary.');
   });
 

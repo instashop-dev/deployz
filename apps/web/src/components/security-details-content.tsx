@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { ArrowLeft, ArrowUpRight, Cloud, KeyRound } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 
 import type { DeploymentPlan } from '@deployz/contracts';
 
@@ -53,7 +53,9 @@ const HIGHLIGHTS = [
 /** Why a statement that is not limited to this installation is still contained. */
 const EXCEPTION_NOTES: Record<string, string> = {
   RelayAccessCredential:
-    'The connector uses this for its own credential secret, but the statement is not limited to that secret.',
+    'The connector uses this for its own credential secret, but the statement is not limited to that secret: it can read and change any secret in the account that uses the default AWS managed key.',
+  ProvisionApplicationPassRole:
+    'No resource limit: only the receiving service is limited.',
   RelayPurgeStorage:
     "S3 does not support tag conditions on these actions. The connector checks each bucket's deployz:installation tag before it deletes anything.",
   ProvisionApplicationStorage:
@@ -81,7 +83,9 @@ function scopeText(statement: PermissionStatement): string {
     return "Only on this installation's named resources.";
   }
   if (statement.scope === 'limited') {
-    return 'Limited by resource name or service, not to this installation.';
+    return statement.resources.some((resource) => resource !== '*')
+      ? 'Limited by resource name, not to this installation.'
+      : 'Limited by a condition, not to this installation.';
   }
   return 'Any resource in the account.';
 }
@@ -245,9 +249,10 @@ function PermissionsTab({ plan }: { plan: DeploymentPlan | null }) {
     <div className="flex flex-col gap-4">
       <h2 className="sr-only">AWS permissions</h2>
       <p className="text-sm text-muted-foreground">
-        Every action below is read from the connector template you deploy. Where AWS supports it,
-        actions are limited to resources tagged{' '}
-        <code className={codeClass}>deployz:installation</code> for this installation.
+        The connector holds broad permissions, so it can install, update and remove your application
+        without manual setup. Where AWS supports it, actions are limited to resources tagged{' '}
+        <code className={codeClass}>deployz:installation</code> for this installation. Every action
+        below is read from the connector template you deploy.
       </p>
 
       <Accordion type="multiple" className="rounded-xl border px-4">
@@ -333,7 +338,7 @@ function PermissionsTab({ plan }: { plan: DeploymentPlan | null }) {
                 Only CloudFormation can use this role, for this account. It builds your application
                 stack.
                 {executionRoleManagesRoles
-                  ? ' It can create IAM roles for your application and attach policies to them.'
+                  ? ' It can create IAM roles for your application and attach any policy to them.'
                   : null}
                 {EXECUTION_ROLE.hasPermissionsBoundary ? null : ' It has no permissions boundary.'}
               </RoleHeading>
@@ -346,8 +351,8 @@ function PermissionsTab({ plan }: { plan: DeploymentPlan | null }) {
           <AccordionTrigger>Read-only permissions and exceptions</AccordionTrigger>
           <AccordionContent className={sectionClass}>
             <p>
-              AWS does not support tag limits on some actions. These actions are not limited to this
-              installation.
+              These actions are not limited to this installation by a tag. Some AWS actions do not
+              support tag limits; others are limited by resource name or a condition instead.
             </p>
             <div className="flex flex-col gap-2">
               <h4 className="text-sm font-semibold text-foreground">Read-only actions</h4>
@@ -360,7 +365,7 @@ function PermissionsTab({ plan }: { plan: DeploymentPlan | null }) {
             {notGranted.length > 0 ? (
               <div className="flex flex-col gap-2">
                 <h4 className="text-sm font-semibold text-foreground">Not granted</h4>
-                <p>The connector writes its own activity log. It cannot read any logs:</p>
+                <p>The connector writes its own activity log. It cannot read log events:</p>
                 <ActionList actions={notGranted} />
               </div>
             ) : null}
@@ -458,6 +463,7 @@ export function SecurityDetailsContent({
   backLabel?: string;
 }) {
   const [tab, setTab] = useState<TabValue>('overview');
+  const permissionsTabRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -496,7 +502,7 @@ export function SecurityDetailsContent({
           <TabsTrigger value="overview" className="flex-none">
             Overview
           </TabsTrigger>
-          <TabsTrigger value="permissions" className="flex-none">
+          <TabsTrigger ref={permissionsTabRef} value="permissions" className="flex-none">
             AWS permissions
           </TabsTrigger>
           <TabsTrigger value="data" className="flex-none">
@@ -504,7 +510,13 @@ export function SecurityDetailsContent({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="pt-4">
-          <OverviewTab plan={plan} onShowPermissions={() => setTab('permissions')} />
+          <OverviewTab
+            plan={plan}
+            onShowPermissions={() => {
+              setTab('permissions');
+              permissionsTabRef.current?.focus();
+            }}
+          />
         </TabsContent>
         <TabsContent value="permissions" className="pt-4">
           <PermissionsTab plan={plan} />

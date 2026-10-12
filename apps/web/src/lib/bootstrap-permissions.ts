@@ -57,7 +57,7 @@ export interface PermissionRole {
 /** Plain-English labels, keyed by the template's statement Sid. */
 const STATEMENT_LABELS: Record<string, string> = {
   RelayWriteLogs: 'Write its own activity log',
-  RelayAccessCredential: 'Read and update Secrets Manager secrets (used for its Deployz credential)',
+  RelayAccessCredential: 'Read and change Secrets Manager secrets (used for its Deployz credential)',
   RelayVerifyInstallation: 'Verify its installation stack',
   RelayPendingCommandState: 'Record commands it has not finished',
   ProvisionerCreateStacks: 'Create and update the application stack',
@@ -89,7 +89,7 @@ const STATEMENT_LABELS: Record<string, string> = {
   ProvisionApplicationRead: 'Read resource configuration',
   ProvisionApplicationStorage: 'Create and configure storage buckets',
   ProvisionApplicationUntaggable: 'Actions that AWS cannot limit by tag',
-  ProvisionApplicationPassRole: 'Give application roles to ECS and EventBridge Scheduler',
+  ProvisionApplicationPassRole: 'Give any role in the account to ECS and EventBridge Scheduler',
   ProvisionApplicationServiceLinkedRoles: 'Create AWS service-linked roles',
   ProvisionApplicationQueues: 'Manage application queues',
   ProvisionApplicationSchedules: 'Manage application schedules',
