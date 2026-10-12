@@ -479,6 +479,9 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     };
   }
 
+  /** A Node runtime image that installs every dependency — proof the CLI is in node_modules. */
+  const NODE_FULL_INSTALL_DOCKERFILE = ['FROM node:20-alpine', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'CMD ["node", "index.js"]'].join('\n');
+
   // DEPLOY-029: an umami-shaped tree — the selected Dockerfile's CMD chain
   // (CMD -> scripts/start-docker.sh -> scripts/check-db.js) migrates the
   // database at startup, while package.json ALSO carries a deploy-shaped
@@ -504,6 +507,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
       defaultBranch: 'main',
     });
     const files = {
+      Dockerfile: NODE_FULL_INSTALL_DOCKERFILE,
       'package.json': JSON.stringify({
         name: 'migrate-deploy-wins',
         scripts: {
@@ -519,9 +523,9 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    // Bare `prisma migrate deploy` -> npx-prefixed. No Dockerfile in this
-    // fixture and no schema.prisma anywhere in the tree, so no --schema flag
-    // can be computed.
+    // Bare `prisma migrate deploy` -> npx-prefixed: the image runs `npm ci`,
+    // so npx finds the CLI. No schema.prisma anywhere in the tree, so no
+    // --schema flag can be computed.
     expect(row.migrationCommand).toBe('npx prisma migrate deploy');
   });
 
@@ -553,6 +557,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
       defaultBranch: 'main',
     });
     const files = {
+      Dockerfile: NODE_FULL_INSTALL_DOCKERFILE,
       'package.json': JSON.stringify({
         name: 'migrate-by-value',
         scripts: { start: 'node index.js', 'update-db': 'prisma migrate deploy', 'build-db-schema': 'prisma db pull' },
@@ -574,7 +579,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     });
     const files = {
       'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*'] }),
-      'apps/api/Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["node", "index.js"]'].join('\n'),
+      'apps/api/Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'CMD ["node", "index.js"]'].join('\n'),
       'apps/api/package.json': JSON.stringify({
         name: 'api',
         scripts: { start: 'node index.js', 'db:migrate': 'drizzle-kit migrate' },
@@ -651,7 +656,13 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
           scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
           dependencies: { prisma: '^6.19.0' },
         }),
-        'docker/Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["node", "apps/remix/build/server/main.js"]'].join('\n'),
+        'docker/Dockerfile': [
+          'FROM node:20-alpine',
+          'WORKDIR /app',
+          'COPY . .',
+          'RUN npm ci',
+          'CMD ["node", "apps/remix/build/server/main.js"]',
+        ].join('\n'),
         'apps/remix/package.json': JSON.stringify({
           name: 'remix',
           scripts: { start: 'node build/server/main.js' },
@@ -673,7 +684,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         defaultBranch: 'main',
       });
       const files = {
-        'Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["node", "dist/index.js"]'].join('\n'),
+        'Dockerfile': NODE_FULL_INSTALL_DOCKERFILE,
         'package.json': JSON.stringify({
           name: 'app',
           scripts: { start: 'node dist/index.js', 'db:migrate': 'prisma migrate deploy' },
@@ -695,7 +706,14 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         defaultBranch: 'main',
       });
       const files = {
-        'Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'WORKDIR /app/apps/remix', 'CMD ["node", "main.js"]'].join('\n'),
+        'Dockerfile': [
+          'FROM node:20-alpine',
+          'WORKDIR /app',
+          'COPY . .',
+          'RUN npm ci',
+          'WORKDIR /app/apps/remix',
+          'CMD ["node", "main.js"]',
+        ].join('\n'),
         'package.json': JSON.stringify({
           name: 'app',
           scripts: {
@@ -720,6 +738,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         defaultBranch: 'main',
       });
       const files = {
+        Dockerfile: NODE_FULL_INSTALL_DOCKERFILE,
         'package.json': JSON.stringify({
           name: 'app',
           scripts: { start: 'node index.js', 'db:migrate': 'knex migrate:latest' },
@@ -740,6 +759,13 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         defaultBranch: 'main',
       });
       const files = {
+        Dockerfile: [
+          'FROM node:20-alpine',
+          'WORKDIR /app',
+          'COPY . .',
+          'RUN corepack enable && pnpm install --frozen-lockfile',
+          'CMD ["node", "index.js"]',
+        ].join('\n'),
         'package.json': JSON.stringify({
           name: 'app',
           scripts: { start: 'node index.js', 'db:migrate': 'pnpm prisma migrate deploy' },
@@ -751,6 +777,83 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
       const row = await loadApplication(db, application.id);
       expect(row.migrationCommand).toBe('pnpm prisma migrate deploy');
+    });
+  });
+
+  // A runner the runtime image is not shown to provide is never added,
+  // substituted or installed: the script becomes a blocking vendor question.
+  describe('a migration runner the runtime image may not provide needs vendor input', () => {
+    async function analyse(name: string, files: Record<string, string>, extra: Partial<Parameters<typeof insertApplication>[2]> = {}) {
+      const application = await insertApplication(db, orgId, {
+        githubInstallationId: 'install-1',
+        repoFullName: `acme/${name}`,
+        defaultBranch: 'main',
+        ...extra,
+      });
+      await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+      return loadApplication(db, application.id);
+    }
+
+    function prismaApp(dockerfile: string[], prisma: 'dependencies' | 'devDependencies' = 'dependencies'): Record<string, string> {
+      return {
+        Dockerfile: dockerfile.join('\n'),
+        'package.json': JSON.stringify({
+          name: 'app',
+          scripts: { start: 'node index.js', 'db:migrate': 'prisma migrate deploy' },
+          dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+          [prisma]: { prisma: '^5.14.0' },
+        }),
+        '.env.example': 'DATABASE_URL=\n',
+      };
+    }
+
+    it.each([
+      ['a Bun runtime image (never substituted with bunx)', ['FROM oven/bun:1', 'WORKDIR /app', 'COPY . .', 'RUN bun install', 'CMD ["bun", "index.js"]'], 'dependencies'],
+      ['a runner stage that removes npm', ['FROM node:20-alpine AS build', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'FROM build AS runner', 'RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npx', 'CMD ["node", "index.js"]'], 'dependencies'],
+      ['a distroless runtime with no shell', ['FROM node:20-alpine AS build', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'FROM gcr.io/distroless/nodejs20-debian12', 'COPY --from=build /app /app', 'CMD ["index.js"]'], 'dependencies'],
+      ['a base image set by a build argument', ['ARG BASE=node:20-alpine', 'FROM ${BASE}', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'CMD ["node", "index.js"]'], 'dependencies'],
+    ] as const)('%s', async (name, dockerfile, prisma) => {
+      const row = await analyse(`runner-${name.replace(/[^a-z]+/gi, '-')}`, prismaApp([...dockerfile], prisma));
+      expect(row.migrationCommand).toBeNull();
+      const metadata = row.detectedMetadata as {
+        migrationNeedsInput?: { candidate: string; reason: string };
+        readiness?: { findings: { id: string; severity: string }[] };
+      };
+      expect(metadata.migrationNeedsInput?.candidate).toBe('prisma migrate deploy');
+      expect(metadata.readiness?.findings).toContainEqual(
+        expect.objectContaining({ id: 'migration-command-needs-input', severity: 'required' }),
+      );
+      expect(row.compatibilityStatus).toBe('NEEDS_ATTENTION');
+    });
+
+    it('follows the runtime stage ancestry to the Node base image', async () => {
+      const row = await analyse(
+        'runner-ancestry',
+        prismaApp(['FROM node:20-alpine AS base', 'WORKDIR /app', 'COPY . .', 'RUN npm ci', 'FROM base AS runner', 'CMD ["node", "index.js"]']),
+      );
+      expect(row.migrationCommand).toBe('npx prisma migrate deploy');
+      expect((row.detectedMetadata as { migrationNeedsInput?: unknown }).migrationNeedsInput).toBeUndefined();
+    });
+
+    it('clears an earlier invented npx command the image cannot run', async () => {
+      const row = await analyse(
+        'runner-stale-npx',
+        prismaApp(['FROM oven/bun:1', 'WORKDIR /app', 'COPY . .', 'RUN bun install', 'CMD ["bun", "index.js"]']),
+        { migrationCommand: 'npx prisma migrate deploy' },
+      );
+      expect(row.migrationCommand).toBeNull();
+    });
+
+    it('keeps the vendor decision through re-analysis and asks nothing', async () => {
+      const row = await analyse(
+        'runner-vendor-none',
+        prismaApp(['FROM oven/bun:1', 'WORKDIR /app', 'COPY . .', 'RUN bun install', 'CMD ["bun", "index.js"]']),
+        { migrationCommand: null, detectedMetadata: { vendorOverrides: ['migrationCommand'] } },
+      );
+      expect(row.migrationCommand).toBeNull();
+      const metadata = row.detectedMetadata as { migrationNeedsInput?: unknown; vendorOverrides?: string[] };
+      expect(metadata.migrationNeedsInput).toBeUndefined();
+      expect(metadata.vendorOverrides).toContain('migrationCommand');
     });
   });
 

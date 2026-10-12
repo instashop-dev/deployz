@@ -24,7 +24,7 @@
  * `/install`, `/stack-events`, `/ecs-health`).
  */
 
-import { DEPLOYZ_INSTALLATION_TAG, TASK_FAMILY_SUFFIX_PARAMETER } from '@deployz/contracts';
+import { DEPLOYZ_INSTALLATION_TAG, TASK_FAMILY_SUFFIX_PARAMETER, workloadContainerCommand } from '@deployz/contracts';
 import {
   type CreateStackInput,
   type CreateStackOutcome,
@@ -83,6 +83,8 @@ const RDS_CA_INIT_IMAGE = 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal';
 const CONFIG_SECRET_LOGICAL_ID = 'ApplicationConfigSecret';
 const TASK_DEFINITION_TYPE = 'AWS::ECS::TaskDefinition';
 const MIGRATION_TASK_DEFINITION = 'MigrationTaskDefinition';
+/** The frozen command the fixtures' seeded `npm run db:migrate` compiles to. */
+const FROZEN_MIGRATION_COMMAND = workloadContainerCommand('npm run db:migrate');
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -666,16 +668,27 @@ export class SimulatedCustomerAccount {
       memory: '512',
       networkMode: 'awsvpc',
       requiresCompatibilities: ['FARGATE'],
-      // The compiler's container shape: the essential application container,
-      // then the non-essential RDS CA init container.
+      // The compiler's container shape: the essential application container
+      // (the migration family carries its frozen command), then the
+      // non-essential RDS CA init container.
       containerDefinitions: [
-        { name: 'App', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}`, essential: true },
+        {
+          name: 'App',
+          image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}`,
+          essential: true,
+          ...(family === this.familyForLogicalId('Migration') ? { command: [...FROZEN_MIGRATION_COMMAND] } : {}),
+        },
         { name: 'RdsCaBundle', image: RDS_CA_INIT_IMAGE, essential: false },
       ],
     });
     this.taskDefinitionsByFamily.set(family, arn);
     this.stackTaskDefinitionArns.set(family, arn);
     return arn;
+  }
+
+  /** The task definition the last migration task ran, for scenario assertions. */
+  lastMigrationDefinition(): EcsTaskDefinition | undefined {
+    return this.migrationTaskDefinitionArn === null ? undefined : this.taskDefinitions.get(this.migrationTaskDefinitionArn);
   }
 
   /** Lazily creates the deploy state for every revealed service. */
@@ -787,8 +800,11 @@ export class SimulatedCustomerAccount {
     return {
       tasks: taskArns.flatMap((taskArn): SimulatedTask[] => {
         if (taskArn === this.migrationTaskArn && this.migrationTaskDefinitionArn !== null) {
-          const failed = this.scenario.migrationBehavior === 'fail';
           const definition = this.taskDefinitions.get(this.migrationTaskDefinitionArn);
+          const command = definition?.containerDefinitions.find((container) => container.essential !== false)?.['command'];
+          const frozen = JSON.stringify(command) === JSON.stringify(FROZEN_MIGRATION_COMMAND);
+          const failed =
+            this.scenario.migrationBehavior === 'fail' || (this.scenario.migrationBehavior === 'fail-frozen' && frozen);
           const containers = [...(definition?.containerDefinitions ?? [])]
             .sort((a, b) => Number(a.essential !== false) - Number(b.essential !== false))
             .map((container) => ({

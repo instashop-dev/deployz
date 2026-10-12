@@ -35,7 +35,8 @@ export function readReadinessReport(
 
 /**
  * The vendor configuration that can resolve a finding without a repository
- * change: the container port column and the manifest-only start command.
+ * change: the container port column, the manifest-only start command, and
+ * the vendor's own migration choice (a command, or no separate migration).
  */
 export function readinessResolution(application: {
   containerPort: number | null;
@@ -43,9 +44,11 @@ export function readinessResolution(application: {
 }): ReadinessResolution {
   const overrides = application.detectedMetadata?.['manifestOverrides'] as Record<string, unknown> | undefined;
   const startCommand = overrides?.['startCommand'];
+  const vendorOverrides = application.detectedMetadata?.['vendorOverrides'];
   return {
     containerPort: application.containerPort,
     startCommand: typeof startCommand === 'string' && startCommand.length > 0 ? startCommand : null,
+    migrationCommandDecided: Array.isArray(vendorOverrides) && vendorOverrides.includes('migrationCommand'),
   };
 }
 

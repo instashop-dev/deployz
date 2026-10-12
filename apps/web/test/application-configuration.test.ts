@@ -498,6 +498,14 @@ describe('deriveRequiredChanges', () => {
     expect(changes[0]!.explanation).toBe('Add a GET /health route that returns HTTP 200.');
     expect(changes[0]!.fix).toEqual({ kind: 'edit', field: 'containerPort' });
   });
+
+  it('opens the migration editor for an unconfirmed migration runner', () => {
+    const changes = deriveRequiredChanges(
+      readinessFixture({ findings: [finding({ id: 'migration-command-needs-input', category: 'database', severity: 'required' })] }),
+    );
+    expect(changes[0]!.label).toBe('Choose how database migrations run');
+    expect(changes[0]!.fix).toEqual({ kind: 'edit', field: 'migrationCommand' });
+  });
 });
 
 describe('Analysis incomplete', () => {

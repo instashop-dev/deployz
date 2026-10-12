@@ -1224,7 +1224,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'static-api',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx migrate up' },
-      dependencies: { express: '^4.18.0' },
+      dependencies: { express: '^4.18.0', migrate: '^2.1.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",

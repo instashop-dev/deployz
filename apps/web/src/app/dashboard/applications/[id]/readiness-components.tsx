@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   type Application,
   type UpdateApplicationInput,
@@ -91,10 +92,12 @@ export function EditDialog({
   const [pendingAction, setPendingAction] = useState<'save' | 'reset' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [value, setValue] = useState<string | number | boolean>(false);
+  const [noMigration, setNoMigration] = useState(false);
 
   useEffect(() => {
     if (!field) return;
     setValue(getInitialValue(field, application, readiness));
+    setNoMigration(false);
     setError(null);
   }, [field, application, readiness]);
 
@@ -102,12 +105,14 @@ export function EditDialog({
   const currentField = field;
 
   const config = FIELD_CONFIG[currentField];
+  const isMigration = currentField === 'migrationCommand';
+  const missingMigrationChoice = isMigration && !noMigration && String(value).trim() === '';
 
   async function handleSave(): Promise<void> {
     setPendingAction('save');
     setError(null);
     try {
-      const input = buildUpdateInput(currentField, value);
+      const input = isMigration && noMigration ? { migrationCommand: null } : buildUpdateInput(currentField, value);
       await updateApplication(application.id, input);
       await onSaved();
       onClose();
@@ -149,7 +154,9 @@ export function EditDialog({
         <DialogHeader>
           <DialogTitle>{config.label}</DialogTitle>
           <DialogDescription>
-            Changes apply to future deployments only.
+            {isMigration
+              ? 'New deployments use this choice. Each existing deployment uses it on its next release deployment and keeps running as it is until then.'
+              : 'Changes affect future deployments. Existing deployments are not modified.'}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
@@ -170,6 +177,7 @@ export function EditDialog({
               <Input
                 id={`edit-field-${currentField}`}
                 type={config.type === 'number' ? 'number' : 'text'}
+                disabled={isMigration && noMigration}
                 value={String(value ?? '')}
                 onChange={(event) =>
                   setValue(
@@ -183,6 +191,12 @@ export function EditDialog({
               />
             )}
           </div>
+          {isMigration ? (
+            <div className="flex items-center gap-2">
+              <Switch id="edit-no-migration" checked={noMigration} onCheckedChange={setNoMigration} />
+              <Label htmlFor="edit-no-migration">No separate migration</Label>
+            </div>
+          ) : null}
           <p className="text-sm text-muted-foreground">
             {needsReview ? detectedValue : `Detected: ${detectedValue || '—'}`}
           </p>
@@ -211,7 +225,7 @@ export function EditDialog({
           <Button
             type="button"
             onClick={() => void handleSave()}
-            disabled={pendingAction !== null || needsReview}
+            disabled={pendingAction !== null || needsReview || missingMigrationChoice}
             loading={pendingAction === 'save'}
             loadingText="Saving value…"
           >

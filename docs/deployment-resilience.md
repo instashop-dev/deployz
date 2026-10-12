@@ -178,15 +178,21 @@ install / database ready
   a helper container (the RDS CA init container) never counts as the
   application's.
 - **Exactly-once by identity.** The deploy payload's migration identity
-  is sha256 over the frozen command plus the image digest. A SUCCEEDED
-  DEPLOY_RELEASE job row carrying that identity proves the migration
-  ran: a relay retry of a confirmed identity skips the run, while within
-  one rollout the same task ARN resumes. A failed job never confirms an
-  identity.
+  is sha256 over the effective command (the frozen command, or the
+  vendor's correction) plus the image digest. A SUCCEEDED DEPLOY_RELEASE
+  job row carrying that identity proves the migration ran: a relay retry
+  of a confirmed identity skips the run, while within one rollout the
+  same task ARN resumes. A failed job never confirms an identity. A
+  correction is a new identity, so it runs also for the same image.
 - **Trust boundary.** The relay runs only the family the control plane
-  names. The payload carries `{family, identity}`; a payload with a
-  command string is rejected and dropped — the relay can never execute
-  an arbitrary command.
+  names, and only when the deployment's own stack contains a task
+  definition of that family. The payload carries `{family, identity}`; a
+  top-level command string is rejected and dropped. The one, narrow
+  amendment is the seat's own optional `command` (see "Migration recovery
+  on an existing deployment" below): the relay puts it only into the
+  application container of a new revision of the named family, then runs
+  that exact revision ARN. RunTask never carries a command override.
+
 - **Analysis freezes only a safe command.** `selectMigrationScript`
   (`packages/analysis`) accepts only a script of the deployed app's own
   package that applies pending migrations. It rejects create, generate,
@@ -197,6 +203,61 @@ install / database ready
   chain, uwsgi hook, binary flag, or `RUN_MIGRATIONS`-style ENV), the mode
   is `startup` and no command is frozen. If nothing is safe, no command is
   frozen and the "no migration command" warning stays.
+
+### Migration recovery on an existing deployment
+
+The deployment's spec, compiled artifact and stack topology stay frozen.
+The application's migration setting and its vendor-override marker
+(`detected_metadata.vendorOverrides`) decide the effective migration
+policy for each deployment's next DEPLOY_RELEASE:
+
+| Application setting | Effective policy |
+| --- | --- |
+| No vendor override | Run the frozen command the stack compiled |
+| A vendor command | Run the correction (equal to the frozen command → frozen) |
+| A vendor `null` ("No separate migration") | Skip the migration |
+
+- **Snapshot at queue time.** The single deploy route, bulk deploy and the
+  post-install auto-deploy all derive the policy in
+  `requireDeployableRelease` and store it on the job payload
+  (`migrationTask.command`, `migrationPolicy`). An active job never
+  changes. The policy is part of the job's idempotency key
+  (`…:DEPLOY_RELEASE:<releaseId>:migration:<policy>`), so a policy edit
+  while a deploy is active is refused `DEPLOYMENT_BUSY` instead of
+  replaying the old job.
+- **No new workload.** A correction is accepted only when the frozen
+  deployment already has a migration workload. Otherwise the deploy is
+  refused `409 MIGRATION_WORKLOAD_MISSING` (bulk deploy skips that target
+  with the reason; the post-install auto-deploy does not queue).
+- **Revision preparation.** The relay copies the revision the stack
+  created, overlays the effective application configuration (see "One-shot
+  task families stay current" below), and changes only the application
+  container's command and image. The entrypoint, roles, secret references,
+  volumes, networking and the RDS CA init container stay as they are. The command uses the compiler's
+  own encoding (`workloadContainerCommand`). With no correction, the
+  relay restores the frozen command from the revision the stack created,
+  so removing a correction returns to the frozen command. The stack's
+  revision or the family's latest revision is reused when it is already
+  exactly that copy.
+- **Unchanged guarantees.** Pending-task resumption, confirmed-identity
+  skipping, failed-update semantics (`MIGRATION_FAILED` → the previous
+  release keeps serving) and migration-free ROLLBACK/RESTART do not
+  change.
+- **Relay version.** A relay built before this amendment ignores the
+  seat's `command` and runs the frozen command. It reaches a customer
+  only after the bootstrap template is republished and the customer's
+  relay is recreated.
+
+Analysis does not persist a migration command the built image may not
+run. A bare ORM CLI gets `npx` only when the selected Dockerfile's
+runtime stage (and the stages it is built `FROM`) is a Node image that
+provides `npx` and already holds the CLI in its node_modules — never from
+dependencies alone, never `bunx` as a substitute, never a runtime install.
+An incompatible or uncertain runner becomes the blocking "Needs input"
+question `migration-command-needs-input`; deployment creation is blocked
+until the vendor enters a command or chooses "No separate migration"
+(see [`ai-analysis.md`](ai-analysis.md)). Startup-migration detection is
+unchanged.
 - **ROLLBACK and RESTART never run migrations.** Application rollback
   restores the image and service configuration only; it never reverses
   database migrations, and no down-migration orchestration exists. Every
@@ -256,7 +317,9 @@ them current.
   DEPLOY_RELEASE. RunTask runs the exact revision ARN that returns — never
   the bare family, which another registration could move in between. This
   fixed a real Phase 4 defect: the migration used to run whatever image the
-  stack was installed with, never the release image being deployed.
+  stack was installed with, never the release image being deployed. The
+  command is the effective one (see "Migration recovery on an existing
+  deployment" above).
 - **Every scheduled-job family** is brought current only once a
   DEPLOY_RELEASE or ROLLBACK has otherwise **settled** — never before, never
   interleaved with the service rollout. A failed update must leave scheduled
@@ -642,8 +705,11 @@ the same way the uncertain-result rule keeps reconciliation honest.
   (`docs/testing/simulated-e2e.md`) — including `duplicate-request`,
   `transient-aws`, and `relay-death-destroy` in
   `e2e/scenario-resilience.spec.ts`, `stale-install-resurrect` in
-  `e2e/scenario-recovery.spec.ts`, `config-update-failure` (a rolled-back
-  configuration fails while the previous revision serves, then a retry
-  succeeds) in `e2e/scenario-config-update.spec.ts`, and the DESTROY-retains /
+  `e2e/scenario-recovery.spec.ts`, `migration-correction` (a failed frozen
+  migration recovered by a same-image correction or by "No separate
+  migration") in `e2e/scenario-migration.spec.ts`, `config-update-failure`
+  (a rolled-back configuration fails while the previous revision serves,
+  then a retry succeeds) in `e2e/scenario-config-update.spec.ts`, and the
+  DESTROY-retains /
   PURGE-removes proof in `retained-delete-recovery`
   (`e2e/scenario-lifecycle.spec.ts`).

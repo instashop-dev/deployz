@@ -288,7 +288,7 @@ function buildWorkerRow(workerCommand: string): ConfigurationRow {
 }
 
 /** The Fix action for a row carrying a required finding: an editable field
- *  when `requiredChangeFix` resolves to one (only `port-unresolved` today),
+ *  when `requiredChangeFix` resolves to one (the port or the migration choice),
  *  otherwise the Fix-instructions dialog. A recommended-only row always
  *  opens the instructions dialog — there is no "recommended edit" shortcut. */
 function fixAction(required: ReadinessFinding | undefined): ConfigurationRowAction {
@@ -406,6 +406,7 @@ const REQUIRED_CHANGE_LABELS: Record<string, string> = {
   'localhost-binding': 'Listen on all network interfaces, not only localhost',
   'local-file-storage': 'Store files in object storage, not on the local disk',
   'build-context-git-metadata': 'Stop copying .git into the container build',
+  'migration-command-needs-input': 'Choose how database migrations run',
 };
 
 /** A plain-language label for a finding. Unknown findings keep their own title. */
@@ -413,11 +414,14 @@ export function requiredChangeLabel(finding: Pick<ReadinessFinding, 'id' | 'titl
   return REQUIRED_CHANGE_LABELS[finding.id] ?? finding.title;
 }
 
-/** Only `port-unresolved` clears when a setting is saved (the API's
- *  RESOLVABLE_FINDINGS). Every other finding needs a repository change and a
- *  new analysis — a health path or start-command edit alone does not clear it. */
+/** Only `port-unresolved` and `migration-command-needs-input` clear when a
+ *  setting is saved (the API's RESOLVABLE_FINDINGS). Every other finding needs
+ *  a repository change and a new analysis — a health path or start-command
+ *  edit alone does not clear it. */
 export function requiredChangeFix(finding: Pick<ReadinessFinding, 'id'>): RequiredChangeFix {
-  return finding.id === 'port-unresolved' ? { kind: 'edit', field: 'containerPort' } : { kind: 'instructions' };
+  if (finding.id === 'port-unresolved') return { kind: 'edit', field: 'containerPort' };
+  if (finding.id === 'migration-command-needs-input') return { kind: 'edit', field: 'migrationCommand' };
+  return { kind: 'instructions' };
 }
 
 /** One entry in the "Required changes" panel at the top of the Configuration

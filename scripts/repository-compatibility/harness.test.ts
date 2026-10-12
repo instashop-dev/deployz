@@ -255,7 +255,7 @@ function inMemorySnapshot(files: Record<string, string>): typeof fetch {
 }
 
 const EXPRESS_POSTGRES_APP: Record<string, string> = {
-  Dockerfile: 'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n',
+  Dockerfile: 'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN npm ci\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n',
   'package.json': JSON.stringify({
     name: 'acme-api',
     scripts: { start: 'node dist/index.js', build: 'tsc', 'db:migrate': 'prisma migrate deploy' },

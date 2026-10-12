@@ -25,7 +25,7 @@ const SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/app-
 const BASE_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:7';
 const MIGRATION_TASK_ARN = 'arn:aws:ecs:us-east-1:151955775369:task/app-cluster/migration-1';
 /** The frozen migration seat the control plane puts on DEPLOY_RELEASE payloads. */
-const MIGRATION_TASK = { family: 'DeployzAppMigration', identity: 'a'.repeat(64) };
+const MIGRATION_TASK = { family: 'DeployzAppMigration', identity: 'a'.repeat(64), command: null };
 const MIGRATION_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppMigration:3';
 const MIGRATION_FAMILY_ARN_PREFIX = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppMigration';
 const CLEANUP_FAMILY = 'DeployzAppCleanup';
@@ -347,7 +347,7 @@ describe('readDeployRequest', () => {
     ).toEqual({
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
-      migrationTask: MIGRATION_TASK,
+      migrationTask: { ...MIGRATION_TASK, command: null },
       workloads: [],
       scheduledJobFamilies: [],
     });
@@ -544,7 +544,7 @@ describe('createEcsDeployExecutor', () => {
     expect(state.updates).toHaveLength(1);
   });
 
-  it('runs the frozen migration task before the service update: named family, no command override, same network', async () => {
+  it('runs the frozen migration task before the service update: exact revision, no command override, same network', async () => {
     const state = baseState();
     const d = deps(state);
     const result = await run(
@@ -627,6 +627,15 @@ describe('createEcsDeployExecutor', () => {
         migrationTask: { family: 'DeployzAppMigration', identity: 'not-a-hash' },
       }),
     ).toBeNull();
+    for (const command of ['   ', 42, 'x'.repeat(4097), 'npm run migrate\0']) {
+      expect(
+        readDeployRequest({
+          imageRepository: REPO,
+          imageDigest: DIGEST_V3,
+          migrationTask: { ...MIGRATION_TASK, command },
+        }),
+      ).toBeNull();
+    }
   });
 
   it('reads the running digest from the essential container, not the init container that ran first (DEPLOY-014)', async () => {
@@ -1318,6 +1327,146 @@ describe('crash-loop detection — application exits only', () => {
 });
 
 const INIT_EXIT_0 = { name: 'RdsCaBundle', exitCode: 0 };
+
+describe('migration correction — a new revision of the same family', () => {
+  const FROZEN = ['sh', '-c', 'npx prisma migrate deploy'];
+  const CORRECTED = 'bunx prisma migrate deploy';
+
+  /** A stack migration revision as the compiler emits it: frozen command, init container, secrets, entrypoint. */
+  function correctionState(): FakeEcs {
+    const state = baseState();
+    const frozen = state.definitions.get(MIGRATION_DEF_ARN)!;
+    state.definitions.set(MIGRATION_DEF_ARN, {
+      ...frozen,
+      containerDefinitions: [
+        {
+          name: 'app',
+          image: `${REPO}@${DIGEST_V2}`,
+          essential: true,
+          entryPoint: ['/usr/local/bin/docker-entrypoint.sh'],
+          command: FROZEN,
+          secrets: [{ name: 'DATABASE_URL', valueFrom: 'arn:aws:secretsmanager:us-east-1:151955775369:secret:db' }],
+          dependsOn: [{ condition: 'SUCCESS', containerName: 'RdsCaBundle' }],
+          mountPoints: [{ containerPath: '/rds-ca', readOnly: true, sourceVolume: 'rds-ca' }],
+        },
+        {
+          name: 'RdsCaBundle',
+          image: 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal',
+          essential: false,
+          command: ['sh', '-c', 'curl -o /rds-ca/bundle.pem …'],
+        },
+      ],
+      volumes: [{ name: 'rds-ca' }],
+    });
+    return state;
+  }
+
+  function migrationDeploy(command?: string) {
+    return deployCommand({
+      imageRepository: REPO,
+      imageDigest: DIGEST_V3,
+      migrationTask: { ...MIGRATION_TASK, ...(command !== undefined ? { command } : {}) },
+    });
+  }
+
+  it('changes only the application command and image, keeps every other field, and runs that exact revision', async () => {
+    const state = correctionState();
+    const result = await run(createEcsDeployExecutor(deps(state)), migrationDeploy(CORRECTED));
+    expect(result.deferred).toBe(true);
+
+    const registered = state.registered[0] as RegisterInput;
+    const frozen = state.definitions.get(MIGRATION_DEF_ARN)!;
+    expect(registered.family).toBe(MIGRATION_TASK.family);
+    expect(registered.executionRoleArn).toBe(frozen.executionRoleArn);
+    expect(registered.taskRoleArn).toBe(frozen.taskRoleArn);
+    expect(registered.networkMode).toBe('awsvpc');
+    expect(registered.volumes).toEqual([{ name: 'rds-ca' }]);
+    expect(registered.containerDefinitions).toEqual([
+      { ...frozen.containerDefinitions[0], image: `${REPO}@${DIGEST_V3}`, command: ['sh', '-c', CORRECTED] },
+      frozen.containerDefinitions[1],
+    ]);
+    expect(state.runTasks[0]).toMatchObject({
+      taskDefinition: `${MIGRATION_FAMILY_ARN_PREFIX}:1`,
+      overrides: { containerOverrides: [] },
+    });
+  });
+
+  it('registers a corrected revision for the same image, where an image-only check would skip it', async () => {
+    const state = correctionState();
+    // The failed attempt already brought the family onto this release's image.
+    const frozen = state.definitions.get(MIGRATION_DEF_ARN)!;
+    frozen.containerDefinitions[0]!.image = `${REPO}@${DIGEST_V3}`;
+
+    await run(createEcsDeployExecutor(deps(state)), migrationDeploy(CORRECTED));
+
+    expect(state.registered).toHaveLength(2);
+    expect((state.registered[0] as RegisterInput).containerDefinitions[0]).toMatchObject({
+      image: `${REPO}@${DIGEST_V3}`,
+      command: ['sh', '-c', CORRECTED],
+    });
+  });
+
+  it('is idempotent: a family already on the image and the corrected command runs its latest revision', async () => {
+    const state = correctionState();
+    const relay = createEcsDeployExecutor(deps(state));
+    await run(relay, migrationDeploy(CORRECTED));
+    const corrected = state.latestByFamily!.get(MIGRATION_TASK.family);
+    state.registered.length = 0;
+    state.runTasks.length = 0;
+
+    await run(relay, { ...migrationDeploy(CORRECTED), id: 'job-2' });
+
+    expect(state.registered.filter((input) => (input as RegisterInput).family === MIGRATION_TASK.family)).toHaveLength(0);
+    expect(state.runTasks[0]).toMatchObject({ taskDefinition: corrected });
+  });
+
+  it('restores the frozen command from the stack revision when the seat carries no correction', async () => {
+    const state = correctionState();
+    const relay = createEcsDeployExecutor(deps(state));
+    await run(relay, migrationDeploy(CORRECTED));
+    state.registered.length = 0;
+
+    await run(relay, { ...migrationDeploy(), id: 'job-2' });
+
+    expect((state.registered[0] as RegisterInput).containerDefinitions[0]).toMatchObject({ command: FROZEN });
+  });
+
+  it('refuses a family that is not part of the deployment stack and never runs a task', async () => {
+    const state = correctionState();
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationTask: { family: 'DeployzAppOther', identity: 'a'.repeat(64), command: CORRECTED },
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('MIGRATION_FAILED');
+    expect(result.error).toContain('created 0 task definitions of family "DeployzAppOther"');
+    expect(state.registered).toHaveLength(0);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('a corrected migration that fails still fails the update before any service changes', async () => {
+    const state = correctionState();
+    state.migrationTask = { stopCode: 'EssentialContainerExited', containers: [{ name: 'app', exitCode: 1 }] };
+    const result = await run(createEcsDeployExecutor(deps(state)), migrationDeploy(CORRECTED));
+    expect(result.failureCode).toBe('MIGRATION_FAILED');
+    expect(result.error).toContain('exit code 1');
+    expect(state.updates).toHaveLength(0);
+  });
+});
+
+type RegisterInput = {
+  family?: string;
+  executionRoleArn?: string;
+  taskRoleArn?: string;
+  networkMode?: string;
+  volumes?: unknown[];
+  containerDefinitions: Record<string, unknown>[];
+};
 
 describe('scheduled-job family image registration (Phase 5)', () => {
   it('registers the release image into every scheduled-job family once the rollout settles', async () => {
