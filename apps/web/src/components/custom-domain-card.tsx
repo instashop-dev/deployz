@@ -282,9 +282,18 @@ function DomainStatusBody({
   switch (domain.status) {
     case 'pending':
       return (
-        <p className="text-sm text-muted-foreground">
-          Requesting a certificate for this domain…
-        </p>
+        <>
+          <p className="text-sm text-muted-foreground">
+            Requesting a certificate for this domain…
+          </p>
+          {canManage ? (
+            <div>
+              <Button type="button" size="sm" variant="destructive" onClick={onOpenRemove}>
+                Remove domain
+              </Button>
+            </div>
+          ) : null}
+        </>
       );
 
     case 'waiting_for_dns':

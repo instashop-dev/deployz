@@ -28,7 +28,7 @@ export const customDomains = pgTable(
     routingTarget: text('routing_target'),
     // Stable error code (DNS_VALIDATION_NOT_FOUND, DNS_ROUTING_MISMATCH,
     // HTTPS_NOT_REACHABLE, AWS_PERMISSION_DENIED, CONFIGURE_FAILED,
-    // REMOVE_FAILED) — mapped to copy in the web app, never raw AWS text.
+    // CERTIFICATE_FAILED, REMOVE_FAILED) — mapped to copy in the web app, never raw AWS text.
     lastError: text('last_error'),
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     // Bumped to mint a fresh relay-job idempotency key when a finished job

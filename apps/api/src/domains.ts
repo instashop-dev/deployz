@@ -392,6 +392,28 @@ export async function applyDomainJobResult(
     }
   }
 
+  if (
+    (output.certificateStatus === 'FAILED' || output.certificateStatus === 'VALIDATION_TIMED_OUT') &&
+    (domain.status === 'PENDING' || domain.status === 'WAITING_FOR_DNS')
+  ) {
+    // ACM refused or gave up on the certificate. Without this the row would
+    // stay PENDING forever: a failed certificate carries no validation record.
+    await tx
+      .update(schema.customDomains)
+      .set({ ...update, status: 'ERROR', lastError: 'CERTIFICATE_FAILED' })
+      .where(eq(schema.customDomains.id, domain.id));
+    await recordEvent(tx, {
+      organizationId: deployment.organizationId,
+      eventType: 'domain.failed',
+      actorType: 'relay',
+      actorId: deployment.id,
+      deploymentId: deployment.id,
+      result: 'failure',
+      payload: { hostname: domain.hostname, error: `Certificate ${output.certificateStatus}` },
+    });
+    return;
+  }
+
   const validationName = update.validationName ?? domain.validationName;
   const validationValue = update.validationValue ?? domain.validationValue;
 

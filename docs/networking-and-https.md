@@ -128,7 +128,10 @@ injectable transport; nothing in the test suite reaches Cloudflare.
   full public-suffix list.
 - **States** follow the same six statuses. Domain job failures land on the
   `custom_domains` row and never change the deployment state. `ERROR` is
-  terminal for a domain; ACTIVE domains are not re-checked.
+  terminal for a domain; ACTIVE domains are not re-checked. A certificate
+  that ACM reports as `FAILED` or `VALIDATION_TIMED_OUT` moves a `PENDING` or
+  `WAITING_FOR_DNS` domain to `ERROR` (`CERTIFICATE_FAILED`). The vendor can
+  remove a domain in every state except `REMOVING`.
 - **Change = remove, then add.** There is no in-place hostname edit. After
   removal the preferred URL falls back to the default URL immediately, and a
   new domain can be added at once (soft-deleted rows do not block the unique

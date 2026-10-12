@@ -62,6 +62,10 @@ const DOMAIN_ERROR_COPY: Record<string, { title: string; body: string }> = {
     body: "The connected AWS account doesn't currently allow Deployz to complete the domain setup.",
   },
   CONFIGURE_FAILED: GENERIC_ERROR_COPY,
+  CERTIFICATE_FAILED: {
+    title: "The HTTPS certificate couldn't be issued",
+    body: "The certificate authority didn't accept this domain. Remove it, then check the domain name and add it again.",
+  },
   HTTPS_NOT_REACHABLE: {
     title: "HTTPS isn't reachable yet",
     body: 'The load balancer may still be provisioning, or the deployment may not be running.',

@@ -317,6 +317,31 @@ describe('domains (custom-domain service)', () => {
       expect(events[0]!.payload).toMatchObject({ hostname, error: 'boom' });
     });
 
+    it.each(['FAILED', 'VALIDATION_TIMED_OUT'])(
+      'CONFIGURE success with certificateStatus %s moves PENDING -> ERROR CERTIFICATE_FAILED and records domain.failed',
+      async (certificateStatus) => {
+        const { deployment } = await seedDeployment();
+        const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+        const job = await configureJobFor(deployment.id);
+
+        await applyDomainJobResult(db, deployment, job, {
+          success: true,
+          output: { certificateArn: 'arn:aws:acm:eu-west-1:123:certificate/abc', certificateStatus },
+        });
+
+        const reloaded = await reload(domain.id);
+        expect(reloaded.status).toBe('ERROR');
+        expect(reloaded.lastError).toBe('CERTIFICATE_FAILED');
+        expect(reloaded.certificateArn).toBe('arn:aws:acm:eu-west-1:123:certificate/abc');
+
+        const events = await db
+          .select()
+          .from(schema.eventLogs)
+          .where(and(eq(schema.eventLogs.deploymentId, deployment.id), eq(schema.eventLogs.eventType, 'domain.failed')));
+        expect(events).toHaveLength(1);
+      },
+    );
+
     it('CONFIGURE failure with failureCode AWS_PERMISSION_DENIED sets that lastError code', async () => {
       const { deployment } = await seedDeployment();
       const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');

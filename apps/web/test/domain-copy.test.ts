@@ -31,6 +31,11 @@ describe('domainErrorCopy', () => {
     expect(domainErrorCopy(null)).toBeNull();
   });
 
+  it('maps CERTIFICATE_FAILED to a specific, non-generic message', () => {
+    expect(domainErrorCopy('CERTIFICATE_FAILED')?.title).toBe("The HTTPS certificate couldn't be issued");
+    expect(isGenericDomainError('CERTIFICATE_FAILED')).toBe(false);
+  });
+
   it('maps DNS_VALIDATION_NOT_FOUND', () => {
     expect(domainErrorCopy('DNS_VALIDATION_NOT_FOUND')).toEqual({
       title: 'Verification record not found',
