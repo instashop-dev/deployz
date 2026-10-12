@@ -296,6 +296,11 @@ disconnect dialog, and the deploy-update dialog. Each page shows the
 deployment's manifest. The page does not build its own plan. The page does
 not guess which resources exist. The page only shows the plan's data.
 
+The Security Details page follows the same rule for IAM. It reads every IAM
+action, resource and condition from the committed bootstrap template
+(`packages/cdk/artifacts/bootstrap-template-v1.json`) through
+`lib/bootstrap-permissions.ts`. Do not write IAM action lists in web code.
+
 ## Spec-derived components
 
 Status payloads carry `specComponents` (componentId, label, state,
