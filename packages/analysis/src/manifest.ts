@@ -69,8 +69,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 /** The analysed migration mode from metadata, when present and valid. */
-function migrationModeOf(meta: Record<string, unknown>): DeploymentManifest['migration']['mode'] {
+function migrationModeOf(
+  meta: Record<string, unknown>,
+  vendorChoseNoMigration: boolean,
+): DeploymentManifest['migration']['mode'] {
   const mode = meta['migrationMode'];
+  // An explicit "No separate migration" records mode none, except when the
+  // image already migrates itself at boot (startup stays accurate).
+  if (vendorChoseNoMigration && mode !== 'startup') return 'none';
   return mode === 'pre_deploy' || mode === 'startup' || mode === 'none' || mode === 'unknown'
     ? mode
     : undefined;
@@ -499,6 +505,10 @@ export function normalizeDeploymentManifest(
     STANDARD_DATABASE_BINDINGS,
   );
 
+  const migrationMode = migrationModeOf(
+    meta,
+    stringArray(meta['vendorOverrides']).includes('migrationCommand') && !overrides.migrationCommand,
+  );
   const manifest: DeploymentManifest = {
     schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
     application: {
@@ -587,7 +597,7 @@ export function normalizeDeploymentManifest(
       // phase 6: the analysed migration MODE rides along (pre_deploy /
       // startup / none / unknown).
       command: overrides.migrationCommand ?? null,
-      ...(migrationModeOf(meta) !== undefined ? { mode: migrationModeOf(meta) } : {}),
+      ...(migrationMode !== undefined ? { mode: migrationMode } : {}),
       ...(meta['migrationNeedsInput'] !== undefined &&
       meta['migrationNeedsInput'] !== null &&
       !stringArray(meta['vendorOverrides']).includes('migrationCommand')

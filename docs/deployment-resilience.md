@@ -217,6 +217,10 @@ policy for each deployment's next DEPLOY_RELEASE:
 | A vendor command | Run the correction (equal to the frozen command → frozen) |
 | A vendor `null` ("No separate migration") | Skip the migration |
 
+A vendor `null` also freezes `migration.mode` as `none` (unless the image already
+migrates at startup), so the "migration strategy" question closes. The mode is
+informational; the relay and the workload compiler read only the command.
+
 - **Snapshot at queue time.** The single deploy route, bulk deploy and the
   post-install auto-deploy all derive the policy in
   `requireDeployableRelease` and store it on the job payload
