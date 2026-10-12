@@ -773,6 +773,8 @@ describe('CONFIG_UPDATE settlement — success only after every rollout complete
     expect((await executor(command())).deferred).toBe(true);
     expect((await executor(command())).deferred).toBe(true);
     expect(registered).toHaveLength(1);
+  });
+});
 
 describe('unappliedConfigurationKeys', () => {
   function definition(
