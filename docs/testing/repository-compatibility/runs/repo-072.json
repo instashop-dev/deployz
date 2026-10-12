@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 184,
     "entries": 9781,
@@ -32,21 +32,21 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile-postgresql",
     "port": 8000,
-    "startCommand": "start: astro dev",
+    "startCommand": null,
     "healthDetected": true,
-    "healthPath": "/remotes/server/analytics/status",
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
-    "redis": false,
+    "redis": true,
     "redisDetected": true,
-    "redisConfidence": "medium",
+    "redisConfidence": "high",
     "storage": true,
     "worker": false,
     "workerCommand": null,
@@ -61,27 +61,33 @@
     "requiredEnvVars": [
       "SHARED_SECRET"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "rabbitmq"
+    ],
     "readinessFindings": [
+      "unsupported-message-queue",
       "port-unresolved",
+      "start-command-missing",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
+      "start-command-missing",
       "required-env-vars-missing",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "redis-requirement-unclear"
+      "start-command-unknown"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -92,9 +98,8 @@
     {
       "fact": "redis",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "worker",
@@ -122,32 +127,14 @@
         "rabbitmq",
         "background-worker"
       ],
-      "actual": [],
+      "actual": [
+        "rabbitmq"
+      ],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-002",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "worker",
       "kind": "fact",
@@ -175,7 +162,9 @@
         "rabbitmq",
         "background-worker"
       ],
-      "actual": [],
+      "actual": [
+        "rabbitmq"
+      ],
       "finding": {
         "id": "COMP-002",
         "type": "ANALYSIS_BUG"

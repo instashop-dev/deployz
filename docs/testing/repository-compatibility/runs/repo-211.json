@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "medium",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 12701,
@@ -44,23 +44,21 @@
     "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": true,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "yarn cli admit-legacy-context-blobs && yarn prisma migrate deploy && yarn cli run",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "sentry",
       "smtp",
       "stripe"
     ],
     "requiredEnvVars": [
-      "AFFINE_PRIVATE_KEY",
-      "DATABASE_URL",
-      "NAPI_RS_NATIVE_LIBRARY_PATH"
+      "DATABASE_URL"
     ],
     "unsupported": [
       "local-filesystem"
@@ -73,11 +71,12 @@
     "gateFindings": [
       "unsupported",
       "health-path-required",
-      "required-env-vars-missing"
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "monorepo-target"
+      "monorepo-target",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -97,8 +96,9 @@
     {
       "fact": "redis",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "worker",
@@ -116,8 +116,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -158,10 +159,24 @@
       "finding": null
     },
     {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
       "fact": "worker",
       "kind": "fact",
       "expected": false,
       "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
       "finding": null
     },
     {

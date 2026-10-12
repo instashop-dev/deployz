@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 497,
@@ -66,6 +66,7 @@
     ],
     "gateFindings": [
       "required-env-vars-missing",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [

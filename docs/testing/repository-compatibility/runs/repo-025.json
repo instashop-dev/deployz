@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 200,
     "entries": 19783,
@@ -46,12 +46,12 @@
     "postgresDetected": true,
     "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "bun run db:migrate",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "anthropic",
       "openai",
@@ -67,15 +67,18 @@
     "readinessFindings": [
       "unsupported-redis-setup",
       "unsupported-multi-service",
-      "health-check"
+      "health-check",
+      "database-migrations"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "health-path-required"
+      "health-path-required",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -113,8 +116,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -155,6 +159,13 @@
         "id": "COMP-015",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
     },
     {
       "fact": "unsupported",

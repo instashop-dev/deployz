@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 111,
+    "files": 144,
     "entries": 3962,
     "truncated": false
   },
@@ -46,19 +46,21 @@
     "dockerfilePath": "Dockerfile",
     "port": 80,
     "startCommand": "CMD: [ \"php\", \"app/http.php\" ]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/v1/health",
     "postgres": false,
     "postgresDetected": false,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
-    "worker": false,
+    "worker": true,
     "workerCommand": null,
     "migration": false,
     "migrationCommand": null,
-    "externalServices": [],
+    "externalServices": [
+      "auth0"
+    ],
     "requiredEnvVars": [
       "MONGO_INITDB_PASSWORD"
     ],
@@ -69,15 +71,16 @@
     "readinessFindings": [
       "unsupported-multi-service",
       "local-file-storage",
-      "health-check"
+      "worker-command"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "health-path-required",
       "required-env-vars-missing"
     ],
-    "unresolvedQuestions": []
+    "unresolvedQuestions": [
+      "redis-requirement-unclear"
+    ]
   },
   "comparisons": [
     {
@@ -96,15 +99,15 @@
     {
       "fact": "redis",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "worker",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "storage",
@@ -162,7 +165,7 @@
       "finding": null
     },
     {
-      "fact": "worker",
+      "fact": "redis",
       "kind": "fact",
       "expected": true,
       "actual": false,

@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 204,
     "entries": 4094,
@@ -52,54 +52,39 @@
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "node migrate-mongodb-to-ferretdb.mjs",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "smtp"
     ],
     "requiredEnvVars": [
-      "ATTACHMENTS_UPLOAD_MIME_TYPES",
       "CARDS_LOADING",
-      "CARDS_LOADING_LAZY_THRESHOLD",
-      "CORS",
-      "CORS_ALLOW_HEADERS",
-      "CORS_EXPOSE_HEADERS",
       "HEADER_LOGIN_EMAIL",
       "HEADER_LOGIN_FIRSTNAME",
       "HEADER_LOGIN_LASTNAME",
       "HEADER_LOGIN_TRUSTED_PROXIES",
       "METEOR_REACTIVITY_ORDER",
       "METRICS_ACCESS_TOKEN",
-      "METRICS_TRUST_PROXY",
       "MONGO_URL",
       "OAUTH2_REQUEST_PERMISSIONS",
       "OAUTH2_SECRET",
-      "OAUTH2_TOKEN_ENDPOINT",
-      "PERMISSIONS_POLICY",
       "ROOT_URL",
-      "SAML_PRIVATE_KEYFILE",
-      "WEKAN_INTEGRITY_PRIVATE_KEY",
-      "WEKAN_MIN_FREE_DISK_MB",
       "WRITABLE_PATH"
     ],
     "unsupported": [
-      "docker-compose-multi-service",
       "mongodb"
     ],
     "readinessFindings": [
       "unsupported-database-mongo",
-      "unsupported-multi-service",
       "health-check"
     ],
     "gateFindings": [
-      "unsupported",
       "unsupported",
       "health-path-required",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles",
-      "build-command-unknown"
+      "multiple-dockerfiles"
     ]
   },
   "comparisons": [
@@ -136,9 +121,8 @@
     {
       "fact": "migration",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "appRoot",
@@ -164,39 +148,11 @@
         "mongodb"
       ],
       "actual": [
-        "docker-compose-multi-service",
         "mongodb"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
-  "mismatches": [
-    {
-      "fact": "migration",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "mongodb"
-      ],
-      "actual": [
-        "docker-compose-multi-service",
-        "mongodb"
-      ],
-      "finding": {
-        "id": "COMP-026",
-        "type": "ANALYSIS_BUG"
-      }
-    }
-  ],
-  "match": false
+  "mismatches": [],
+  "match": true
 }

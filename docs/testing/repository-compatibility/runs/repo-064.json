@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 202,
     "entries": 1383,
@@ -34,15 +34,15 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 8000,
     "startCommand": "CMD: [\"/docker-entrypoint.sh\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/api/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -57,11 +57,10 @@
     "requiredEnvVars": [],
     "unsupported": [],
     "readinessFindings": [
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "health-path-required",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -129,9 +128,8 @@
     {
       "fact": "healthPath",
       "expected": "/api/health",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/api/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -168,16 +166,6 @@
       "actual": false,
       "finding": {
         "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/api/health",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 46,
+    "files": 54,
     "entries": 747,
     "truncated": false
   },
@@ -35,14 +35,14 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "rust",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
-    "startCommand": null,
+    "port": 80,
+    "startCommand": "CMD: [\"/start.sh\"]",
     "healthDetected": false,
     "healthPath": null,
     "postgres": true,
@@ -56,51 +56,30 @@
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [
-      "DOMAIN",
-      "MARIADB_DATABASE",
-      "MARIADB_PASSWORD",
-      "MARIADB_PORT",
-      "MARIADB_USER",
-      "MYSQL_DATABASE",
-      "MYSQL_PASSWORD",
-      "MYSQL_PORT",
-      "MYSQL_USER",
-      "POSTGRES_DB",
-      "POSTGRES_PASSWORD",
-      "POSTGRES_PORT",
-      "POSTGRES_USER",
-      "TEST_USER2_PASSWORD",
-      "TEST_USER3_PASSWORD",
-      "TEST_USER_PASSWORD"
+    "requiredEnvVars": [],
+    "unsupported": [
+      "local-filesystem"
     ],
-    "unsupported": [],
     "readinessFindings": [
-      "port-unresolved",
-      "start-command-missing",
+      "local-file-storage",
       "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "port-missing",
-      "start-command-missing",
+      "unsupported",
       "health-path-required",
-      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles",
-      "start-command-unknown",
-      "build-command-unknown"
+      "multiple-dockerfiles"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -148,9 +127,8 @@
     {
       "fact": "port",
       "expected": 80,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 80,
+      "match": true
     },
     {
       "fact": "healthPath",
@@ -164,22 +142,13 @@
       "expected": [
         "local-filesystem"
       ],
-      "actual": [],
-      "match": false,
-      "kind": "fact"
+      "actual": [
+        "local-filesystem"
+      ],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-025",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "storage",
       "kind": "fact",
@@ -191,34 +160,12 @@
       }
     },
     {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 80,
-      "actual": null,
-      "finding": {
-        "id": "COMP-030",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/alive",
       "actual": null,
       "finding": {
         "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "local-filesystem"
-      ],
-      "actual": [],
-      "finding": {
-        "id": "COMP-025",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 200,
     "entries": 790,
@@ -42,7 +42,7 @@
     "port": 8080,
     "startCommand": "CMD: [\"/usr/bin/miniflux\"]",
     "healthDetected": true,
-    "healthPath": "/v1/integrations/status",
+    "healthPath": "/healthcheck",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -126,9 +126,8 @@
     {
       "fact": "healthPath",
       "expected": "/healthcheck",
-      "actual": "/v1/integrations/status",
-      "match": false,
-      "kind": "fact"
+      "actual": "/healthcheck",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -156,16 +155,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/healthcheck",
-      "actual": "/v1/integrations/status",
-      "finding": {
-        "id": "COMP-039",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

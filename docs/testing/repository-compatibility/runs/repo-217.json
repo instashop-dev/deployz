@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 211,
     "entries": 56471,
@@ -46,18 +46,18 @@
     "dockerfilePath": "Dockerfile",
     "port": 8000,
     "startCommand": "CMD: [\"./bin/docker\"]",
-    "healthDetected": true,
-    "healthPath": "/v1/status/ready",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": true,
     "worker": true,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx drizzle-kit migrate",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "anthropic",
       "openai",
@@ -66,17 +66,21 @@
     ],
     "requiredEnvVars": [],
     "unsupported": [
-      "other-database"
+      "docker-compose-multi-service"
     ],
     "readinessFindings": [
-      "unsupported-database-other",
+      "unsupported-multi-service",
+      "health-check",
       "worker-command"
     ],
     "gateFindings": [
-      "unsupported"
+      "unsupported",
+      "health-path-required",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -95,8 +99,9 @@
     {
       "fact": "redis",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "worker",
@@ -114,8 +119,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -144,7 +150,7 @@
         "kafka"
       ],
       "actual": [
-        "other-database"
+        "docker-compose-multi-service"
       ],
       "match": false,
       "kind": "fact"
@@ -152,10 +158,24 @@
   ],
   "mismatches": [
     {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
       "fact": "storage",
       "kind": "fact",
       "expected": false,
       "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
       "finding": null
     },
     {
@@ -168,7 +188,7 @@
         "kafka"
       ],
       "actual": [
-        "other-database"
+        "docker-compose-multi-service"
       ],
       "finding": null
     }

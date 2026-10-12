@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 27312,
@@ -34,16 +34,16 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
-    "runtime": "node",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 3000,
     "startCommand": "CMD: [\"cfg:default.log.mode=console\"]",
-    "healthDetected": true,
-    "healthPath": "/readyz",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -58,9 +58,12 @@
     "requiredEnvVars": [],
     "unsupported": [],
     "readinessFindings": [
+      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
+      "health-path-required",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -72,9 +75,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -129,7 +131,7 @@
     {
       "fact": "healthPath",
       "expected": "/api/health",
-      "actual": "/readyz",
+      "actual": null,
       "match": false,
       "kind": "fact"
     },
@@ -141,16 +143,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "storage",
       "kind": "fact",
@@ -175,7 +167,7 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/health",
-      "actual": "/readyz",
+      "actual": null,
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 1085,
@@ -37,10 +37,10 @@
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
-    "appRoot": "dev/build-arm",
-    "dockerfilePath": "dev/build-arm/Dockerfile",
+    "appRoot": ".",
+    "dockerfilePath": "dev/build/Dockerfile",
     "port": 3000,
-    "startCommand": "CMD: [\"node\", \"server\"]",
+    "startCommand": "CMD: [\"node\", \"--no-deprecation\", \"server\"]",
     "healthDetected": true,
     "healthPath": "/healthz",
     "postgres": true,
@@ -57,10 +57,10 @@
       "smtp"
     ],
     "requiredEnvVars": [
-      "CONFIG_FILE",
       "DATABASE_URL",
+      "DB_PASS",
       "DB_SSL_CA",
-      "UPGRADE_COMPANION"
+      "DB_TYPE"
     ],
     "unsupported": [
       "local-filesystem"
@@ -120,16 +120,14 @@
     {
       "fact": "appRoot",
       "expected": ".",
-      "actual": "dev/build-arm",
-      "match": false,
-      "kind": "fact"
+      "actual": ".",
+      "match": true
     },
     {
       "fact": "dockerfilePath",
       "expected": "dev/build/Dockerfile",
-      "actual": "dev/build-arm/Dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "dev/build/Dockerfile",
+      "match": true
     },
     {
       "fact": "port",
@@ -172,26 +170,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "appRoot",
-      "kind": "fact",
-      "expected": ".",
-      "actual": "dev/build-arm",
-      "finding": {
-        "id": "COMP-020",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "dockerfilePath",
-      "kind": "fact",
-      "expected": "dev/build/Dockerfile",
-      "actual": "dev/build-arm/Dockerfile",
-      "finding": {
-        "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
       }
     },
     {

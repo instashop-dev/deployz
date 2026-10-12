@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 6296,
@@ -47,36 +47,34 @@
     "port": 3000,
     "startCommand": "CMD: [\"caddy\", \"run\", \"--config\", \"/etc/caddy/Caddyfile\"]",
     "healthDetected": true,
-    "healthPath": "/health",
+    "healthPath": "/god-mode",
     "postgres": false,
     "postgresDetected": false,
     "redis": true,
     "redisDetected": true,
     "redisConfidence": "high",
     "storage": false,
-    "worker": false,
-    "workerCommand": null,
+    "worker": true,
+    "workerCommand": "./bin/docker-entrypoint-worker.sh",
     "migration": false,
     "migrationCommand": null,
     "externalServices": [
       "openai"
     ],
-    "requiredEnvVars": [
-      "API_BASE_URL",
-      "LIVE_SERVER_SECRET_KEY"
-    ],
+    "requiredEnvVars": [],
     "unsupported": [
+      "background-worker",
       "docker-compose-multi-service",
       "rabbitmq"
     ],
     "readinessFindings": [
       "unsupported-message-queue",
-      "unsupported-multi-service"
+      "unsupported-multi-service",
+      "worker-process"
     ],
     "gateFindings": [
       "unsupported",
-      "unsupported",
-      "required-env-vars-missing"
+      "unsupported"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles"
@@ -105,9 +103,8 @@
     {
       "fact": "worker",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "storage",
@@ -146,7 +143,7 @@
     {
       "fact": "healthPath",
       "expected": "/",
-      "actual": "/health",
+      "actual": "/god-mode",
       "match": false,
       "kind": "fact"
     },
@@ -158,23 +155,16 @@
         "rabbitmq"
       ],
       "actual": [
+        "background-worker",
         "docker-compose-multi-service",
         "rabbitmq"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
   "mismatches": [
     {
       "fact": "postgres",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": null
-    },
-    {
-      "fact": "worker",
       "kind": "fact",
       "expected": true,
       "actual": false,
@@ -212,21 +202,7 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/",
-      "actual": "/health",
-      "finding": null
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "docker-compose-multi-service",
-        "background-worker",
-        "rabbitmq"
-      ],
-      "actual": [
-        "docker-compose-multi-service",
-        "rabbitmq"
-      ],
+      "actual": "/god-mode",
       "finding": null
     }
   ],

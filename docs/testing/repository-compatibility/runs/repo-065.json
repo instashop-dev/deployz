@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 204,
     "entries": 8644,
@@ -33,16 +33,16 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": ".docker/Dockerfile-build",
     "port": 4433,
     "startCommand": "CMD: [\"serve\"]",
-    "healthDetected": true,
-    "healthPath": "/status",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -57,23 +57,24 @@
     "requiredEnvVars": [],
     "unsupported": [],
     "readinessFindings": [
+      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
+      "health-path-required",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles",
-      "build-command-unknown"
+      "multiple-dockerfiles"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -128,7 +129,7 @@
     {
       "fact": "healthPath",
       "expected": "/health/alive",
-      "actual": "/status",
+      "actual": null,
       "match": false,
       "kind": "fact"
     },
@@ -140,16 +141,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "worker",
       "kind": "fact",
@@ -174,7 +165,7 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/health/alive",
-      "actual": "/status",
+      "actual": null,
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"

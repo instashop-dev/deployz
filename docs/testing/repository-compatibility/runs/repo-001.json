@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 200,
     "entries": 1981,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "READY",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
@@ -45,38 +45,35 @@
     "healthPath": "/api/heartbeat",
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx prisma migrate deploy",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [
-      "CLICKHOUSE_URL",
-      "CLOUD_MODE",
-      "DATABASE_URL",
-      "KAFKA_BROKER",
-      "KAFKA_MAX_MESSAGE_BYTES",
-      "KAFKA_URL",
-      "REDIS_URL"
+      "DATABASE_URL"
     ],
     "unsupported": [],
-    "readinessFindings": [],
-    "gateFindings": [
-      "required-env-vars-missing"
+    "readinessFindings": [
+      "database-migrations"
     ],
-    "unresolvedQuestions": []
+    "gateFindings": [
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "redis-requirement-unclear"
+    ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "READY",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "READY",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -87,9 +84,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -106,8 +102,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -142,24 +139,11 @@
   ],
   "mismatches": [
     {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "READY",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-023",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "redis",
+      "fact": "migration",
       "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
+      "expected": true,
+      "actual": false,
+      "finding": null
     }
   ],
   "match": false

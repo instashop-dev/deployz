@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 202,
     "entries": 2762,
@@ -44,13 +44,13 @@
     "dockerfilePath": "Dockerfile",
     "port": 8484,
     "startCommand": "CMD: [\"./sandbox/run.sh\"]",
-    "healthDetected": true,
-    "healthPath": "/status",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": false,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": true,
     "workerCommand": null,
@@ -63,65 +63,51 @@
     ],
     "requiredEnvVars": [
       "ALLOWED_WEBHOOK_DOMAINS",
-      "APP_HOME_URL",
-      "APP_STATIC_URL",
-      "APP_UNTRUSTED_URL",
-      "COOKIE_MAX_AGE",
       "DISCOURSE_CONNECT_SECRET",
-      "DOC_URL",
       "GOOGLE_API_KEY",
-      "GOOGLE_CLIENT_SECRET",
       "GRIST_ACCOUNT_CLOSE",
       "GRIST_CHECKPOINT",
-      "GRIST_ENABLE_REQUEST_FUNCTION",
+      "GRIST_CHECKPOINT_MAKE",
       "GRIST_ENABLE_SCIM",
-      "GRIST_EXT_DIR",
       "GRIST_FLEET",
       "GRIST_FORCE_ENABLE_ENTERPRISE",
-      "GRIST_HOSTED",
-      "GRIST_ID_PREFIX",
-      "GRIST_LOCALES_DIR",
-      "GRIST_LOG_HTTP",
       "GRIST_LOG_HTTP_BODY",
-      "GRIST_LOG_SKIP_HTTP",
+      "GRIST_PORT",
       "GRIST_PYODIDE_SKIP_DENO",
       "GRIST_ROUTER_URL",
       "GRIST_RUNNING_UNDER_SUPERVISOR",
       "GRIST_SERVERS",
       "GRIST_SNAPSHOT_TIME_CAP",
       "GRIST_TELEMETRY_URL",
-      "GRIST_TESTING_SOCKET",
       "GRIST_TEST_ATTACHMENTS_DIR",
       "GRIST_TEST_LOGIN",
-      "GRIST_TEST_RESTART_SHELL_READY_DELAY",
-      "GRIST_TEST_SERVER_DEPLOYMENT_TYPE",
+      "GRIST_TEST_SSL_CERT",
       "GRIST_TEST_SSL_KEY",
-      "GRIST_TEST_TRANSFER_DELAY",
       "GRIST_TEST_UPDATE_DOCKER_HUB_URL",
       "GRIST_TRUST_PLUGINS",
       "GRIST_UNDER_RESTART_SHELL",
       "GRIST_WIDGET_LIST_URL_OPTIONAL",
       "NODE_PATH",
-      "REDIS_URL",
-      "TEST_SUPPORT_API_KEY",
-      "TYPEORM_LOG_SLOW_MS",
-      "TYPEORM_REDIS_URL"
+      "REDIS_URL"
     ],
     "unsupported": [
       "local-filesystem"
     ],
     "readinessFindings": [
       "unsupported-persistent-volume",
+      "health-check",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
       "unsupported",
+      "health-path-required",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "database-requirement-unclear"
+      "database-requirement-unclear",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -141,9 +127,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -187,8 +172,9 @@
     {
       "fact": "healthPath",
       "expected": "/status",
-      "actual": "/status",
-      "match": true
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "unsupported",
@@ -211,16 +197,6 @@
       "finding": {
         "id": "COMP-029",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
       }
     },
     {
@@ -250,6 +226,16 @@
       "actual": false,
       "finding": {
         "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/status",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },

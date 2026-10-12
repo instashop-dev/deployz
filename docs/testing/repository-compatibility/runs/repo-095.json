@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 4774,
@@ -47,7 +47,7 @@
     "port": 8080,
     "startCommand": "CMD: [ \"/opt/bin/checker\" ]",
     "healthDetected": true,
-    "healthPath": "/healthz",
+    "healthPath": "/",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -56,8 +56,8 @@
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx drizzle-kit push",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "resend",
       "sentry",
@@ -67,21 +67,26 @@
     "requiredEnvVars": [
       "AXIOM_DATASET",
       "AXIOM_TOKEN",
+      "BIRD_ACCESS_KEY",
+      "BIRD_CHANNEL_ID",
+      "BIRD_WORKSPACE_ID",
       "CLICKHOUSE_PASSWORD",
+      "CLICKHOUSE_URL",
+      "CLICKHOUSE_USERNAME",
       "CRON_SECRET",
       "DATABASE_AUTH_TOKEN",
       "DATABASE_URL",
+      "FLY_REGION",
       "GCP_CLIENT_EMAIL",
       "GCP_LOCATION",
       "GCP_PRIVATE_KEY",
       "GCP_PROJECT_ID",
-      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+      "NEXT_PUBLIC_OPENPANEL_CLIENT_ID",
       "NOTIFICATION_TIMEOUT_MS",
       "OPENPANEL_CLIENT_SECRET",
       "OUTBOX_DEADLINE_MS",
       "OUTBOX_ROLLOUT_PCT",
-      "QSTASH_CURRENT_SIGNING_KEY",
-      "QSTASH_NEXT_SIGNING_KEY",
+      "PAGERDUTY_APP_ID",
       "QSTASH_TOKEN",
       "RESEND_API_KEY",
       "SCREENSHOT_SERVICE_URL",
@@ -89,15 +94,15 @@
       "SENTRY_DSN",
       "SITE_URL",
       "STALE_CHECK_MS",
-      "STRIPE_SECRET_KEY",
-      "STRIPE_WEBHOOK_SECRET_KEY",
+      "SUPER_ADMIN_TOKEN",
       "TELEGRAM_BOT_TOKEN",
-      "TINYBIRD_URL",
       "TINY_BIRD_API_KEY",
       "TWILLIO_ACCOUNT_ID",
       "TWILLIO_AUTH_TOKEN",
+      "UNKEY_API_ID",
       "UNKEY_TOKEN",
-      "VERCEL_AUTH_BEARER_TOKEN"
+      "UPSTASH_REDIS_REST_TOKEN",
+      "UPSTASH_REDIS_REST_URL"
     ],
     "unsupported": [
       "docker-compose-multi-service",
@@ -110,7 +115,8 @@
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
@@ -154,8 +160,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -181,9 +188,8 @@
     {
       "fact": "healthPath",
       "expected": "/",
-      "actual": "/healthz",
-      "match": false,
-      "kind": "fact"
+      "actual": "/",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -232,6 +238,13 @@
       }
     },
     {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
       "fact": "appRoot",
       "kind": "fact",
       "expected": ".",
@@ -259,16 +272,6 @@
       "finding": {
         "id": "COMP-027",
         "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/",
-      "actual": "/healthz",
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
     {

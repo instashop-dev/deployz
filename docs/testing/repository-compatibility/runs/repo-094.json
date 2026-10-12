@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 202,
     "entries": 3655,
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -43,7 +43,7 @@
     "startCommand": "CMD: [\"sh\", \"run.sh\"]",
     "healthDetected": false,
     "healthPath": null,
-    "postgres": false,
+    "postgres": true,
     "postgresDetected": true,
     "redis": false,
     "redisDetected": true,
@@ -51,24 +51,24 @@
     "storage": false,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "pnpm with-env drizzle-kit migrate --config ./configs/mysql.config.ts && pnpm run seed && pnpm run migration:custom",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [],
-    "unsupported": [
-      "local-filesystem"
+    "requiredEnvVars": [
+      "DB_DIALECT",
+      "DB_DRIVER"
     ],
+    "unsupported": [],
     "readinessFindings": [
-      "local-file-storage",
       "health-check"
     ],
     "gateFindings": [
-      "unsupported",
-      "health-path-required"
+      "health-path-required",
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "database-requirement-unclear",
       "redis-requirement-unclear"
     ]
   },
@@ -76,16 +76,14 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "redis",
@@ -109,8 +107,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -140,34 +139,11 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "local-filesystem"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-024",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "postgres",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-029",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "worker",
       "kind": "fact",
@@ -179,6 +155,13 @@
       }
     },
     {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/health/ready",
@@ -186,18 +169,6 @@
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "local-filesystem"
-      ],
-      "finding": {
-        "id": "COMP-024",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

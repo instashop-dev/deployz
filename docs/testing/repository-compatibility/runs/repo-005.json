@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 192,
+    "files": 194,
     "entries": 4660,
     "truncated": false
   },
@@ -34,21 +34,21 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
-    "runtime": "node",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 8000,
     "startCommand": "CMD: [\"migrate-and-serve\"]",
-    "healthDetected": true,
-    "healthPath": "/health",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": false,
     "workerCommand": null,
@@ -59,51 +59,39 @@
       "sentry"
     ],
     "requiredEnvVars": [
-      "AMPLITUDE_API_KEY",
-      "CAPTERRA_API_KEY",
-      "DELIGHTED_API_KEY",
       "ENVIRONMENT",
       "FLAGSMITH_API_TOKEN",
       "FLAGSMITH_API_URL",
-      "FLAGSMITH_ON_FLAGSMITH_API_KEY",
-      "FLAGSMITH_PROXY_API_URL",
-      "GOOGLE_ANALYTICS_API_KEY",
-      "HEADWAY_API_KEY",
       "LOG_FORMAT",
       "LOG_LEVEL",
       "MCP_SERVER_URL",
       "METRICS_PORT",
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       "OTEL_SERVICE_NAME",
-      "REO_API_KEY",
-      "SENTRY_API_KEY",
       "SENTRY_DSN",
-      "SLACK_TOKEN",
       "TRANSPORT"
     ],
-    "unsupported": [
-      "docker-compose-multi-service"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-multi-service",
+      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
+      "health-path-required",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -114,9 +102,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -159,41 +146,18 @@
     {
       "fact": "healthPath",
       "expected": "/health/liveness",
-      "actual": "/health",
+      "actual": null,
       "match": false,
       "kind": "fact"
     },
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-009",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "worker",
       "kind": "fact",
@@ -218,22 +182,10 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/health/liveness",
-      "actual": "/health",
+      "actual": null,
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
-      "finding": {
-        "id": "COMP-009",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

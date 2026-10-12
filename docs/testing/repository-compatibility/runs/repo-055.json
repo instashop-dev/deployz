@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 202,
     "entries": 5255,
@@ -32,14 +32,14 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": null,
     "port": 8080,
-    "startCommand": "start: pnpm run watch:run",
+    "startCommand": null,
     "healthDetected": true,
     "healthPath": "/api/v1/health",
     "postgres": true,
@@ -59,40 +59,33 @@
       "twilio"
     ],
     "requiredEnvVars": [
-      "NC_API_BULK_OPERATION_MAX_RECORDS",
-      "NC_DATA_PAYLOAD_LIMIT",
-      "NC_FORM_FIELD_MAX_SIZE",
-      "NC_NON_ATTACHMENT_FIELD_SIZE"
+      "NC_S3_ACCESS_SECRET",
+      "NC_SMTP_PASSWORD"
     ],
-    "unsupported": [
-      "docker-compose-multi-service",
-      "kubernetes"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-architecture",
-      "unsupported-multi-service",
       "container-setup",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
       "dockerfile-missing",
+      "start-command-missing",
       "required-env-vars-missing",
-      "migration-command-missing"
+      "migration-command-missing",
+      "deployment-files-ignored"
     ],
     "unresolvedQuestions": [
-      "monorepo-target"
+      "monorepo-target",
+      "start-command-unknown"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -148,25 +141,11 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "docker-compose-multi-service",
-        "kubernetes"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "redis",
       "kind": "fact",
@@ -195,19 +174,6 @@
       "finding": {
         "id": "COMP-020",
         "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "docker-compose-multi-service",
-        "kubernetes"
-      ],
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }
   ],

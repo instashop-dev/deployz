@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 210,
     "entries": 14109,
@@ -45,9 +45,9 @@
     "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": true,
     "worker": true,
     "workerCommand": null,
@@ -77,7 +77,8 @@
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "monorepo-target"
+      "monorepo-target",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -97,9 +98,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -164,16 +164,6 @@
       "actual": "NOT_COMPATIBLE",
       "finding": {
         "id": "COMP-026",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
         "type": "ANALYSIS_BUG"
       }
     },

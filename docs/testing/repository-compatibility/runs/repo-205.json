@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 205,
     "entries": 2892,
@@ -39,7 +39,7 @@
     "appRoot": ".",
     "dockerfilePath": null,
     "port": 8080,
-    "startCommand": "start: ng serve",
+    "startCommand": null,
     "healthDetected": false,
     "healthPath": null,
     "postgres": true,
@@ -64,11 +64,14 @@
     ],
     "gateFindings": [
       "dockerfile-missing",
+      "start-command-missing",
       "health-path-required",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "monorepo-target"
+      "monorepo-target",
+      "start-command-unknown"
     ]
   },
   "comparisons": [

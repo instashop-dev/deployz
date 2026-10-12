@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 3063,
@@ -33,67 +33,83 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "php",
     "appRoot": ".",
     "dockerfilePath": null,
     "port": 5000,
     "startCommand": null,
-    "healthDetected": false,
-    "healthPath": null,
-    "postgres": false,
-    "postgresDetected": false,
-    "redis": true,
+    "healthDetected": true,
+    "healthPath": "/up",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": false,
     "workerCommand": null,
     "migration": false,
     "migrationCommand": null,
-    "externalServices": [],
-    "requiredEnvVars": [],
-    "unsupported": [
-      "mysql"
+    "externalServices": [
+      "sentry"
     ],
+    "requiredEnvVars": [
+      "ABLY_KEY",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "MANDRILL_SECRET",
+      "MEMCACHED_PASSWORD",
+      "MYSQL_SSL_KEY",
+      "PASSPORT_CONNECTION",
+      "PASSPORT_PRIVATE_KEY",
+      "PGSQL_SSL_KEY",
+      "PUSHER_APP_KEY",
+      "PUSHER_APP_SECRET",
+      "REDIS_PASSWORD",
+      "SPARKPOST_SECRET",
+      "STATIC_CRON_TOKEN",
+      "STRIPE_KEY",
+      "STRIPE_SECRET"
+    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-database-mysql",
       "container-setup",
-      "health-check"
+      "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
       "dockerfile-missing",
       "start-command-missing",
-      "health-path-required"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "monorepo-target",
-      "start-command-unknown"
+      "start-command-unknown",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NOT_COMPATIBLE",
-      "match": true
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
     },
     {
       "fact": "postgres",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -123,7 +139,7 @@
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": null,
+      "actual": "/up",
       "match": false,
       "kind": "fact"
     },
@@ -132,32 +148,20 @@
       "expected": [
         "local-filesystem"
       ],
-      "actual": [
-        "mysql"
-      ],
+      "actual": [],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
     {
-      "fact": "postgres",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "finding": {
-        "id": "COMP-029",
+        "id": "COMP-025",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
       }
     },
     {
@@ -174,7 +178,7 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/health",
-      "actual": null,
+      "actual": "/up",
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
@@ -186,9 +190,7 @@
       "expected": [
         "local-filesystem"
       ],
-      "actual": [
-        "mysql"
-      ],
+      "actual": [],
       "finding": {
         "id": "COMP-025",
         "type": "ANALYSIS_MISSING_SIGNAL"

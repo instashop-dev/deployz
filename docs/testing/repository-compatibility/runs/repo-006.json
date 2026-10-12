@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 3419,
@@ -45,27 +45,34 @@
     "healthPath": "/api/health",
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": true,
     "worker": true,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "resend",
       "smtp",
       "stripe"
     ],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "NEXT_PRIVATE_DATABASE_URL",
+      "NEXT_PRIVATE_DIRECT_DATABASE_URL"
+    ],
     "unsupported": [],
     "readinessFindings": [
+      "database-migrations",
       "worker-command"
     ],
-    "gateFindings": [],
+    "gateFindings": [
+      "migration-command-missing"
+    ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -85,9 +92,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -105,8 +111,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -149,16 +156,6 @@
       "finding": null
     },
     {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
       "fact": "storage",
       "kind": "fact",
       "expected": false,
@@ -167,6 +164,13 @@
         "id": "COMP-012",
         "type": "ANALYSIS_BUG"
       }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
     },
     {
       "fact": "appRoot",

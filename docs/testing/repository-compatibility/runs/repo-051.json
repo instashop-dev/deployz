@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 1224,
@@ -45,9 +45,9 @@
     "healthPath": "/up",
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": true,
     "worker": true,
     "workerCommand": null,
@@ -55,7 +55,10 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [
-      "SIDEKIQ_BASIC_AUTH_PASSWORD"
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AZURE_STORAGE_ACCESS_KEY",
+      "DATABASE_PASSWORD"
     ],
     "unsupported": [],
     "readinessFindings": [
@@ -67,7 +70,8 @@
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "build-command-unknown"
+      "build-command-unknown",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -87,9 +91,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -149,16 +152,6 @@
       "actual": "NEEDS_CONFIGURATION",
       "finding": {
         "id": "COMP-023",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
         "type": "ANALYSIS_BUG"
       }
     },

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 206,
     "entries": 6411,
@@ -34,7 +34,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "jvm",
@@ -43,7 +43,7 @@
     "port": 8080,
     "startCommand": "ENTRYPOINT: []",
     "healthDetected": true,
-    "healthPath": "/health",
+    "healthPath": "/actuator/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -64,6 +64,7 @@
       "database-migrations"
     ],
     "gateFindings": [
+      "dockerfile-missing-sources",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -75,9 +76,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -132,9 +132,8 @@
     {
       "fact": "healthPath",
       "expected": "/actuator/health",
-      "actual": "/health",
-      "match": false,
-      "kind": "fact"
+      "actual": "/actuator/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -144,16 +143,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "worker",
       "kind": "fact",
@@ -171,16 +160,6 @@
       "actual": false,
       "finding": {
         "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/actuator/health",
-      "actual": "/health",
-      "finding": {
-        "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

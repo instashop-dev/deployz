@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 2158,
@@ -51,41 +51,27 @@
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "pnpm --filter @rallly/database exec prisma migrate deploy",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "sentry",
       "smtp",
       "stripe"
     ],
     "requiredEnvVars": [
-      "AWS_ACCESS_KEY_ID",
-      "AWS_SECRET_ACCESS_KEY",
-      "CRON_SECRET",
       "DATABASE_URL",
-      "GOOGLE_CLIENT_SECRET",
-      "KV_REST_API_TOKEN",
-      "LICENSE_API_AUTH_TOKEN",
-      "MAINTENANCE_BYPASS_TOKEN",
-      "MICROSOFT_CLIENT_SECRET",
-      "NEXT_PUBLIC_",
-      "NEXT_PUBLIC_APP_BASE_URL",
       "NEXT_PUBLIC_BASE_URL",
-      "NEXT_PUBLIC_POSTHOG_API_KEY",
-      "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
-      "OIDC_CLIENT_SECRET",
-      "OPENAI_API_KEY",
-      "S3_ACCESS_KEY_ID",
-      "S3_SECRET_ACCESS_KEY",
       "SECRET_PASSWORD",
-      "STRIPE_SIGNING_SECRET",
-      "SUPPORT_EMAIL",
-      "TURNSTILE_SECRET_KEY"
+      "SELF_HOSTED",
+      "SUPPORT_EMAIL"
     ],
     "unsupported": [],
-    "readinessFindings": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
     "gateFindings": [
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": []
   },
@@ -124,8 +110,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -169,6 +156,13 @@
         "id": "COMP-012",
         "type": "ANALYSIS_BUG"
       }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
     },
     {
       "fact": "appRoot",

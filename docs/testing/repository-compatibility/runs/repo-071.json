@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 202,
     "entries": 10802,
@@ -36,9 +36,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "ruby",
     "appRoot": ".",
     "dockerfilePath": "docker/Dockerfile",
@@ -53,31 +53,28 @@
     "redisConfidence": "high",
     "storage": true,
     "worker": true,
-    "workerCommand": "bundle exec sidekiq -C config/sidekiq.yml",
+    "workerCommand": "bundle exec rails ip_lookup:setup && bundle exec sidekiq -C config/sidekiq.yml",
     "migration": false,
     "migrationCommand": null,
     "externalServices": [
+      "openai",
       "stripe",
       "twilio"
     ],
     "requiredEnvVars": [
-      "ASSET_CDN_HOST",
-      "PIDFILE",
+      "ACTIVE_STORAGE_SERVICE",
+      "SECRET_KEY_BASE",
       "SIDEKIQ_CLOUDWATCH_AWS_SECRET_ACCESS_KEY"
     ],
     "unsupported": [
-      "background-worker",
-      "docker-compose-multi-service"
+      "background-worker"
     ],
     "readinessFindings": [
-      "unsupported-multi-service",
       "start-command-missing",
-      "background-worker-unsupported",
-      "database-migrations"
+      "database-migrations",
+      "worker-process"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
       "start-command-missing",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -92,8 +89,9 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NOT_COMPATIBLE",
-      "match": true
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
     },
     {
       "fact": "postgres",
@@ -156,14 +154,22 @@
         "background-worker"
       ],
       "actual": [
-        "background-worker",
-        "docker-compose-multi-service"
+        "background-worker"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
   "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -171,21 +177,6 @@
       "actual": false,
       "finding": {
         "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "background-worker"
-      ],
-      "actual": [
-        "background-worker",
-        "docker-compose-multi-service"
-      ],
-      "finding": {
-        "id": "COMP-015",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

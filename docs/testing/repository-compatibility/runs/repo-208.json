@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 11755,
@@ -41,15 +41,15 @@
     "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "heroku.Dockerfile",
-    "port": 80,
+    "port": 8000,
     "startCommand": "CMD: []",
-    "healthDetected": true,
-    "healthPath": "/_health",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": true,
     "workerCommand": "celery-worker",
@@ -64,25 +64,25 @@
     ],
     "unsupported": [
       "background-worker",
-      "docker-compose-multi-service",
-      "local-filesystem"
+      "docker-compose-multi-service"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
-      "local-file-storage",
-      "background-worker-unsupported",
-      "database-migrations"
+      "port-unresolved",
+      "health-check",
+      "database-migrations",
+      "worker-process"
     ],
     "gateFindings": [
       "unsupported",
-      "unsupported",
-      "unsupported",
+      "health-path-required",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "monorepo-target"
+      "monorepo-target",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -102,9 +102,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -142,14 +141,13 @@
     {
       "fact": "port",
       "expected": 8000,
-      "actual": 80,
-      "match": false,
-      "kind": "fact"
+      "actual": 8000,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/api/_health/",
-      "actual": "/_health",
+      "actual": null,
       "match": false,
       "kind": "fact"
     },
@@ -160,8 +158,7 @@
       ],
       "actual": [
         "background-worker",
-        "docker-compose-multi-service",
-        "local-filesystem"
+        "docker-compose-multi-service"
       ],
       "match": false,
       "kind": "fact"
@@ -170,13 +167,6 @@
   "mismatches": [
     {
       "fact": "postgres",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": null
-    },
-    {
-      "fact": "redis",
       "kind": "fact",
       "expected": false,
       "actual": true,
@@ -204,17 +194,10 @@
       "finding": null
     },
     {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8000,
-      "actual": 80,
-      "finding": null
-    },
-    {
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/_health/",
-      "actual": "/_health",
+      "actual": null,
       "finding": null
     },
     {
@@ -225,8 +208,7 @@
       ],
       "actual": [
         "background-worker",
-        "docker-compose-multi-service",
-        "local-filesystem"
+        "docker-compose-multi-service"
       ],
       "finding": null
     }

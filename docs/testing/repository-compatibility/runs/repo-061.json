@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 9207,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "READY",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
@@ -45,9 +45,9 @@
     "healthPath": "/status",
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": true,
     "worker": false,
     "workerCommand": null,
@@ -57,26 +57,27 @@
       "smtp"
     ],
     "requiredEnvVars": [
-      "DEV_FEATURES_ENABLED"
+      "DB_URL"
     ],
     "unsupported": [],
     "readinessFindings": [
       "database-migrations"
     ],
     "gateFindings": [
-      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -87,9 +88,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -144,13 +144,13 @@
   ],
   "mismatches": [
     {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
       "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
+        "id": "COMP-017",
+        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
     {

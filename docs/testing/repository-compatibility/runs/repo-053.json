@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 199,
     "entries": 34644,
@@ -33,14 +33,14 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
-    "dockerfilePath": "docker/images/engine/Dockerfile",
-    "port": 3000,
-    "startCommand": "CMD: [\"node\", \"dist/serve.js\"]",
+    "dockerfilePath": "docker/images/n8n/Dockerfile",
+    "port": 5678,
+    "startCommand": "ENTRYPOINT: [\"tini\", \"--\", \"/docker-entrypoint.sh\"]",
     "healthDetected": false,
     "healthPath": null,
     "postgres": true,
@@ -51,31 +51,29 @@
     "storage": true,
     "worker": true,
     "workerCommand": "./packages/cli/bin/n8n worker",
-    "migration": true,
-    "migrationCommand": "N8N_LOG_LEVEL=silent DB_SQLITE_POOL_SIZE=4 DB_TYPE=sqlite vitest run --config vitest.config.migration.ts --coverage.enabled=false",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
-      "anthropic",
       "openai",
       "sentry",
       "smtp"
     ],
     "requiredEnvVars": [
-      "EXTERNAL_FRONTEND_HOOKS_URLS",
-      "N8N_AI_ENABLED",
-      "N8N_PERSONALIZATION_ENABLED",
-      "N8N_SKIP_AUTH_ON_OAUTH_CALLBACK"
+      "DB_TYPE"
     ],
     "unsupported": [
       "background-worker"
     ],
     "readinessFindings": [
       "health-check",
-      "background-worker-unsupported"
+      "database-migrations",
+      "worker-process"
     ],
     "gateFindings": [
-      "unsupported",
+      "dockerfile-missing-sources",
       "health-path-required",
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles"
@@ -85,9 +83,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -117,8 +114,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -129,16 +127,14 @@
     {
       "fact": "dockerfilePath",
       "expected": "docker/images/n8n/Dockerfile",
-      "actual": "docker/images/engine/Dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "docker/images/n8n/Dockerfile",
+      "match": true
     },
     {
       "fact": "port",
       "expected": 5678,
-      "actual": 3000,
-      "match": false,
-      "kind": "fact"
+      "actual": 5678,
+      "match": true
     },
     {
       "fact": "healthPath",
@@ -159,16 +155,6 @@
   ],
   "mismatches": [
     {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
       "fact": "redis",
       "kind": "fact",
       "expected": false,
@@ -179,24 +165,11 @@
       }
     },
     {
-      "fact": "dockerfilePath",
+      "fact": "migration",
       "kind": "fact",
-      "expected": "docker/images/n8n/Dockerfile",
-      "actual": "docker/images/engine/Dockerfile",
-      "finding": {
-        "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 5678,
-      "actual": 3000,
-      "finding": {
-        "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
-      }
+      "expected": true,
+      "actual": false,
+      "finding": null
     },
     {
       "fact": "healthPath",

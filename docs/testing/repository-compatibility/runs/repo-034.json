@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 199,
     "entries": 1291,
@@ -35,9 +35,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -46,37 +46,39 @@
     "healthDetected": true,
     "healthPath": "/healthcheck",
     "postgres": true,
-    "postgresDetected": true,
-    "redis": true,
+    "postgresDetected": false,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
-    "storage": false,
+    "redisConfidence": "medium",
+    "storage": true,
     "worker": false,
     "workerCommand": null,
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [],
-    "unsupported": [
-      "local-filesystem"
+    "requiredEnvVars": [
+      "UPLOAD_PROVIDER"
     ],
+    "unsupported": [],
     "readinessFindings": [
-      "local-file-storage",
       "localhost-binding",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
+      "required-env-vars-missing",
       "migration-command-missing"
     ],
-    "unresolvedQuestions": []
+    "unresolvedQuestions": [
+      "redis-requirement-unclear"
+    ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NOT_COMPATIBLE",
-      "match": true
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
     },
     {
       "fact": "postgres",
@@ -88,9 +90,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -101,9 +102,8 @@
     {
       "fact": "storage",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "migration",
@@ -141,14 +141,22 @@
       "expected": [
         "mysql"
       ],
-      "actual": [
-        "local-filesystem"
-      ],
+      "actual": [],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-002",
+        "type": "ANALYSIS_BUG"
+      }
+    },
     {
       "fact": "postgres",
       "kind": "fact",
@@ -157,26 +165,6 @@
       "finding": {
         "id": "COMP-029",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "storage",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-012",
-        "type": "ANALYSIS_BUG"
       }
     },
     {
@@ -195,9 +183,7 @@
       "expected": [
         "mysql"
       ],
-      "actual": [
-        "local-filesystem"
-      ],
+      "actual": [],
       "finding": {
         "id": "COMP-002",
         "type": "ANALYSIS_BUG"
