@@ -34,10 +34,15 @@ so every selected Vitest project runs in one parallel invocation. Runs
 
 - `pnpm typecheck:e2e` — typechecks `e2e/` (Playwright strips types, so
   this is the only place the simulation harness's TypeScript is checked).
-- `pnpm test:static` — the static production-safety guards (no AWS SDK
-  value-import under `e2e/simulation/`, no fixture-mode env var in
-  `deploy-api.yml`'s deployed-environment block, no product import of
-  `e2e/`).
+- `pnpm test:static` — the static production-safety guards. They check: no
+  AWS SDK value-import under `e2e/simulation/`; no product import of `e2e/`;
+  no fixture-mode env var, environment-specific value or AWS access key in
+  `deploy-api.yml`, `deploy-web.yml` or `release.yml`; each deploy workflow's
+  `PATHS` dependency closure; and the per-environment workflow structure (the
+  deploy job's Environment and stage gate, no Environment on the gate job,
+  the concurrency group, the dispatch default, the tag name, `release.yml`'s
+  calling jobs and its staging gate, `id-token: write`, `secrets: inherit`
+  only in `release.yml`, and one `COOKIE_PREFIX` for both services).
 - `pnpm vitest run` (every project) on a push, a manual run, or a
   `critical` PR; otherwise `pnpm vitest run --project <p>` for each
   project the plan selected (`unit_projects`).

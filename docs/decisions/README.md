@@ -38,6 +38,7 @@ Three decisions with substantial detail have their own files:
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 | 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
 | 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
+| 2026-10-12 | The per-environment workflow guards parse the workflows, and they match the production zone id by shape | Active |
 | 2026-10-14 | An install that never verifies fails after a 30-minute window, driven by the heartbeat | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
@@ -786,3 +787,44 @@ would make a staging deploy wait for a production deploy for no reason.
 What would change it: a third stage, or a stage that must be released on its
 own schedule, would need the release order to come from a list of stages
 instead of the two pairs of jobs written out here.
+
+## The per-environment workflow guards parse the workflows (2026-10-12)
+
+`scripts/production-safety.test.mjs` found the deployed-environment block with
+`indexOf('\n    env:\n')`, which is the first four-space `env:` in the file. A
+job-level `env:` on a job before `deploy` would make the guard read the wrong
+block and pass without checking anything, so the one rule that stops a
+fixture-mode variable shipping to the live Lambda could go silent.
+
+- Every per-environment guard now parses the workflow with the `yaml` package
+  and reads a key path. A new job, a reordered job or a reformatted block
+  cannot move what a guard inspects. The guards also cover `deploy-web.yml`
+  and `release.yml`, not `deploy-api.yml` alone.
+- The production Cloudflare zone id is matched by shape, `\b[0-9a-fA-F]{32}\b`,
+  and never as a literal. `apps/api/src/env.test.ts` allows that literal only
+  under `.github`, `.env.example` and `docs`, and it does not skip a
+  `.test.mjs` file under `scripts/`. A shape keeps the guard file free of the
+  production value, so the repository-wide zone-id guard keeps holding.
+- Each guard names the files it covers. `aws-canary.yml` legitimately holds
+  production values and the canary's own credentials, and `ci.yml` holds the
+  simulator's fake credentials, so a repository-wide rule for either would
+  fail today.
+- The expected file set is pinned: the only `deploy-*` workflows the guards
+  accept are `deploy-api.yml` and `deploy-web.yml`. A third deploy workflow
+  fails that test until somebody gives it a `PATHS` dependency closure, a
+  concurrency group and a service name, and names it in the guard file.
+- The `workflow_dispatch` default of `staging` and `cancel-in-progress: false`
+  are now guards, because an edit to either one is silent and reaches
+  production. The bare `deployed/api` tag name for production and the absence
+  of `release.yml` from the `PATHS` sets stay decisions, not defects: the tag
+  name is the original repository-wide name, and `release.yml` only chooses
+  what to release.
+- `apps/api/src/env.test.ts` keeps its positional locators and stays out of
+  scope. One guard protects the precondition they depend on instead: no job
+  declared before `deploy` may carry a job-level `env:`. A job declared after
+  `deploy` cannot move a forward `indexOf`, so the rule stops there.
+
+What would change it: making the locators in `apps/api/src/env.test.ts`
+structural would retire the precondition guard. A third stage, or a third
+deploy workflow, would make the pinned file set and the two-file concurrency
+comparison a list instead.
