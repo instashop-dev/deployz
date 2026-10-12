@@ -304,6 +304,26 @@ describe('deployment sizes', () => {
   });
 });
 
+describe('recommended findings on an editable row', () => {
+  it('keeps the edit action and offers the fix instructions beside the recommendation', () => {
+    const finding = {
+      id: 'database-migrations',
+      category: 'database',
+      title: 'Give Deployz a way to update your database',
+      severity: 'recommended',
+      blocking: false,
+      plainEnglishExplanation: 'This app uses a database.',
+      whyItMatters: 'Migrations run on every deploy.',
+      technicalEvidence: 'A PostgreSQL library is present.',
+      suggestedOutcome: 'Add a migration script.',
+      confidence: 'likely',
+    } as ApplicationReadiness['findings'][number];
+    const database = row(inventoryFor(null, { findings: [finding] }), 'database');
+    expect(database.action).toMatchObject({ kind: 'edit', field: 'databaseRequired' });
+    expect(database.fixInstructions).toMatchObject({ kind: 'fix', testId: 'readiness-finding-fix-database-migrations' });
+  });
+});
+
 describe('multiple workloads and detected questions', () => {
   it('gives every workload its own row, with quantity, and matches a compiled MySQL resource by category', () => {
     const inventory = deriveServiceInventory({
