@@ -54,7 +54,6 @@ import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
 import {
   createEcsDeployExecutor,
   createEcsDeployResumer,
-  createRestartExecutor,
   type EcsDeployClient,
   type EcsDeployDeps,
   type EcsTaskDefinition,
@@ -88,6 +87,7 @@ import {
   unappliedConfigurationKeys,
   type EffectiveConfigEntry,
 } from './config-update.js';
+import { createRestartExecutor, createRestartResumer } from './restart.js';
 import {
   buildInstallParametersFromManifest,
   createStackInstaller,
@@ -2294,6 +2294,14 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             stackName: relayApplicationStackName(),
           })();
           if (configResults.length > 0) return configResults;
+          const restartResults = await createRestartResumer({
+            cfn: getCloudFormationReader(),
+            ecs: getEcsDeployClient(),
+            elb: getTargetHealthReader(),
+            pending: getPendingStore(installationId),
+            stackName: relayApplicationStackName(),
+          })();
+          if (restartResults.length > 0) return restartResults;
           const destroyResults = await createDestroyResumer({
             cfn: getCloudFormationReader(),
             deleter: getStackDeleter(),

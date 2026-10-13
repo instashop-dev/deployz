@@ -559,7 +559,7 @@ async function settleConfigUpdate(
   return { state: 'updating', report, rollouts };
 }
 
-type RolloutVerdict =
+export type RolloutVerdict =
   | { readonly state: 'succeeded' }
   | { readonly state: 'in-progress' }
   | { readonly state: 'failed'; readonly reason: string; readonly failureCode: string };
@@ -575,6 +575,7 @@ type RolloutVerdict =
 export async function settleConfigRollouts(
   deps: ConfigRolloutDeps,
   rollouts: Readonly<Record<string, ConfigRollout>>,
+  operation: 'configuration update' | 'restart' = 'configuration update',
 ): Promise<RolloutVerdict> {
   const arns = Object.keys(rollouts);
   const cluster = arns[0]?.split('/')[1];
@@ -602,7 +603,11 @@ export async function settleConfigRollouts(
       (rollout.deploymentId !== undefined && primary?.id !== undefined && primary.id !== rollout.deploymentId);
     if (rolledBack) {
       failures.push({
-        reason: `ECS rolled service "${arn}" back to ${primary?.taskDefinition ?? 'its previous revision'}; the configuration update never became healthy. Secret values already written to the configuration secret were not restored.`,
+        reason: `ECS rolled service "${arn}" back to ${primary?.taskDefinition ?? 'its previous revision'}; the ${operation} never became healthy.${
+          operation === 'restart'
+            ? ''
+            : ' Secret values already written to the configuration secret were not restored.'
+        }`,
         failureCode: 'ECS_DEPLOYMENT_FAILED',
       });
       continue;
@@ -641,7 +646,7 @@ export async function settleConfigRollouts(
 }
 
 /** The rollouts a CONFIG_UPDATE marker carries, or null when it carries none. */
-function readConfigRollouts(payload: Record<string, unknown>): Record<string, ConfigRollout> | null {
+export function readConfigRollouts(payload: Record<string, unknown>): Record<string, ConfigRollout> | null {
   const raw = payload['configRollouts'];
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
   const rollouts: Record<string, ConfigRollout> = {};

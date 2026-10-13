@@ -1194,7 +1194,7 @@ export async function crashedTasksOfRevision(
 }
 
 /** One stack ECS service: its CloudFormation logical id and physical ARN. */
-interface ServiceView {
+export interface ServiceView {
   readonly logicalId: string;
   readonly arn: string;
   /** The DescribeServices answer for this service — undefined until zipped. */
@@ -1209,7 +1209,7 @@ interface ServiceView {
  * The stack's ECS services, in CloudFormation resource order (web first), or
  * null when the inventory cannot be read — which is not "no services".
  */
-async function findServiceViews(deps: EcsDeployDeps): Promise<ServiceView[] | null> {
+export async function findServiceViews(deps: EcsDeployDeps): Promise<ServiceView[] | null> {
   const inventory = await listAllStackResources(deps.cfn, deps.stackName);
   if (inventory === null) return null;
   return inventory.resources
@@ -1814,50 +1814,5 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
             ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
           },
     ];
-  };
-}
-
-/** The RESTART executor: force a new deployment of EVERY workload's current definition. */
-export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
-  return async (command) => {
-    console.log(
-      JSON.stringify({
-        event: 'relay:command-executed',
-        commandId: command.id,
-        type: command.type,
-        deploymentId: command.deploymentId,
-        idempotencyKey: command.idempotencyKey,
-      }),
-    );
-
-    const views = await findServiceViews(deps);
-    if (views === null) {
-      // Nothing is mutated yet and nothing is known: not a failure. The
-      // control plane re-offers the command (uncertain-result rule).
-      return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
-    }
-    if (views.length === 0) {
-      return result(command, false, {
-        error: `No ECS service found in stack "${deps.stackName}"`,
-      });
-    }
-    const cluster = views[0]!.arn.split('/')[1] ?? null;
-    if (!cluster) {
-      return result(command, false, { error: `Malformed service ARN "${views[0]!.arn}"` });
-    }
-
-    try {
-      // The services' rolling replacement makes forceNewDeployment safe to
-      // re-issue: it never leaves a service with zero tasks. Every workload
-      // restarts — a worker has no HTTP surface, so its service replacement
-      // is the restart.
-      for (const view of views) {
-        await deps.ecs.updateService({ cluster, service: view.arn, forceNewDeployment: true });
-      }
-    } catch (err) {
-      return result(command, false, { error: String(err), failureCode: 'AWS_PERMISSION_DENIED' });
-    }
-
-    return result(command, true, { output: { executed: true, type: command.type } });
   };
 }
