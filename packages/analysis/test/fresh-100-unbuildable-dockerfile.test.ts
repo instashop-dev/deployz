@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { analyseRepo } from '../src/analyser.js';
-import { TREE_PATHS, type FileTree } from '../src/detectors.js';
+import { TREE_PATHS, detectDockerfile, listDockerfileCandidates, type FileTree } from '../src/detectors.js';
 import { evaluateManifestReadiness, normalizeDeploymentManifest } from '../src/manifest.js';
 
 function withPaths(tree: Record<string, string>, extra: string[] = []): FileTree {
@@ -84,5 +84,30 @@ describe('evidence that is not complete never rejects (COMP-021)', () => {
   it('does not reject a buildable Dockerfile', () => {
     const tree = withPaths({ ...APP, Dockerfile: 'FROM node:20\nCOPY . .\nEXPOSE 3000\nCMD ["node", "index.js"]\n' });
     expect(gate(tree).rejected).toBeUndefined();
+  });
+});
+
+describe('a Dockerfile under dev/', () => {
+  const prod =
+    'FROM node:20 AS build\nCOPY . .\nRUN npm run build\nFROM node:20-slim\nCOPY --from=build /dist ./dist\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n';
+
+  it('is accepted and selected when it builds a production image', () => {
+    const tree = withPaths({ ...APP, 'dev/Dockerfile': prod });
+    expect(gate(tree).rejected).toBeUndefined();
+    expect(listDockerfileCandidates(tree)).toEqual(['dev/Dockerfile']);
+    expect(detectDockerfile(tree).value).toBe('dev/Dockerfile');
+  });
+
+  it('is rejected when it runs a development server, idles or only holds tooling', () => {
+    const devServer = withPaths({ ...APP, 'dev/Dockerfile': 'FROM node:20\nCOPY . .\nCMD ["npm", "run", "dev"]\n' });
+    expect(gate(devServer).rejected).toBeDefined();
+    const tooling = withPaths({ ...APP, 'dev/Dockerfile': 'FROM node:20\nRUN apt-get update && apt-get install -y git\n' });
+    expect(gate(tooling).rejected).toBeDefined();
+    const idle = withPaths({ ...APP, 'dev/Dockerfile': 'FROM node:20\nCOPY . .\nCMD ["sleep", "infinity"]\n' });
+    expect(gate(idle).rejected).toBeDefined();
+  });
+
+  it('keeps a .devcontainer Dockerfile rejected', () => {
+    expect(gate(withPaths({ ...APP, '.devcontainer/Dockerfile': prod })).rejected).toBeDefined();
   });
 });
