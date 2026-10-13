@@ -244,13 +244,11 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     // This fixture has a `bullmq` dependency (worker-like code) but no
     // "worker"/"worker:start" script — no worker command resolves, so
     // application-stack provisions no worker service. "Background worker
-    // detected" must NOT appear as a passed check for that; it must surface
-    // as a recommended finding instead, and must never block READY.
+    // detected" must NOT appear as a passed check for that. BullMQ jobs run
+    // in the web process by default, so no worker question is raised (REM-103).
     expect(readiness.passed).not.toContainEqual({ id: 'worker', label: 'Background worker detected' });
     expect(readiness.state).toBe('READY');
-    expect(readiness.findings).toEqual([
-      expect.objectContaining({ id: 'worker-command', severity: 'recommended' }),
-    ]);
+    expect(readiness.findings).toEqual([]);
     expect(row.workerCommand).toBeNull();
   });
 
