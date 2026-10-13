@@ -261,7 +261,7 @@ test.describe('migration recovery on an existing deployment', () => {
     const corrected = relay!.account.lastMigrationDefinition()!;
     expect(corrected.family).toBe(relay!.account.taskFamily('Migration'));
     const [app, init] = corrected.containerDefinitions;
-    expect(app).toMatchObject({ name: 'App', command: ['sh', '-c', 'node scripts/migrate.js'] });
+    expect(app).toMatchObject({ name: 'App', entryPoint: ['sh', '-c'], command: ['node scripts/migrate.js'] });
     expect(app?.image).toBe(frozen?.containerDefinitions[0]?.image);
     expect(init).toEqual(frozen?.containerDefinitions[1]);
     expect(relay!.account.operationLog.filter((entry) => entry.startsWith('migration:'))).toHaveLength(2);

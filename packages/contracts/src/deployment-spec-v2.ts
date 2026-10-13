@@ -153,11 +153,21 @@ export function deployzTaskFamily(componentId: string, suffix: string): string {
   return `DeployzApp${pascal}${suffix}`;
 }
 
-/** The container `Command` a frozen workload command compiles to. The compiler
- *  bakes it into every task definition, and the relay encodes a migration
- *  correction with the same function, so both always agree. */
+/** The container `Command` a worker command compiles to. It is an argument list
+ *  for the image ENTRYPOINT, which is kept. */
 export function workloadContainerCommand(command: string): string[] {
   return ['sh', '-c', command];
+}
+
+/** The container `EntryPoint` and `Command` a one-shot task (a migration or a
+ *  scheduled job) compiles to. A one-shot command is a full command line, so it
+ *  replaces the image ENTRYPOINT: an ENTRYPOINT that starts a server would hang
+ *  or ignore it, and one that runs a fixed program would take `sh -c` as its
+ *  arguments. The compiler bakes it into the task definition, and the relay
+ *  encodes a migration correction with the same function, so both always agree.
+ *  The image must contain `sh`. */
+export function oneShotContainerCommand(command: string): { entryPoint: string[]; command: string[] } {
+  return { entryPoint: ['sh', '-c'], command: [command] };
 }
 
 /** The frozen one-shot migration the spec compiled, with the CloudFormation

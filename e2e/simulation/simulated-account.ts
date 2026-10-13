@@ -24,7 +24,7 @@
  * `/install`, `/stack-events`, `/ecs-health`).
  */
 
-import { DEPLOYZ_INSTALLATION_TAG, TASK_FAMILY_SUFFIX_PARAMETER, workloadContainerCommand } from '@deployz/contracts';
+import { DEPLOYZ_INSTALLATION_TAG, TASK_FAMILY_SUFFIX_PARAMETER, oneShotContainerCommand } from '@deployz/contracts';
 import {
   type CreateStackInput,
   type CreateStackOutcome,
@@ -84,7 +84,7 @@ const CONFIG_SECRET_LOGICAL_ID = 'ApplicationConfigSecret';
 const TASK_DEFINITION_TYPE = 'AWS::ECS::TaskDefinition';
 const MIGRATION_TASK_DEFINITION = 'MigrationTaskDefinition';
 /** The frozen command the fixtures' seeded `npm run db:migrate` compiles to. */
-const FROZEN_MIGRATION_COMMAND = workloadContainerCommand('npm run db:migrate');
+const FROZEN_MIGRATION_COMMAND = oneShotContainerCommand('npm run db:migrate');
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -676,7 +676,7 @@ export class SimulatedCustomerAccount {
           name: 'App',
           image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}`,
           essential: true,
-          ...(family === this.familyForLogicalId('Migration') ? { command: [...FROZEN_MIGRATION_COMMAND] } : {}),
+          ...(family === this.familyForLogicalId('Migration') ? { entryPoint: [...FROZEN_MIGRATION_COMMAND.entryPoint], command: [...FROZEN_MIGRATION_COMMAND.command] } : {}),
         },
         { name: 'RdsCaBundle', image: RDS_CA_INIT_IMAGE, essential: false },
       ],
@@ -802,7 +802,7 @@ export class SimulatedCustomerAccount {
         if (taskArn === this.migrationTaskArn && this.migrationTaskDefinitionArn !== null) {
           const definition = this.taskDefinitions.get(this.migrationTaskDefinitionArn);
           const command = definition?.containerDefinitions.find((container) => container.essential !== false)?.['command'];
-          const frozen = JSON.stringify(command) === JSON.stringify(FROZEN_MIGRATION_COMMAND);
+          const frozen = JSON.stringify(command) === JSON.stringify(FROZEN_MIGRATION_COMMAND.command);
           const failed =
             this.scenario.migrationBehavior === 'fail' || (this.scenario.migrationBehavior === 'fail-frozen' && frozen);
           const containers = [...(definition?.containerDefinitions ?? [])]

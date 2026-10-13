@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   deployzTaskFamily,
   migrationTaskFromSpec,
+  oneShotContainerCommand,
   oneShotTasksFromSpec,
   requirementsFromSpec,
   resourceChecksFromSpec,
   taskFamilySuffix,
   taskFamilySuffixForSpec,
+  workloadContainerCommand,
   workloadServicesFromSpec,
   type DeploymentSpecV2,
 } from './deployment-spec-v2.js';
@@ -166,5 +168,12 @@ describe('resourceChecksFromSpec', () => {
         }),
       ),
     ).toEqual([]);
+  });
+});
+
+describe('container commands', () => {
+  it('a one-shot command replaces the image ENTRYPOINT with sh -c, and a worker command stays an argument list', () => {
+    expect(oneShotContainerCommand('npm run db:migrate')).toEqual({ entryPoint: ['sh', '-c'], command: ['npm run db:migrate'] });
+    expect(workloadContainerCommand('node worker.js')).toEqual(['sh', '-c', 'node worker.js']);
   });
 });

@@ -9,7 +9,7 @@ import type {
   IrWorkload,
   ManifestEnvBinding,
 } from '@deployz/contracts';
-import { CAPABILITY_KEYS, defaultInfrastructureSizeProfile, workloadContainerCommand } from '@deployz/contracts';
+import { CAPABILITY_KEYS, defaultInfrastructureSizeProfile, oneShotContainerCommand, workloadContainerCommand } from '@deployz/contracts';
 
 import { logicalResourceId, logicalIdViolations } from './stable-identity.js';
 import { translateScheduleExpression } from './schedule-expression.js';
@@ -132,7 +132,7 @@ const DB_SUBNET_CIDRS = [
 const DB_AZ_SLOT_COUNT = 8;
 
 // ── Compiler version / capability registry identity ─────────────────────────
-export const COMPILER_VERSION = 'dynamic-compiler-v2-5' as const;
+export const COMPILER_VERSION = 'dynamic-compiler-v2-6' as const;
 
 /** Seconds ECS ignores ALB health checks after a web task starts. */
 export const WEB_HEALTH_CHECK_GRACE_SECONDS = 300;
@@ -873,10 +873,16 @@ function aliasEntry(
   return kind === 'bucket' ? { secret: false, value: ref(logicalResourceId('storage', 'bucket')) } : null;
 }
 
+/** The app container's `EntryPoint` and `Command` for a one-shot task: the command replaces the image ENTRYPOINT. */
+function oneShotContainerCommandProperties(command: string): { EntryPoint: string[]; Command: string[] } {
+  const { entryPoint, command: args } = oneShotContainerCommand(command);
+  return { EntryPoint: entryPoint, Command: args };
+}
+
 /**
  * The one-shot migration task definition (Phase 4C): the SAME image, env,
  * secrets and CA-sidecar treatment as the app services, with the FROZEN
- * migration command baked into the container `Command` — the relay runs THIS
+ * migration command baked into the container `EntryPoint` and `Command` — the relay runs THIS
  * definition as-is and can never inject a command of its own. No service, no
  * ALB, no desired-count parameter, and deliberately NO verification check:
  * a migration is proven by its task exit code, never by a long-lived service.
@@ -894,7 +900,7 @@ function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: In
     Image: ref('paramImageReference'),
     // The analyzed, frozen command — the graph only ever creates a migration
     // workload WITH a resolved command, so this is always present.
-    ...(workload.command !== null ? { Command: workloadContainerCommand(workload.command) } : {}),
+    ...(workload.command !== null ? oneShotContainerCommandProperties(workload.command) : {}),
     LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-migrate', 'awslogs-region': ref('AWS::Region') } },
     Environment: environment,
     Secrets: secrets,
@@ -1168,7 +1174,7 @@ function compileScheduledJobTask(ctx: EcsContext, workload: IrWorkload, profile:
     Name: 'App',
     Essential: true,
     Image: ref('paramImageReference'),
-    ...(workload.command !== null ? { Command: workloadContainerCommand(workload.command) } : {}),
+    ...(workload.command !== null ? oneShotContainerCommandProperties(workload.command) : {}),
     LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-job', 'awslogs-region': ref('AWS::Region') } },
     Environment: environment,
     Secrets: secrets,

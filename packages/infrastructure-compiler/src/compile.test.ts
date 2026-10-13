@@ -454,6 +454,7 @@ describe('multi-workload', () => {
       const taskDef = byId.get(logicalResourceId(componentId, 'task-definition'))!;
       const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
       expect(app['Command']).toEqual(['sh', '-c', command]);
+      expect(app).not.toHaveProperty('EntryPoint');
     }
   });
 
@@ -544,7 +545,9 @@ describe('multi-workload', () => {
     // The analyzed command is FROZEN into the container — the relay runs the
     // definition as-is and can never inject a command of its own.
     const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
-    expect(app['Command']).toEqual(['sh', '-c', 'npx prisma migrate deploy']);
+    // A one-shot command replaces the image ENTRYPOINT.
+    expect(app['EntryPoint']).toEqual(['sh', '-c']);
+    expect(app['Command']).toEqual(['npx prisma migrate deploy']);
     expect(taskDef.properties['ExecutionRoleArn']).toEqual({
       'Fn::GetAtt': [logicalResourceId('web', 'task-execution-role'), 'Arn'],
     });
@@ -967,7 +970,8 @@ describe('scheduled job (phase 5d)', () => {
     expect(taskDef.cfnType).toBe('AWS::ECS::TaskDefinition');
     expect(familyFor(taskDef.properties['Family'], 'a1b2')).toBe('DeployzAppCleanupa1b2');
     const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
-    expect(app['Command']).toEqual(['sh', '-c', 'node dist/cleanup.js']);
+    expect(app['EntryPoint']).toEqual(['sh', '-c']);
+    expect(app['Command']).toEqual(['node dist/cleanup.js']);
     expect(taskDef.verificationCheck).toBeUndefined();
     expect(byId.has(logicalResourceId('cleanup', 'service'))).toBe(false);
   });
