@@ -234,7 +234,12 @@ describe('COMP-029 — PostgreSQL drivers beyond Node, Python, Ruby and Go', () 
   });
 
   it('treats a direct driver in a runtime manifest as a configured engine, not a tool or indirect one', () => {
-    expect(assessPostgres({ 'go.mod': 'module memos\n\nrequire (\n\tgithub.com/lib/pq v1.10.9\n)\n' }).required).toBe(true);
+    expect(
+      assessPostgres({
+        'go.mod': 'module memos\n\nrequire (\n\tgithub.com/lib/pq v1.10.9\n)\n',
+        'store/db.go': 'package store\nimport _ "github.com/lib/pq"\n',
+      }).required,
+    ).toBe(true);
     expect(assessPostgres({ 'build.gradle': 'runtimeOnly "org.postgresql:postgresql"\n' }).required).toBe(true);
     expect(assessPostgres({ 'tools/go.mod': 'module tools\n\nrequire github.com/jackc/pgx/v5 v5.6.0\n' }).required).toBe(false);
   });
@@ -291,5 +296,31 @@ describe('COMP-035 — build-script directories are not app roots', () => {
       const manifest = normalizeDeploymentManifest(analyseRepo({ [path]: APP }), {});
       expect(manifest.application.root).toBe('.');
     }
+  });
+});
+
+describe('a Go PostgreSQL driver needs runtime corroboration', () => {
+  const goMod = 'module app\n\nrequire github.com/lib/pq v1.10.9\n';
+
+  it('does not require PostgreSQL for a go.mod requirement no source imports', () => {
+    expect(assessPostgres({ 'go.mod': goMod, 'main.go': 'package main\nfunc main() {}\n' }).required).toBe(false);
+  });
+
+  it('does not require PostgreSQL when only test or vendored Go source imports the driver', () => {
+    const tree = {
+      'go.mod': goMod,
+      'main.go': 'package main\nfunc main() {}\n',
+      'store/store_test.go': 'package store\nimport _ "github.com/lib/pq"\n',
+      'vendor/github.com/lib/pq/conn.go': 'package pq\nimport _ "github.com/lib/pq"\n',
+    };
+    expect(assessPostgres(tree).required).toBe(false);
+  });
+
+  it('requires PostgreSQL when main code imports the driver and reads DATABASE_URL', () => {
+    const tree = {
+      'go.mod': goMod,
+      'main.go': 'package main\nimport (\n\t"os"\n\t_ "github.com/lib/pq"\n)\nvar dsn = os.Getenv("DATABASE_URL")\n',
+    };
+    expect(assessPostgres(tree).required).toBe(true);
   });
 });

@@ -53,6 +53,8 @@ describe('readRelayIdentity', () => {
     expect(readRelayIdentity(undefined).bootstrapVersion).toBeNull();
     process.env['DEPLOYZ_BOOTSTRAP_VERSION'] = '2026-08-28.1';
     expect(readRelayIdentity(undefined).bootstrapVersion).toBe('2026-08-28.1');
+    process.env['DEPLOYZ_BOOTSTRAP_VERSION'] = '';
+    expect(readRelayIdentity(undefined).bootstrapVersion).toBeNull();
   });
 });
 

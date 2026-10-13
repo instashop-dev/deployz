@@ -12,7 +12,7 @@ import {
   type EffectiveConfigEntry,
 } from './config-update.js';
 import type { EcsDeployClient, EcsTaskDefinition } from './deploy.js';
-import { memoryPendingStore } from './pending.js';
+import { memoryPendingStore, type PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
 
 const SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/app-service';
@@ -715,7 +715,7 @@ describe('CONFIG_UPDATE settlement — success only after every rollout complete
     expect((await createConfigUpdateExecutor(d)(command())).deferred).toBe(true);
     const [result] = await createConfigUpdateResumer(d)();
     expect(result).toMatchObject({ commandId: 'job-config', success: true, output: { alreadyApplied: false } });
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('waits while an ALB target is not healthy yet', async () => {
@@ -732,7 +732,7 @@ describe('CONFIG_UPDATE settlement — success only after every rollout complete
     expect(result?.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
     expect(result?.error).toContain(CURRENT_DEF_ARN);
     expect(result?.error).toContain('were not restored');
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('forces fresh tasks for a secret-only change on the same revision', async () => {
@@ -766,7 +766,7 @@ describe('CONFIG_UPDATE settlement — success only after every rollout complete
     const result = await createConfigUpdateExecutor(d)(command());
     expect(result.success).toBe(true);
     expect(updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, taskDefinition: NEXT_DEF_ARN }]);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('a re-offered command with its own marker only waits — it never applies the configuration twice', async () => {
@@ -851,5 +851,151 @@ describe('unappliedConfigurationKeys', () => {
 
   it('reports nothing for an empty effective configuration (DEPLOY-009)', async () => {
     expect(await keysFor([], definition([]))).toEqual([]);
+  });
+});
+
+describe('CONFIG_UPDATE durable results', () => {
+  const command = (id = 'job-config', payload: Record<string, unknown> = { changedKeys: ['LOG_LEVEL'] }) => ({
+    id,
+    deploymentId: 'dep-1',
+    type: 'CONFIG_UPDATE' as const,
+    idempotencyKey: `dep-1:CONFIG_UPDATE:${id}`,
+    payload,
+  });
+  const debug: EffectiveConfigEntry[] = [{ key: 'LOG_LEVEL', isSecret: false, value: 'debug', source: 'vendor' }];
+  const generated: EffectiveConfigEntry[] = [
+    { key: 'SESSION_SECRET', isSecret: true, source: 'generated', generated: true },
+  ];
+
+  function running(
+    entries: EffectiveConfigEntry[],
+    ecsOptions: Parameters<typeof ecsWith>[0] = {},
+    secrets: ConfigSecretsWriter = fakeSecretsWriter(),
+  ) {
+    return {
+      cfn: cfnWithService({ withConfigSecret: true }),
+      ecs: ecsWith(ecsOptions),
+      secrets,
+      fetchEffectiveConfig: async () => entries,
+      stackName: 'deployz-app',
+      installationId: 'inst-test',
+      generateSecret: () => 'minted-value',
+      ...rolloutDeps(),
+    };
+  }
+
+  it('re-reports a lost immediate result, generated key names included, without applying again', async () => {
+    const registered: unknown[] = [];
+    const updates: unknown[] = [];
+    const secrets = fakeSecretsWriter();
+    const d = running(generated, { registered, updates }, secrets);
+    const first = await createConfigUpdateExecutor(d)(command());
+    expect(first.output).toMatchObject({ generatedKeys: ['SESSION_SECRET'] });
+
+    // The POST failed; the control plane offers the same command to a new process.
+    const replay = await createConfigUpdateExecutor({ ...d })(command());
+    expect(replay).toEqual(first);
+    expect(await createConfigUpdateResumer(d)()).toEqual([first]);
+    expect(registered).toHaveLength(1);
+    expect(updates).toHaveLength(1);
+    expect(secrets.puts()).toBe(1);
+    expect(JSON.stringify(await d.pending.read())).not.toContain('minted-value');
+
+    expect(await d.pending.compareAndSet('job-config', null)).toBe(true);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('re-reports a lost rollout failure from the marker', async () => {
+    const registered: unknown[] = [];
+    const d = running(debug, { desiredCount: 2, registered, rollout: { state: 'ROLLED_BACK' } });
+    await createConfigUpdateExecutor(d)(command());
+    const [failed] = await createConfigUpdateResumer(d)();
+    expect(failed?.success).toBe(false);
+
+    expect(await createConfigUpdateResumer(d)()).toEqual([failed]);
+    expect(await createConfigUpdateExecutor(d)(command())).toEqual(failed);
+    expect(registered).toHaveLength(1);
+  });
+
+  it('re-reports a lost failure that needed no rollout', async () => {
+    const d = { ...running(debug), fetchEffectiveConfig: async () => { throw new Error('Config fetch returned HTTP 503'); } };
+    const first = await createConfigUpdateExecutor(d)(command());
+    expect(first.success).toBe(false);
+
+    let fetches = 0;
+    const replay = await createConfigUpdateExecutor({
+      ...d,
+      fetchEffectiveConfig: async () => {
+        fetches += 1;
+        return debug;
+      },
+    })(command());
+    expect(replay).toEqual(first);
+    expect(fetches).toBe(0);
+  });
+
+  it('keeps a newer command marker when this command settles', async () => {
+    const d = running(debug, { desiredCount: 2 });
+    await createConfigUpdateExecutor(d)(command());
+    const store = d.pending;
+    const newer = {
+      commandId: 'job-newer',
+      idempotencyKey: 'dep-1:RESTART',
+      type: 'RESTART',
+      stackName: 'deployz-app',
+      startedAt: '2026-10-13T00:00:00.000Z',
+      payload: {},
+    };
+    let first = true;
+    const racing: PendingStore = {
+      ...store,
+      inspect: async () => {
+        const seen = await store.inspect();
+        if (first) {
+          first = false;
+          await store.write(newer);
+        }
+        return seen;
+      },
+    };
+
+    expect(await createConfigUpdateResumer({ ...d, pending: racing })()).toEqual([]);
+    expect(await store.read()).toMatchObject({ commandId: 'job-newer', type: 'RESTART' });
+  });
+
+  it('applies nothing while the pending marker is unreadable', async () => {
+    const registered: unknown[] = [];
+    const secrets = fakeSecretsWriter();
+    const d = running(generated, { registered }, secrets);
+    const blind: typeof d = {
+      ...d,
+      pending: {
+        ...d.pending,
+        read: async () => null,
+        inspect: async () => ({ state: 'unreadable', errorCode: 'AccessDeniedException' }),
+      },
+    };
+
+    expect(await createConfigUpdateExecutor(blind)(command())).toMatchObject({ success: false, deferred: true });
+    expect(await createConfigUpdateResumer(blind)()).toEqual([]);
+    expect(registered).toHaveLength(0);
+    expect(secrets.puts()).toBe(0);
+  });
+
+  it('applies nothing for a command the control plane no longer owns, and defers when it is unknown', async () => {
+    const registered: unknown[] = [];
+    const secrets = fakeSecretsWriter();
+    const d = running(generated, { registered }, secrets);
+
+    const inactive = await createConfigUpdateExecutor({ ...d, checkAuthority: async () => false })(command());
+    expect(inactive).toMatchObject({ success: false });
+    expect(inactive.deferred).toBeUndefined();
+    expect(await createConfigUpdateExecutor({ ...d, checkAuthority: async () => null })(command())).toMatchObject({
+      success: false,
+      deferred: true,
+    });
+    expect(registered).toHaveLength(0);
+    expect(secrets.puts()).toBe(0);
+    expect(await d.pending.read()).toBeNull();
   });
 });

@@ -273,7 +273,7 @@ ever returns plaintext from an API except the relay's own authenticated
   Vendor secret values do not travel in the queue; the relay reads them
   through its authenticated config endpoint.
 - Saving decisions (who provides a key) does not start an update.
-- A customer-scope secret row keeps only a mask; its value lives in the pending-secret vault (24 hours) or in the customer's own secret store. The preflight counts such a key as provided only while an unexpired pending-secret row exists for it, or a live deployment of that customer has finished a configuration update. A stale row (expired vault value, fresh deployment) is reported as a missing value, so the customer enters it again at install. The vendor value is never substituted for it.
+- A customer-scope secret row keeps only a mask; its value lives in the pending-secret vault (24 hours) or in the customer's own secret store. The preflight counts such a key as provided only for the deployment it is checked against: when an unexpired pending-secret row is bound to that deployment, or when a finished configuration update of that same deployment named the key (job payloads keep key names). Before a deployment exists, only a reusable staged row counts. Another deployment of the same customer, or a key added after the last update, does not make it provided. A stale row (expired vault value, fresh deployment) is reported as a missing value, so the customer enters it again at install. The vendor value is never substituted for it.
 - A deploy, a rollback and a restart change only the image. The runtime
   configuration of a deployment stays as it is, so an older release never
   changes the configuration, and a release does not reset it.

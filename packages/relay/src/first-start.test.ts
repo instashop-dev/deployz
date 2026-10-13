@@ -338,11 +338,11 @@ describe('first start of a service created at zero tasks', () => {
     const world = createWorld();
     const relay = createRelay(world);
 
-    expect((await relay.configure()).success).toBe(true);
+    const first = await relay.configure();
+    expect(first.success).toBe(true);
     const afterFirst = summarize(world.log);
     const replay = await relay.configure();
-    expect(replay.success).toBe(true);
-    expect((replay.output as { alreadyApplied: boolean }).alreadyApplied).toBe(true);
+    expect(replay).toEqual(first);
     expect(summarize(world.log)).toEqual(afterFirst);
 
     await relay.deploy();

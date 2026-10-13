@@ -287,6 +287,16 @@ describe('evaluateManifestReadiness', () => {
     expect(warning?.message).toBe('This app uses MySQL but has no migration command; schema updates will not run on deploy.');
   });
 
+  it('the migration inconsistency names no engine when no database is required', () => {
+    const manifest = normalizeDeploymentManifest(
+      { metadata: { hasDockerfile: true, dockerfilePath: 'Dockerfile', startupCommands: ['node index.js'], port: '3000' } },
+      { migrationCommand: 'npm run migrate' },
+    );
+    const unsupported = evaluateManifestReadiness(manifest).findings.map((f) => f.message).join(' ');
+    expect(unsupported).toContain('the manifest does not require a database');
+    expect(unsupported).not.toContain('does not require PostgreSQL');
+  });
+
   it('READY carries a warning when PostgreSQL is required but no migration command exists', () => {
     const manifest = normalizeDeploymentManifest(
       {

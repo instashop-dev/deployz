@@ -846,7 +846,7 @@ describe('config — secure storage against a real store', () => {
       expect(await listProvidedConfigKeys(db, applicationId, freshCustomerId)).toContain(KEY);
     });
 
-    it('is unaffected for a customer whose live deployment already finished a configuration update', async () => {
+    it('counts a key only for the deployment whose finished configuration update named it', async () => {
       const [other] = await db
         .insert(schema.customers)
         .values({ organizationId: 'org-config-crypto', name: 'Held', email: 'held@example.com' })
@@ -854,19 +854,63 @@ describe('config — secure storage against a real store', () => {
       await db
         .insert(schema.applicationConfigs)
         .values({ applicationId, customerId: other!.id, key: KEY, value: SECRET_MASK, isSecret: true });
+      const makeDeployment = async (state: 'HEALTHY' | 'NOT_INSTALLED') =>
+        (
+          await db
+            .insert(schema.deployments)
+            .values({ organizationId: 'org-config-crypto', applicationId, customerId: other!.id, region: 'us-east-1', state, enrollmentCode: crypto.randomUUID() })
+            .returning()
+        )[0]!;
+      const a = await makeDeployment('HEALTHY');
+      const b = await makeDeployment('NOT_INSTALLED');
+      const addJob = (deploymentId: string, payload: Record<string, unknown>) =>
+        db.insert(schema.deploymentJobs).values({
+          deploymentId,
+          type: 'CONFIG_UPDATE',
+          state: 'SUCCEEDED',
+          idempotencyKey: `held-${crypto.randomUUID()}`,
+          payload,
+        });
+      await addJob(a.id, { secrets: [{ key: KEY }] });
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id, null, a.id)).toContain(KEY);
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id, null, b.id)).not.toContain(KEY);
       expect(await listProvidedConfigKeys(db, applicationId, other!.id)).not.toContain(KEY);
-      const [deployment] = await db
-        .insert(schema.deployments)
-        .values({ organizationId: 'org-config-crypto', applicationId, customerId: other!.id, region: 'us-east-1', state: 'HEALTHY', enrollmentCode: crypto.randomUUID() })
+
+      const K2 = 'LATER_TOKEN';
+      await db
+        .insert(schema.applicationConfigs)
+        .values({ applicationId, customerId: other!.id, key: K2, value: SECRET_MASK, isSecret: true });
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id, null, a.id)).not.toContain(K2);
+
+      await addJob(a.id, { changedKeys: [K2] });
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id, null, a.id)).toContain(K2);
+    });
+
+    it('does not reach another deployment through a bound pending row', async () => {
+      const [other] = await db
+        .insert(schema.customers)
+        .values({ organizationId: 'org-config-crypto', name: 'Bound', email: 'bound@example.com' })
         .returning();
-      await db.insert(schema.deploymentJobs).values({
-        deploymentId: deployment!.id,
-        type: 'CONFIG_UPDATE',
-        state: 'SUCCEEDED',
-        idempotencyKey: `held-${deployment!.id}`,
-        payload: {},
+      await db
+        .insert(schema.applicationConfigs)
+        .values({ applicationId, customerId: other!.id, key: KEY, value: SECRET_MASK, isSecret: true });
+      const [a, b] = await db
+        .insert(schema.deployments)
+        .values(
+          [0, 1].map(() => ({ organizationId: 'org-config-crypto', applicationId, customerId: other!.id, region: 'us-east-1', state: 'NOT_INSTALLED' as const, enrollmentCode: crypto.randomUUID() })),
+        )
+        .returning();
+      await createDrizzlePendingSecretStore(db, deps.cipher).upsertBound({
+        organizationId: 'org-config-crypto',
+        applicationId,
+        deploymentId: a!.id,
+        key: KEY,
+        ciphertext: 'enc:x',
+        encryptionContext: {},
+        expiresAt: new Date(Date.now() + 60_000),
       });
-      expect(await listProvidedConfigKeys(db, applicationId, other!.id)).toContain(KEY);
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id, null, a!.id)).toContain(KEY);
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id, null, b!.id)).not.toContain(KEY);
     });
   });
 

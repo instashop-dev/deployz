@@ -56,9 +56,13 @@
  *                         `<stack>-TemplateBucket` output of the deployed
  *                         control plane stack (read via CloudFormation).
  *   API_URL               control-plane URL baked into every link.
+ *   BOOTSTRAP_BUILD_ID    build identity the relay reports and the immutable
+ *                         template copy is keyed by. Defaults to the short
+ *                         source commit (`-dirty` with local changes).
  *   AWS_REGION            region of the legacy bucket.
  */
 import { CloudFormationClient, ListExportsCommand } from '@aws-sdk/client-cloudformation';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -102,10 +106,22 @@ async function resolveBucket() {
   );
 }
 
+/**
+ * The build identity the relay reports and the immutable template is keyed
+ * by: BOOTSTRAP_BUILD_ID, else the short source commit (`-dirty` when the
+ * working tree has changes, so a local build never claims a clean commit).
+ */
+function resolveBuildId() {
+  if (process.env.BOOTSTRAP_BUILD_ID) return process.env.BOOTSTRAP_BUILD_ID;
+  const sha = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { encoding: 'utf8' }).trim();
+  const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim() !== '';
+  return dirty ? `${sha}-dirty` : sha;
+}
+
 const bucket = await resolveBucket();
 const outdir = mkdtempSync(join(tmpdir(), 'deployz-bootstrap-'));
 
-const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl });
+const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, buildId: resolveBuildId() });
 
 // One real S3 client + verifier per region (each bound to that region's
 // endpoint), assets built once and reused everywhere. When
@@ -124,12 +140,14 @@ const results = await publishBootstrapToAllRegions(
   },
 );
 
+console.log(`Build id ${synth.buildId}`);
 console.log(`Published ${synth.assets.length} Lambda asset(s) + a template to ${results.length} region(s):`);
 for (const result of results) {
   console.log(`  ${result.region}`);
   console.log(`    bucket      ${result.bucket}`);
   console.log(`    template    ${result.templateUrl}`);
   console.log(`    quickCreate ${result.quickCreateUrl}`);
+  console.log(`    versioned   ${result.versionedTemplateUrl}`);
   console.log(`    size        ${result.templateBytes} bytes, ${result.parameterCount} parameter(s)`);
 }
 console.log();

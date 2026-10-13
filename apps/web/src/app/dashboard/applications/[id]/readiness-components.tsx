@@ -98,7 +98,13 @@ export function EditDialog({
   useEffect(() => {
     if (!field) return;
     setValue(getInitialValue(field, application, readiness));
-    setNoMigration(false);
+    const overrides = application.detectedMetadata?.['vendorOverrides'];
+    setNoMigration(
+      field === 'migrationCommand' &&
+        application.migrationCommand === null &&
+        Array.isArray(overrides) &&
+        overrides.includes('migrationCommand'),
+    );
     setError(null);
   }, [field]);
 

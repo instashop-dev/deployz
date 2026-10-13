@@ -72,14 +72,18 @@ domains use the same six values in the `custom_domains` table.
 | `PENDING` | job result carries the ACM validation record | `WAITING_FOR_DNS`; the validation CNAME, then the routing CNAME, are upserted; a new job cycle starts |
 | `WAITING_FOR_DNS` | job result: certificate ISSUED and listener configured | `CONFIGURING` |
 | `CONFIGURING` | the control plane's HTTPS probe succeeds | `ACTIVE`; the deployment can be READY |
-| any non-ACTIVE | a configure job fails (`CONFIGURE_FAILED`, `AWS_PERMISSION_DENIED`) or five configure cycles are spent (`DEFAULT_DNS_TIMEOUT`) | `ERROR` (terminal; a Cloudflare 429 does not spend budget) |
+| any non-ACTIVE | a configure job fails (`CONFIGURE_FAILED`, `AWS_PERMISSION_DENIED`) or the 30-minute configure budget is spent (`DEFAULT_DNS_TIMEOUT`) | `ERROR` (terminal; while Cloudflare answers 429 the machine keeps waiting) |
 | `ACTIVE` | a later failure | stays `ACTIVE` (a failure never demotes an active address) |
 | `ERROR` | `POST /api/deployments/:id/default-https/retry` | `PENDING` with the attempt counter reset |
 | any | DESTROY / force-complete / purge | `REMOVING`, then the records are deleted |
 
-The machine advances on the relay heartbeat (every 5 minutes) and once
+The machine advances on the relay heartbeat (every minute) and once
 immediately after INSTALL success, so a typical deployment reaches ACTIVE
-4–8 minutes after it becomes healthy.
+a few minutes after it becomes healthy. The configure budget is elapsed
+time, not a count of heartbeats: it starts at the first attempt and lasts
+30 minutes, because ACM DNS validation can take that long. The machine
+makes at most one DNS attempt per minute, whatever the heartbeat rate. The
+retry route resets the attempt counter, which starts a new budget.
 
 ### Origin TLS and the Cloudflare hop
 

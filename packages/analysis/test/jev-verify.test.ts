@@ -112,6 +112,11 @@ describe('buildRequirementsQuestions', () => {
     expect(questions.deeperReview?.type).toBe('score');
   });
 
+  it('asks about a relational database, not PostgreSQL alone', () => {
+    const postgres = buildRequirementsQuestions().postgres;
+    expect(postgres?.type === 'noul' && postgres.instructions).toContain('PostgreSQL or MySQL');
+  });
+
   it('orders the deeperReview levels weakest-first', () => {
     const deeperReview = buildRequirementsQuestions().deeperReview;
     expect(deeperReview?.type === 'score' && deeperReview.criteria).toEqual([
