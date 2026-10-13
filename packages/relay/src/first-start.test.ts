@@ -48,6 +48,8 @@ interface World {
   log: Mutation[];
   failNextUpdate: boolean;
   failRegister: boolean;
+  /** Real ECS keeps the previous deployment ACTIVE until the new one settles. */
+  holdRollouts: boolean;
 }
 
 /**
@@ -80,7 +82,15 @@ function createWorld(desiredCount = 0): World {
     log: [],
     failNextUpdate: false,
     failRegister: false,
+    holdRollouts: false,
   };
+}
+
+/** The held rollout completes: ECS drains the previous deployment. */
+function settleRollout(world: World): void {
+  world.service.deployments = world.service.deployments
+    .filter((deployment) => deployment.status === 'PRIMARY')
+    .map((deployment) => ({ ...deployment, rolloutState: 'COMPLETED' }));
 }
 
 function fakeEcs(world: World): EcsDeployClient {
@@ -124,10 +134,14 @@ function fakeEcs(world: World): EcsDeployClient {
       }
       // ECS keeps what an update leaves out.
       if (input.taskDefinition !== undefined) {
+        const previous = world.service.deployments.find((deployment) => deployment.status === 'PRIMARY')!;
         world.service.taskDefinition = input.taskDefinition;
-        world.service.deployments = [
-          { status: 'PRIMARY', rolloutState: 'COMPLETED', taskDefinition: input.taskDefinition },
-        ];
+        world.service.deployments = world.holdRollouts
+          ? [
+              { status: 'PRIMARY', rolloutState: 'IN_PROGRESS', taskDefinition: input.taskDefinition },
+              { ...previous, status: 'ACTIVE' },
+            ]
+          : [{ status: 'PRIMARY', rolloutState: 'COMPLETED', taskDefinition: input.taskDefinition }];
       }
       if (input.desiredCount !== undefined) world.service.desiredCount = input.desiredCount;
       world.log.push({
@@ -299,6 +313,25 @@ describe('first start of a service created at zero tasks', () => {
     const payload = (await relay.pending.read())?.payload;
     expect(payload?.['startedFromZero']).toBe(true);
     expect(payload?.['targetTaskDefinitionArns']).toEqual({ [SERVICE_ARN]: REV2 });
+  });
+
+  it('waits for the configuration rollout to drain the template deployment before the first scale-up', async () => {
+    const world = createWorld();
+    world.holdRollouts = true;
+    const relay = createRelay(world);
+
+    expect((await relay.configure()).success).toBe(true);
+    expect((await relay.deploy()).deferred).toBe(true);
+    expect(summarize(world.log)).toEqual(['register app:2', 'update app:2 count=-']);
+    expect(world.service).toMatchObject({ taskDefinition: REV2, desiredCount: 0 });
+
+    expect(await relay.resume()).toEqual([]);
+    expect(summarize(world.log)).toEqual(['register app:2', 'update app:2 count=-']);
+
+    settleRollout(world);
+    expect(await relay.resume()).toEqual([]);
+    expect(summarize(world.log)).toEqual(['register app:2', 'update app:2 count=-', 'update app:2 count=1']);
+    expectNoUnsafeStart(world.log, [REV1]);
   });
 
   it('does not register again when the configuration replays, and scales up exactly once (DEPLOY-009)', async () => {

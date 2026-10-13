@@ -631,10 +631,25 @@ export async function settleEcsDeploy(
   // The same guard covers the configured runtime revision a migration about
   // to start takes its effective configuration from: a one-shot task never
   // runs with configuration the services do not carry yet.
+  //
+  // Attaching the configured revision is itself an ECS rollout. While the
+  // template's deployment is still ACTIVE beside it, ECS can place a new
+  // task in that older deployment, so the first scale-up also waits until
+  // the configured revision is the only deployment left.
   const migrationStarting =
     request.migrationTask !== null && context.allowMigration && (context.migration ?? null) === null;
   for (const view of views) {
     const firstStart = (view.service!.desiredCount ?? 0) === 0;
+    if (firstStart && (view.service!.deployments ?? []).some((deployment) => deployment.status !== 'PRIMARY')) {
+      console.log(
+        JSON.stringify({
+          event: 'relay:first-start-awaiting-rollout',
+          service: view.arn,
+          taskDefinition: view.service!.taskDefinition,
+        }),
+      );
+      return { state: 'in-progress', ...(context.migration ? { migration: context.migration } : {}) };
+    }
     if (!firstStart && !(migrationStarting && view === runtimeView)) continue;
     const unapplied = await deps.unappliedConfiguration(definitions.get(view.arn)!);
     if (unapplied.length > 0) {
