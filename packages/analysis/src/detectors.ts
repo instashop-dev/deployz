@@ -1993,12 +1993,16 @@ function detectLanguagePostgres(tree: FileTree): string[] {
   return detected;
 }
 
-/** True when non-test, non-vendored Go source imports the module: a `go.mod` requirement alone can be unused. */
+/**
+ * True when non-test, non-vendored Go source imports the module: a `go.mod` requirement alone can be unused.
+ * A runtime Go file that the bounded fetch did not read can hold the import, so the requirement then stands.
+ */
 function goModuleImportedByRuntimeSource(tree: FileTree, module: string): boolean {
   const importPattern = new RegExp(`"${tokenPattern(module)}(?:/[^"]*)?"`);
-  return Object.entries(tree).some(
-    ([path, content]) => GO_SOURCE.test(path) && !/(?:^|\/)vendor\//.test(path) && isRuntimeSourcePath(path) && importPattern.test(content),
-  );
+  const isRuntimeGo = (path: string): boolean => GO_SOURCE.test(path) && !/(?:^|\/)vendor\//.test(path) && isRuntimeSourcePath(path);
+  if (Object.entries(tree).some(([path, content]) => isRuntimeGo(path) && importPattern.test(content))) return true;
+  const allPaths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS] ?? [];
+  return allPaths.some((path) => isRuntimeGo(path) && tree[path] === undefined);
 }
 
 /**

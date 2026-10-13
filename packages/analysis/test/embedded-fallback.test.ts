@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessPostgres, type FileTree } from '../src/index.js';
+import { assessPostgres, TREE_PATHS, type FileTree } from '../src/index.js';
 
 const GO_MOD = 'module example.com/vikunja\n\nrequire (\n\tgithub.com/lib/pq v1.10.9\n\tgithub.com/mattn/go-sqlite3 v1.14.22\n)\n';
 
@@ -60,5 +60,23 @@ describe('a Go PostgreSQL driver is corroborated by a runtime engine selector wi
     };
     expect(assessPostgres(node).required).toBe(false);
     expect(assessPostgres(go).required).toBe(false);
+  });
+});
+
+describe('a Go PostgreSQL driver whose importer the bounded fetch did not read', () => {
+  const withPaths = (tree: FileTree, paths: string[]): FileTree => Object.assign(tree, { [TREE_PATHS]: paths });
+  const fetched: FileTree = {
+    'go.mod': GO_MOD,
+    'main.go': 'package main\n\nfunc main() { run() }\n',
+  };
+
+  it('keeps PostgreSQL required when a runtime Go file was not fetched (casdoor shape)', () => {
+    const tree = withPaths({ ...fetched }, ['go.mod', 'main.go', 'object/ormer.go']);
+    expect(assessPostgres(tree).required).toBe(true);
+  });
+
+  it('drops the requirement when every runtime Go file was read and none imports the driver', () => {
+    const tree = withPaths({ ...fetched }, ['go.mod', 'main.go', 'object/ormer_test.go', 'vendor/x/y.go']);
+    expect(assessPostgres(tree).required).toBe(false);
   });
 });
