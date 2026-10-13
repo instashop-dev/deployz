@@ -237,6 +237,10 @@ export const env = {
   // and the install page says so, instead of pointing the customer at a
   // template that does not exist.
   bootstrapTemplateUrl: process.env.BOOTSTRAP_TEMPLATE_URL,
+  // Build id of the published connector (the publisher's BOOTSTRAP_BUILD_ID).
+  // Optional: when set, a deployment whose connector reports another build is
+  // offered a customer-approved update to this version's immutable template.
+  bootstrapBuildId: process.env.BOOTSTRAP_BUILD_ID || undefined,
   // Regions whose regional bootstrap artifacts are CONFIRMED published (the
   // publisher fans identical assets into `deployz-templates-<region>` per
   // region and verifies each before reporting success). Comma-separated.

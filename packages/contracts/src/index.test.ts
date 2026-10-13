@@ -784,7 +784,7 @@ describe('vendorDeploymentStatusSchema', () => {
         confirmedAt: '2026-08-31T11:58:00.000Z',
         confirmed: true,
       },
-      connector: { upgradeRequired: false, reason: null },
+      connector: { upgradeRequired: false, reason: null, updateAvailable: false, updateUrl: null, updateTemplateUrl: null },
       url: null,
       failure: null,
     };
@@ -794,10 +794,16 @@ describe('vendorDeploymentStatusSchema', () => {
       ...vendor,
       health: { ...vendor.health, notStarted: true },
       servingRelease: { releaseId: null, confirmedAt: null, confirmed: false },
-      connector: { upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' as const },
+      connector: {
+        upgradeRequired: true,
+        reason: 'RELEASE_EVIDENCE_MISSING' as const,
+        updateAvailable: true,
+        updateUrl: 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks',
+        updateTemplateUrl: 'https://deployz-templates-us-east-1.s3.us-east-1.amazonaws.com/bootstrap/v1/versions/abc123def456/bootstrap-template-v1.json',
+      },
     };
     expect(vendorDeploymentStatusSchema.parse(unconfirmed)).toStrictEqual(unconfirmed);
-    expect(() => vendorDeploymentStatusSchema.parse({ ...vendor, connector: { upgradeRequired: true, reason: 'OTHER' } })).toThrow(ZodError);
+    expect(() => vendorDeploymentStatusSchema.parse({ ...vendor, connector: { ...vendor.connector, upgradeRequired: true, reason: 'OTHER' } })).toThrow(ZodError);
 
     // The additive specComponents field (phase 3) round-trips when present;
     // the parse above already proves its absence parses.

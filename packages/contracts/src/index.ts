@@ -774,6 +774,15 @@ export const vendorDeploymentStatusSchema = z
       .object({
         upgradeRequired: z.boolean(),
         reason: z.literal('RELEASE_EVIDENCE_MISSING').nullable(),
+        // A customer-approved connector update is on offer: the connector is
+        // too old to verify releases, or reports another build than the one
+        // currently published. The customer performs it in their own AWS
+        // account (updating the existing stack keeps its credential).
+        updateAvailable: z.boolean(),
+        // Console page of the existing connector stack, and the template URL
+        // to choose at "Replace existing template".
+        updateUrl: z.string().nullable(),
+        updateTemplateUrl: z.string().nullable(),
       })
       .strict(),
     url: z.string().nullable(),

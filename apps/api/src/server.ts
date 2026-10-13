@@ -275,6 +275,7 @@ import {
   toDomainView,
   type CustomDomainRow,
 } from './domains.js';
+import { connectorUpdateOffer, type ConnectorUpdateOffer } from './connector-update.js';
 import {
   deriveDeploymentStatus,
   endpointHttpsState,
@@ -745,6 +746,16 @@ function deployLinkQuickCreateUrl(input: {
         stackName,
       })
     : null;
+}
+
+// The connector update the customer may approve for this deployment's
+// existing bootstrap stack (null before enrollment or after removal).
+function connectorUpdateFor(deployment: DeploymentRow): ConnectorUpdateOffer | null {
+  return connectorUpdateOffer(deployment, {
+    buildId: env.bootstrapBuildId,
+    legacyUrl: env.bootstrapTemplateUrl,
+    deployableRegions: env.deployableAwsRegions,
+  });
 }
 
 /**
@@ -5048,7 +5059,15 @@ export async function buildServer({
         // fleet's component list and derived status can never disagree with
         // what this deployment was actually created with.
         const derivedRow = { ...row, ...derivationApplicationFor(row.deployment, row) };
-        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: derivedRow, jobs, domain, defaultHttps, appUrl });
+        const derived = deriveDeploymentStatus({
+          deployment: row.deployment,
+          application: derivedRow,
+          jobs,
+          domain,
+          defaultHttps,
+          connectorUpdate: connectorUpdateFor(row.deployment),
+          appUrl,
+        });
         // Spec components from the existing component states only — the list
         // endpoint does no per-row stack-event query (see the detail route).
         const specComponents = specComponentsForStatus(row.deployment.specV2, derived.components, []);
@@ -5107,6 +5126,7 @@ export async function buildServer({
       jobs,
       domain,
       defaultHttps,
+      connectorUpdate: connectorUpdateFor(rows[0]!.deployment),
       appUrl,
     });
     const specComponents = specComponentsForStatus(rows[0]!.deployment.specV2, derived.components, []);
