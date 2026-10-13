@@ -378,6 +378,7 @@ export const INSTALL_COMPONENT_LABELS: readonly (readonly [key: string, label: s
 // ── Infrastructure inventory vocabulary ─────────────────────────────────────
 
 import type {
+  FleetDeploymentDetail,
   InfrastructureComponent,
   InfrastructureComponentKind,
   InfrastructureComponentStatus,
@@ -460,6 +461,13 @@ export const INFRASTRUCTURE_HTTPS_STATE_LABEL: Record<InfrastructureHttpsState, 
   REMOVING: 'Removing',
 };
 
+/** The HTTPS states that mean "being set up" — never true of a deployment being removed. */
+const HTTPS_SET_UP_STATES: ReadonlySet<InfrastructureHttpsState> = new Set([
+  'SETTING_UP',
+  'WAITING_FOR_CERTIFICATE',
+  'ACTIVATING',
+]);
+
 /**
  * The label to show on an infrastructure component's badge. The `endpoint`
  * component's `status` enum only ever says provisioning/ready/failed/
@@ -469,7 +477,11 @@ export const INFRASTRUCTURE_HTTPS_STATE_LABEL: Record<InfrastructureHttpsState, 
  */
 export function infrastructureComponentStatusLabel(
   component: Pick<InfrastructureComponent, 'status' | 'httpsState'>,
+  deploymentState?: string,
 ): string {
+  if (deploymentState === 'DELETING' && component.httpsState && HTTPS_SET_UP_STATES.has(component.httpsState)) {
+    return INFRASTRUCTURE_HTTPS_STATE_LABEL.REMOVING;
+  }
   if (component.httpsState) {
     return INFRASTRUCTURE_HTTPS_STATE_LABEL[component.httpsState];
   }
@@ -490,6 +502,37 @@ export function visibleResources<T extends { status: string }>(
   return resources.filter((resource) => resource.status !== 'DELETE_COMPLETE');
 }
 
+export type PurgeProgress = 'running' | 'complete' | null;
+
+const ACTIVE_PURGE_JOB_STATES = new Set(['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']);
+
+/**
+ * Where "Delete retained data" stands for a removed deployment: `running`
+ * while the latest PURGE job is active, `complete` once a purge verified that
+ * nothing is left, otherwise null.
+ */
+export function purgeProgress(
+  detail: Pick<FleetDeploymentDetail, 'state' | 'cleanupState' | 'jobs'>,
+): PurgeProgress {
+  if (detail.state !== 'DELETED') return null;
+  const latest = detail.jobs
+    .filter((job) => job.type === 'PURGE')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (latest && ACTIVE_PURGE_JOB_STATES.has(latest.state)) return 'running';
+  return detail.cleanupState === 'COMPLETE' ? 'complete' : null;
+}
+
+/** "Database and Storage stay until you delete them" / "Storage stays until you delete it". */
+export function retainedUntilDeletedSentence(names: string[]): string {
+  const joined =
+    names.length <= 2
+      ? names.join(' and ')
+      : `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+  return names.length === 1
+    ? `${joined} stays until you delete it`
+    : `${joined} stay until you delete them`;
+}
+
 /**
  * A component's operational status while the deployment exists. A resource
  * that CloudFormation kept (DELETE_SKIPPED, e.g. the bucket of a failed first
@@ -501,7 +544,14 @@ export function visibleResources<T extends { status: string }>(
 export function operationalComponentStatus(
   component: Pick<InfrastructureComponent, 'status' | 'resources'>,
   deploymentState: string,
+  purge: PurgeProgress = null,
 ): InfrastructureComponentStatus {
+  if (purge && component.status === 'retained') {
+    return purge === 'running' ? 'deleting' : 'removed';
+  }
+  if (deploymentState === 'DELETING' && (component.status === 'provisioning' || component.status === 'pending')) {
+    return 'deleting';
+  }
   if (component.status !== 'retained' || deploymentState === 'DELETED' || deploymentState === 'DELETING') {
     return component.status;
   }
@@ -516,7 +566,10 @@ export function operationalComponentStatus(
 export function operationalSummaryStatus(
   data: Pick<InfrastructureResponse, 'summary' | 'components'>,
   deploymentState: string,
+  purge: PurgeProgress = null,
 ): InfrastructureSummaryStatus {
+  if (purge === 'running' && data.summary.status === 'retained') return 'deleting';
+  if (deploymentState === 'DELETING' && data.summary.status === 'provisioning') return 'deleting';
   if (data.summary.status !== 'retained' || deploymentState === 'DELETED' || deploymentState === 'DELETING') {
     return data.summary.status;
   }

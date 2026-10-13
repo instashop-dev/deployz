@@ -111,7 +111,9 @@ import {
   actionSupported,
   actionsUnavailableReason,
   everInstalled,
+  purgeProgress,
   relayWaitingStuck,
+  retainedUntilDeletedSentence,
 } from '@/lib/deployment-vocabulary';
 import {
   relativeTime,
@@ -1634,12 +1636,6 @@ function retainedComponentNames(infrastructure: InfrastructureResponse | null): 
     .map((component) => component.name);
 }
 
-function joinNames(names: string[]): string {
-  if (names.length === 1) return names[0]!;
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
-}
-
 /** What a removed deployment left behind, and the one action that clears it. */
 function RemovedDeploymentNotes({
   detail,
@@ -1651,6 +1647,9 @@ function RemovedDeploymentNotes({
   onChanged: () => void;
 }) {
   const retainedNames = retainedComponentNames(infrastructure);
+
+  // The hero already says the retained data is being deleted.
+  if (purgeProgress(detail) === 'running') return null;
 
   if (detail.cleanupState !== 'COMPLETE') {
     return (
@@ -1671,7 +1670,7 @@ function RemovedDeploymentNotes({
               <AlertTitle>Retained resources remain in the customer AWS account</AlertTitle>
               <AlertDescription>
                 {retainedNames && retainedNames.length > 0
-                  ? `${joinNames(retainedNames)} stay until you delete them, and may continue to generate AWS charges. The Deployz connector also stays; your customer deletes that stack once retained data is gone.`
+                  ? `${retainedUntilDeletedSentence(retainedNames)}, and may continue to generate AWS charges. The Deployz connector also stays; your customer deletes that stack once retained data is gone.`
                   : 'Retained resources remain in the customer AWS account until you delete them, and may continue to generate AWS charges. The Deployz connector also stays; your customer deletes that stack once retained data is gone.'}
               </AlertDescription>
             </>

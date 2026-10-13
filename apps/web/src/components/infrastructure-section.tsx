@@ -26,6 +26,7 @@ import {
   infrastructureComponentStatusLabel,
   operationalComponentStatus,
   operationalSummaryStatus,
+  type PurgeProgress,
   visibleResources,
 } from '@/lib/deployment-vocabulary';
 
@@ -33,19 +34,21 @@ interface InfrastructureSectionProps {
   data: InfrastructureResponse | null;
   deploymentId: string;
   deploymentState?: string;
+  purge?: PurgeProgress;
 }
 
 export function InfrastructureSection({
   data,
   deploymentId,
   deploymentState,
+  purge = null,
 }: InfrastructureSectionProps) {
   if (data === null) {
     return <InfrastructureSkeleton />;
   }
 
   const headerTitle = deploymentState === 'DELETED' ? 'Deployment removed' : `AWS · ${data.region}`;
-  const summaryStatus = operationalSummaryStatus(data, deploymentState ?? '');
+  const summaryStatus = operationalSummaryStatus(data, deploymentState ?? '', purge);
 
   return (
     <Card>
@@ -100,6 +103,7 @@ export function InfrastructureSection({
                   component={component}
                   deploymentId={deploymentId}
                   deploymentState={deploymentState ?? ''}
+                  purge={purge}
                 />
               ))}
             </ul>
@@ -114,12 +118,14 @@ function ComponentRow({
   component,
   deploymentId,
   deploymentState,
+  purge,
 }: {
   component: InfrastructureComponent;
   deploymentId: string;
   deploymentState: string;
+  purge: PurgeProgress;
 }) {
-  const status = operationalComponentStatus(component, deploymentState);
+  const status = operationalComponentStatus(component, deploymentState, purge);
   const resources = visibleResources(component.resources, deploymentState);
   const failingReason = firstFailingReason(component);
   const [pending, setPending] = useState(false);
@@ -155,7 +161,7 @@ function ComponentRow({
           </span>
         </div>
         <Badge variant={INFRASTRUCTURE_STATUS_BADGE[status]}>
-          {infrastructureComponentStatusLabel({ ...component, status })}
+          {infrastructureComponentStatusLabel({ ...component, status }, deploymentState)}
         </Badge>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
