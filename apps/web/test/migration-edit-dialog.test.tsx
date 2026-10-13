@@ -46,22 +46,22 @@ const application: Application = {
 
 let root: Root;
 
+function renderDialog(app: Application, readiness: ApplicationReadiness): Promise<void> {
+  return act(async () => {
+    root.render(
+      <EditDialog field="migrationCommand" application={app} readiness={readiness} onClose={() => {}} onSaved={() => {}} />,
+    );
+  });
+}
+
+const readiness = { requirements: null } as unknown as ApplicationReadiness;
+
 beforeEach(async () => {
   mocks.updateApplication.mockReset().mockResolvedValue(application);
   const container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => {
-    root.render(
-      <EditDialog
-        field="migrationCommand"
-        application={application}
-        readiness={{ requirements: null } as unknown as ApplicationReadiness}
-        onClose={() => {}}
-        onSaved={() => {}}
-      />,
-    );
-  });
+  await renderDialog(application, readiness);
 });
 
 afterEach(() => {
@@ -101,5 +101,29 @@ describe('migration EditDialog', () => {
       saveButton()?.click();
     });
     expect(mocks.updateApplication).toHaveBeenCalledWith('app-1', { migrationCommand: 'node scripts/migrate.js' });
+  });
+
+  it('keeps the choice when status polling replaces the application and readiness', async () => {
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('#edit-no-migration')?.click();
+    });
+    await renderDialog({ ...application }, { ...readiness });
+    expect(document.querySelector('#edit-no-migration')?.getAttribute('aria-checked')).toBe('true');
+    expect(document.querySelector<HTMLInputElement>('#edit-field-migrationCommand')?.disabled).toBe(true);
+    await act(async () => {
+      saveButton()?.click();
+    });
+    expect(mocks.updateApplication).toHaveBeenCalledWith('app-1', { migrationCommand: null });
+  });
+
+  it('keeps a typed command when status polling replaces the application and readiness', async () => {
+    const input = document.querySelector<HTMLInputElement>('#edit-field-migrationCommand')!;
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setValue.call(input, 'node scripts/migrate.js');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await renderDialog({ ...application }, { ...readiness });
+    expect(document.querySelector<HTMLInputElement>('#edit-field-migrationCommand')?.value).toBe('node scripts/migrate.js');
   });
 });
