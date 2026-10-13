@@ -23,7 +23,7 @@ import {
   relayBootstrapStackName,
   type InstallExecutorDeps,
 } from './index.js';
-import { memoryPendingStore } from './pending.js';
+import { memoryPendingStore, PENDING_MARKER_MAX_LENGTH, type PendingStore } from './pending.js';
 import type { ProvisioningSnapshot } from './provision-progress.js';
 import {
   recoverFailedInstallStack,
@@ -1722,7 +1722,7 @@ describe('settleInstall executes exactly the templateUrl the payload carries', (
     const result = await createInstallExecutor(makeInstallDeps({ install, pending }))(command);
 
     expect(install).not.toHaveBeenCalled();
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({ phase: 'settled' });
     expect(result.success).toBe(false);
     expect(result.deferred).toBeUndefined();
     expect(result.error).toMatch(/manifest missing/i);
@@ -1789,7 +1789,7 @@ describe('settleInstall executes exactly the templateUrl the payload carries', (
     });
 
     expect(install).not.toHaveBeenCalled();
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({ phase: 'settled' });
     expect(result.success).toBe(false);
     expect(result.deferred).toBeUndefined();
     expect(result.error).toMatch(/invalid deployment manifest/i);
@@ -2758,6 +2758,142 @@ describe('settleInstall AZ wiring', () => {
     expect(result.success).toBe(false);
     expect(result.failureCode).toBe('STACK_CREATE_FAILED');
     expect(result.error).toMatch(/at most 8/i);
+    expect(install).not.toHaveBeenCalled();
+  });
+});
+
+describe('INSTALL settled markers — bounded and honest about an unreadable store', () => {
+  const pendingRecord = {
+    commandId: 'cmd-1',
+    idempotencyKey: 'dep-1:INSTALL',
+    type: 'INSTALL',
+    stackName: 'deployz-app',
+    startedAt: '2026-08-26T12:00:00.000Z',
+    payload: {
+      redisRequired: false,
+      databaseRequired: true,
+      templateUrl: 'https://example.com/application-template-v1.json',
+    },
+  };
+
+  function makeDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:05:00.000Z',
+      ...overrides,
+    };
+  }
+
+  /** Behaves like SSM: a value over the Standard-tier limit is refused. */
+  function limitedStore(): PendingStore {
+    const store = memoryPendingStore();
+    return {
+      ...store,
+      write: async (next) => (JSON.stringify(next).length > PENDING_MARKER_MAX_LENGTH ? false : store.write(next)),
+    };
+  }
+
+  const unreadable = (store: PendingStore): PendingStore => ({
+    ...store,
+    read: async () => null,
+    inspect: async () => ({ state: 'unreadable', errorCode: 'AccessDeniedException' }),
+  });
+
+  it('stores a truncated answer for an oversized failure and still reports the full one', async () => {
+    const pending = limitedStore();
+    await pending.write(pendingRecord);
+    const reason = 'CREATE_FAILED: '.concat('r'.repeat(PENDING_MARKER_MAX_LENGTH * 2));
+
+    const results = await createInstallResumer(
+      makeDeps({ pending, install: async () => ({ state: 'failed', status: 'CREATE_FAILED', reason, outputs: {} }) }),
+    )();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ commandId: 'cmd-1', success: false, failureCode: 'STACK_CREATE_FAILED' });
+    expect(results[0]!.error!.length).toBeGreaterThan(PENDING_MARKER_MAX_LENGTH);
+
+    const stored = (await pending.read())!;
+    expect(stored.phase).toBe('settled');
+    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(PENDING_MARKER_MAX_LENGTH);
+
+    // A lost report is retried from the truncated marker, never by provisioning again.
+    const install = vi.fn();
+    const again = await createInstallResumer(makeDeps({ pending, install }))();
+    expect(install).not.toHaveBeenCalled();
+    expect(again[0]).toMatchObject({ commandId: 'cmd-1', success: false, failureCode: 'STACK_CREATE_FAILED' });
+  });
+
+  it.each([
+    ['success', async () => ({ state: 'succeeded' as const, status: 'CREATE_COMPLETE', outputs: {} }), true],
+    [
+      'failure',
+      async () => ({ state: 'failed' as const, status: 'CREATE_FAILED', reason: 'boom', outputs: {} }),
+      false,
+    ],
+  ])('settles an immediate %s before returning it, so a lost report is repeated without provisioning', async (_n, outcome, success) => {
+    const pending = memoryPendingStore();
+    const install = vi.fn(outcome);
+    const command = {
+      id: 'cmd-1',
+      deploymentId: 'dep-1',
+      type: 'INSTALL' as const,
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: pendingRecord.payload,
+    };
+
+    const first = await createInstallExecutor(makeDeps({ pending, install }))(command);
+    expect(first.success).toBe(success);
+    expect(await pending.read()).toMatchObject({ commandId: 'cmd-1', phase: 'settled', result: { success } });
+
+    const again = await createInstallResumer(makeDeps({ pending, install }))();
+    expect(again).toHaveLength(1);
+    expect(again[0]).toMatchObject({ commandId: 'cmd-1', success });
+    expect(await createInstallExecutor(makeDeps({ pending, install }))(command)).toMatchObject({ success });
+    expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not settle a deferred install', async () => {
+    const pending = memoryPendingStore();
+    await createInstallExecutor(
+      makeDeps({ pending, install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }) }),
+    )({
+      id: 'cmd-1',
+      deploymentId: 'dep-1',
+      type: 'INSTALL' as const,
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: pendingRecord.payload,
+    });
+    expect((await pending.read())?.phase).toBeUndefined();
+  });
+
+  it('keeps no install payload in the settled marker', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({ ...pendingRecord, payload: { ...pendingRecord.payload, parameters: { DbPassword: 'hunter2' } } });
+
+    await createInstallResumer(makeDeps({ pending }))();
+
+    expect(JSON.stringify(await pending.read())).not.toContain('hunter2');
+  });
+
+  it('provisions nothing and defers while the pending marker is unreadable', async () => {
+    const pending = unreadable(memoryPendingStore());
+    const install = vi.fn();
+    const command = {
+      id: 'cmd-1',
+      deploymentId: 'dep-1',
+      type: 'INSTALL' as const,
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: pendingRecord.payload,
+    };
+
+    expect(await createInstallExecutor(makeDeps({ pending, install }))(command)).toMatchObject({
+      success: false,
+      deferred: true,
+    });
+    expect(await createInstallResumer(makeDeps({ pending, install }))()).toEqual([]);
     expect(install).not.toHaveBeenCalled();
   });
 });

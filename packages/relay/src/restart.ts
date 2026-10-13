@@ -17,6 +17,7 @@ import {
   type RolloutVerdict,
 } from './config-update.js';
 import { findServiceViews, type EcsDeployDeps } from './deploy.js';
+import { reportSettled, settledResultOf, settleMarker } from './pending.js';
 
 function verdictResult(commandId: string, idempotencyKey: string, verdict: RolloutVerdict): RelayCommandResult | null {
   if (verdict.state === 'in-progress') return null;
@@ -39,16 +40,30 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
       }),
     );
     const base = { commandId: command.id, idempotencyKey: command.idempotencyKey };
+    const marker = {
+      ...base,
+      type: command.type,
+      stackName: deps.stackName,
+      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+    };
 
     try {
+      const current = await deps.pending.inspect();
+      // The marker cannot be read, so whether this restart already ran is
+      // unknown: mutate nothing and let the control plane offer it again.
+      if (current.state === 'unreadable') return { ...base, success: false, deferred: true };
+      const existing = current.state === 'present' && current.marker.commandId === command.id ? current.marker : null;
+
+      // A settled marker holds the answer: report it, never restart again.
+      const stored = existing === null ? null : settledResultOf(existing);
+      if (stored !== null) return stored;
+
       // A re-offered command whose rollouts are already on its own marker
       // only waits for them; it never forces a second deployment.
-      const existing = await deps.pending.read();
-      if (existing?.commandId === command.id && existing.type === 'RESTART') {
+      if (existing?.type === 'RESTART') {
         const rollouts = readConfigRollouts(existing.payload);
         if (rollouts === null) {
-          await deps.pending.clear();
-          return { ...base, success: false, error: 'Pending restart lost its rollouts' };
+          return await reportSettled(deps.pending, existing, { ...base, success: false, error: 'Pending restart lost its rollouts' });
         }
         const settled = verdictResult(
           command.id,
@@ -56,9 +71,14 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
           await settleConfigRollouts(deps, rollouts, 'restart'),
         );
         if (settled === null) return { ...base, success: false, deferred: true };
-        await deps.pending.clear();
-        return settled;
+        return await reportSettled(deps.pending, existing, settled);
       }
+
+      const authority = deps.checkAuthority ? await deps.checkAuthority(command.id) : undefined;
+      if (authority === false) {
+        return { ...base, success: false, error: 'Restart command is no longer active — not restarting' };
+      }
+      if (authority === null) return { ...base, success: false, deferred: true };
 
       const views = await findServiceViews(deps);
       if (views === null) {
@@ -67,11 +87,19 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
         return { ...base, success: false, deferred: true };
       }
       if (views.length === 0) {
-        return { ...base, success: false, error: `No ECS service found in stack "${deps.stackName}"` };
+        return await reportSettled(deps.pending, marker, {
+          ...base,
+          success: false,
+          error: `No ECS service found in stack "${deps.stackName}"`,
+        });
       }
       const cluster = views[0]!.arn.split('/')[1] ?? null;
       if (!cluster) {
-        return { ...base, success: false, error: `Malformed service ARN "${views[0]!.arn}"` };
+        return await reportSettled(deps.pending, marker, {
+          ...base,
+          success: false,
+          error: `Malformed service ARN "${views[0]!.arn}"`,
+        });
       }
 
       // The services' rolling replacement makes forceNewDeployment safe: it
@@ -88,7 +116,7 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
       }
       const rolloutArns = Object.keys(rollouts);
       if (rolloutArns.length === 0) {
-        return { ...base, success: true, output: { executed: true, type: command.type } };
+        return await reportSettled(deps.pending, marker, { ...base, success: true, output: { executed: true, type: command.type } });
       }
 
       // The PRIMARY deployment right after the update is the rollout this
@@ -98,24 +126,22 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
         const id = started[i]?.deployments?.find((deployment) => deployment.status === 'PRIMARY')?.id;
         if (id !== undefined) rollouts[rolloutArns[i]!] = { ...rollouts[rolloutArns[i]!]!, deploymentId: id };
       }
-      const recorded = await deps.pending.write({
-        commandId: command.id,
-        idempotencyKey: command.idempotencyKey,
-        type: command.type,
-        stackName: deps.stackName,
-        startedAt: (deps.now ?? (() => new Date().toISOString()))(),
-        payload: { configRollouts: rollouts },
-      });
+      const recorded = await deps.pending.write({ ...marker, payload: { configRollouts: rollouts } });
       if (!recorded) {
-        return {
+        return await reportSettled(deps.pending, marker, {
           ...base,
           success: false,
           error: 'Restart started, but the relay could not record that it must report back',
-        };
+        });
       }
       return { ...base, success: false, deferred: true };
     } catch (err) {
-      return { ...base, success: false, error: String(err), failureCode: 'AWS_PERMISSION_DENIED' };
+      return await reportSettled(deps.pending, marker, {
+        ...base,
+        success: false,
+        error: String(err),
+        failureCode: 'AWS_PERMISSION_DENIED',
+      });
     }
   };
 }
@@ -123,27 +149,25 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
 /** Finishes a RESTART rollout an earlier invocation started. */
 export function createRestartResumer(deps: ConfigRolloutDeps): () => Promise<RelayCommandResult[]> {
   return async () => {
-    const pending = await deps.pending.read();
-    if (pending === null || pending.type !== 'RESTART') return [];
+    const current = await deps.pending.inspect();
+    if (current.state !== 'present' || current.marker.type !== 'RESTART') return [];
+    const pending = current.marker;
+    const stored = settledResultOf(pending);
+    if (stored !== null) return [stored];
+
+    const base = { commandId: pending.commandId, idempotencyKey: pending.idempotencyKey };
     const rollouts = readConfigRollouts(pending.payload);
-    if (rollouts === null) {
-      await deps.pending.clear();
-      return [
-        {
-          commandId: pending.commandId,
-          idempotencyKey: pending.idempotencyKey,
-          success: false,
-          error: 'Pending restart lost its rollouts',
-        },
-      ];
-    }
-    const settled = verdictResult(
-      pending.commandId,
-      pending.idempotencyKey,
-      await settleConfigRollouts(deps, rollouts, 'restart'),
-    );
-    if (settled === null) return [];
-    await deps.pending.clear();
-    return [settled];
+    const result: RelayCommandResult | null =
+      rollouts === null
+        ? { ...base, success: false, error: 'Pending restart lost its rollouts' }
+        : verdictResult(
+            pending.commandId,
+            pending.idempotencyKey,
+            await settleConfigRollouts(deps, rollouts, 'restart'),
+          );
+    if (result === null) return [];
+    // A newer command owns the marker now: this answer is obsolete.
+    if (!(await settleMarker(deps.pending, pending, result, false))) return [];
+    return [result];
   };
 }

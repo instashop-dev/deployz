@@ -14,7 +14,7 @@ import {
   type EcsTaskDefinition,
   type RegisterTaskDefinitionInput,
 } from './deploy.js';
-import { memoryPendingStore } from './pending.js';
+import { memoryPendingStore, PENDING_MARKER_MAX_LENGTH, type PendingStore } from './pending.js';
 import type { CloudFormationReader, StackResource } from './verify.js';
 
 const REPO = '151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images';
@@ -508,7 +508,7 @@ describe('createEcsDeployExecutor', () => {
     expect(result.success).toBe(true);
     // The early migration marker is cleared once the deploy settles — a
     // dangling marker of a settled command would be resumed and re-reported.
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('registers a copy, updates the service, and defers while the rollout runs', async () => {
@@ -690,7 +690,7 @@ describe('createEcsDeployExecutor', () => {
     expect(String(result.error)).toContain('migration crashed: bad SQL');
     // The previous release keeps running: no service update, no deferral.
     expect(state.updates).toHaveLength(0);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('attaches the stopped task as structured evidence alongside the migration free text (Phase 1)', async () => {
@@ -744,7 +744,7 @@ describe('createEcsDeployExecutor', () => {
     // The remediation for IMAGE_PULL_FAILED is registry/grant access — never
     // "fix the migration". The previous release keeps serving untouched.
     expect(state.updates).toHaveLength(0);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('writes the migration ARN early so a dead invocation never starts a second RunTask (DZ-AUDIT-003)', async () => {
@@ -976,7 +976,7 @@ describe('createEcsDeployExecutor', () => {
     expect(results[0]!.error).toContain('3 tasks of the new revision exited with code 1');
     // A configured first start goes back to zero tasks.
     expect(state.updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, desiredCount: 0 }]);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('attaches the crash-loop stopped tasks as structured evidence alongside the free text (Phase 1)', async () => {
@@ -1123,7 +1123,7 @@ describe('migration verdict — the application container of the revision that r
         expect(result.error).toContain(`exit code ${exitCode} `);
         expect(result.evidence?.container?.exitCode).toBe(exitCode);
         expect(state.updates).toHaveLength(0);
-        expect(await d.pending.read()).toBeNull();
+        expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
       });
     }
   }
@@ -1138,7 +1138,7 @@ describe('migration verdict — the application container of the revision that r
     expect(result.error).toContain(problem);
     expect(result.evidence?.container?.exitCode).toBeNull();
     expect(state.updates).toHaveLength(0);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   }
 
   it('cannot succeed when the application container is missing from the task', async () => {
@@ -1278,7 +1278,7 @@ describe('migration verdict — the application container of the revision that r
     expect(results[0]!.evidence?.container?.exitCode).toBe(127);
     expect(state.runTasks).toHaveLength(1);
     expect(state.updates).toHaveLength(0);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 });
 
@@ -1646,7 +1646,7 @@ describe('one-shot families shared with another installation', () => {
     // The family's latest is now another installation's revision.
     foreignRevision(state, MIGRATION_TASK.family, MIGRATION_DEF_ARN, `${REPO}@${DIGEST_V3}`);
     failRunTask = false;
-    await run(createEcsDeployExecutor({ ...d, ecs }), migrationDeploy());
+    await run(createEcsDeployExecutor({ ...d, ecs }), { ...migrationDeploy(), id: 'job-2' });
     const ran = (state.runTasks[0] as { taskDefinition: string }).taskDefinition;
     expect(state.definitions.get(ran)!.taskRoleArn).toBe('arn:aws:iam::151955775369:role/deployz/app-task');
     expect(state.definitions.get(ran)!.containerDefinitions[0]!.image).toBe(`${REPO}@${DIGEST_V3}`);
@@ -1715,7 +1715,7 @@ describe('createEcsDeployResumer', () => {
     const results = await createEcsDeployResumer(d)();
     expect(results).toHaveLength(1);
     expect(results[0]!.success).toBe(true);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('keeps the marker and reports nothing when the stack resources cannot be read', async () => {
@@ -1784,7 +1784,7 @@ describe('createEcsDeployResumer', () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.success).toBe(false);
     expect(results[0]!.error).toContain('No ECS service found');
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('keeps waiting while the rollout is still in progress', async () => {
@@ -1839,7 +1839,7 @@ describe('createEcsDeployResumer', () => {
     const settled = await createEcsDeployResumer(d)();
     expect(settled).toHaveLength(1);
     expect(settled[0]?.success).toBe(true);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('never settles while ALB targets are still registering', async () => {
@@ -1865,7 +1865,7 @@ describe('createEcsDeployResumer', () => {
     const settled = await createEcsDeployResumer(d)();
     expect(settled).toHaveLength(1);
     expect(settled[0]?.success).toBe(true);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('settles once rollout COMPLETED, digest running and all targets healthy', async () => {
@@ -1890,7 +1890,7 @@ describe('createEcsDeployResumer', () => {
     const settled = await createEcsDeployResumer(d)();
     expect(settled).toHaveLength(1);
     expect(settled[0]?.success).toBe(true);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('ignores pending commands of other types', async () => {
@@ -1943,7 +1943,7 @@ describe('createEcsDeployResumer', () => {
     const settled = await createEcsDeployResumer(d)();
     expect(settled).toHaveLength(1);
     expect(settled[0]?.success).toBe(true);
-    expect(await d.pending.read()).toBeNull();
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
   });
 });
 
@@ -2570,5 +2570,198 @@ describe('one-shot tasks inherit the effective application configuration', () =>
     expect(state.runTasks).toHaveLength(0);
     expect(state.registered).toHaveLength(0);
     expect(state.updates).toHaveLength(0);
+  });
+});
+
+describe('durable deploy results', () => {
+  const payload = { imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK };
+
+  function unreadable(store: PendingStore): PendingStore {
+    return {
+      ...store,
+      read: async () => null,
+      inspect: async () => ({ state: 'unreadable', errorCode: 'ThrottlingException' }),
+    };
+  }
+
+  it('re-reports a lost success from the marker without running the migration or the service update again', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    const d = deps(state);
+    const first = await run(createEcsDeployExecutor(d), deployCommand(payload));
+    expect(first.success).toBe(true);
+
+    // The result POST failed. A new process (fresh executor) is offered the command again.
+    const replay = await run(createEcsDeployExecutor({ ...d }), deployCommand(payload));
+    expect(replay).toEqual(first);
+    expect(await createEcsDeployResumer(d)()).toEqual([first]);
+    expect(state.runTasks).toHaveLength(1);
+    expect(state.registered).toHaveLength(1);
+    expect(state.updates).toHaveLength(0);
+    expect(await d.pending.read()).toMatchObject({ phase: 'settled' });
+
+    // Only an accepted report clears it.
+    expect(await d.pending.compareAndSet('job-1', null)).toBe(true);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('re-reports a lost migration failure without starting a second task', async () => {
+    const state = baseState();
+    state.migrationTask = { stopCode: 'EssentialContainerExited', containers: [{ name: 'app', exitCode: 1 }] };
+    const d = deps(state);
+    const first = await run(createEcsDeployExecutor(d), deployCommand(payload));
+    expect(first).toMatchObject({ success: false, failureCode: 'MIGRATION_FAILED' });
+
+    expect(await run(createEcsDeployExecutor(d), deployCommand(payload))).toEqual(first);
+    expect(await createEcsDeployResumer(d)()).toEqual([first]);
+    expect(state.runTasks).toHaveLength(1);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('re-reports a resumed deploy from the marker on later polls and on a re-offer', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const command = deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3 });
+    expect((await run(createEcsDeployExecutor(d), command)).deferred).toBe(true);
+    state.runningDigest = DIGEST_V3;
+
+    const [first] = await createEcsDeployResumer(d)();
+    expect(first).toMatchObject({ success: true });
+    // Reporting failed: the marker survives and the next poll repeats the answer.
+    expect(await createEcsDeployResumer(d)()).toEqual([first]);
+    expect(await run(createEcsDeployExecutor(d), command)).toEqual(first);
+    expect(state.updates).toHaveLength(1);
+    expect(state.registered).toHaveLength(1);
+  });
+
+  it('keeps a newer command marker when this command settles', async () => {
+    const state = baseState();
+    const d = deps(state);
+    await run(createEcsDeployExecutor(d), deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3 }));
+    state.runningDigest = DIGEST_V3;
+    const store = d.pending;
+    const newer = {
+      commandId: 'job-2',
+      idempotencyKey: 'dep-1:ROLLBACK',
+      type: 'ROLLBACK',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: {},
+    };
+    let first = true;
+    const racing: PendingStore = {
+      ...store,
+      inspect: async () => {
+        const seen = await store.inspect();
+        if (first) {
+          first = false;
+          await store.write(newer);
+        }
+        return seen;
+      },
+    };
+
+    expect(await createEcsDeployResumer({ ...d, pending: racing })()).toEqual([]);
+    expect(await store.read()).toMatchObject({ commandId: 'job-2', type: 'ROLLBACK' });
+  });
+
+  it('stores an oversized answer truncated, so the write succeeds and the result is still reported', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const big = 'x'.repeat(PENDING_MARKER_MAX_LENGTH * 2);
+    const failingDeps = {
+      ...d,
+      ecs: {
+        ...d.ecs,
+        async runTask(): Promise<{ taskArns: string[] }> {
+          throw new Error(big);
+        },
+      },
+    };
+    const first = await run(createEcsDeployExecutor(failingDeps), deployCommand(payload));
+    expect(first.success).toBe(false);
+    expect(first.error!.length).toBeGreaterThan(PENDING_MARKER_MAX_LENGTH);
+
+    const stored = (await d.pending.read())!;
+    expect(stored.phase).toBe('settled');
+    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(PENDING_MARKER_MAX_LENGTH);
+    expect(await run(createEcsDeployExecutor(failingDeps), deployCommand(payload))).toMatchObject({
+      success: false,
+      failureCode: first.failureCode,
+    });
+  });
+
+  it('mutates nothing while the pending marker is unreadable', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const blind = { ...d, pending: unreadable(d.pending) };
+
+    const result = await run(createEcsDeployExecutor(blind), deployCommand(payload));
+    expect(result).toMatchObject({ success: false, deferred: true });
+    expect(await createEcsDeployResumer(blind)()).toEqual([]);
+    expect(state.registered).toHaveLength(0);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('mutates nothing for a command the control plane no longer owns', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const result = await run(createEcsDeployExecutor({ ...d, checkAuthority: async () => false }), deployCommand(payload));
+    expect(result).toMatchObject({ success: false });
+    expect(result.deferred).toBeUndefined();
+    expect(state.registered).toHaveLength(0);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('defers without mutating when the authority answer is unknown', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const result = await run(createEcsDeployExecutor({ ...d, checkAuthority: async () => null }), deployCommand(payload));
+    expect(result).toMatchObject({ success: false, deferred: true });
+    expect(state.registered).toHaveLength(0);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('a resumer drops its own marker and mutates nothing once the command is superseded', async () => {
+    const state = baseState();
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload,
+    });
+
+    expect(await createEcsDeployResumer({ ...d, checkAuthority: async () => null })()).toEqual([]);
+    expect(await d.pending.read()).not.toBeNull();
+
+    expect(await createEcsDeployResumer({ ...d, checkAuthority: async () => false })()).toEqual([]);
+    expect(await d.pending.read()).toBeNull();
+    expect(state.registered).toHaveLength(0);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('settles an already-started rollout without asking for authority', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3, targetTaskDefinitionArn: BASE_DEF_ARN },
+    });
+
+    const results = await createEcsDeployResumer({ ...d, checkAuthority: async () => false })();
+    expect(results).toHaveLength(1);
   });
 });

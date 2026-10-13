@@ -64,7 +64,14 @@ import {
 } from './deploy.js';
 import type { TargetHealthReader } from './ecs-health.js';
 import { essentialContainerNames } from './ecs-observe.js';
-import type { PendingStore } from './pending.js';
+import {
+  reportSettled,
+  saveMarker,
+  settledResultOf,
+  settleMarker,
+  type CheckAuthority,
+  type PendingStore,
+} from './pending.js';
 
 /** One entry from the control plane's effective configuration. */
 export interface EffectiveConfigEntry {
@@ -106,6 +113,8 @@ export interface ConfigUpdateDeps {
   readonly elb: TargetHealthReader;
   /** Carries the rollouts to a later invocation while they run. */
   readonly pending: PendingStore;
+  /** Whether the control plane still owns the command; an unowned one writes nothing. */
+  readonly checkAuthority?: CheckAuthority;
   readonly now?: () => string;
 }
 
@@ -698,28 +707,30 @@ function rolloutResult(
 /** Finishes a CONFIG_UPDATE rollout an earlier invocation started. */
 export function createConfigUpdateResumer(deps: ConfigRolloutDeps): () => Promise<RelayCommandResult[]> {
   return async () => {
-    const pending = await deps.pending.read();
-    if (pending === null || pending.type !== 'CONFIG_UPDATE') return [];
+    const current = await deps.pending.inspect();
+    if (current.state !== 'present' || current.marker.type !== 'CONFIG_UPDATE') return [];
+    const pending = current.marker;
+    const stored = settledResultOf(pending);
+    if (stored !== null) return [stored];
+
     const rollouts = readConfigRollouts(pending.payload);
-    if (rollouts === null) {
-      await deps.pending.clear();
-      return [
-        {
-          commandId: pending.commandId,
-          idempotencyKey: pending.idempotencyKey,
-          success: false,
-          error: 'Pending configuration update lost its rollouts',
-        },
-      ];
-    }
-    const result = rolloutResult(
-      pending.commandId,
-      pending.idempotencyKey,
-      await settleConfigRollouts(deps, rollouts),
-      reportFromMarker(pending.payload),
-    );
+    const result =
+      rollouts === null
+        ? {
+            commandId: pending.commandId,
+            idempotencyKey: pending.idempotencyKey,
+            success: false,
+            error: 'Pending configuration update lost its rollouts',
+          }
+        : rolloutResult(
+            pending.commandId,
+            pending.idempotencyKey,
+            await settleConfigRollouts(deps, rollouts),
+            reportFromMarker(pending.payload),
+          );
     if (result === null) return [];
-    await deps.pending.clear();
+    // A newer command owns the marker now: this answer is obsolete.
+    if (!(await settleMarker(deps.pending, pending, result, false))) return [];
     return [result];
   };
 }
@@ -764,15 +775,29 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
       }),
     );
 
+    const base = { commandId: command.id, idempotencyKey: command.idempotencyKey };
+    const marker = {
+      ...base,
+      type: command.type,
+      stackName: deps.stackName,
+      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+    };
+
     let outcome: ConfigUpdateOutcome;
     try {
+      const current = await deps.pending.inspect();
+      // The marker cannot be read, so whether this update already ran is
+      // unknown: write nothing and let the control plane offer it again.
+      if (current.state === 'unreadable') return { ...base, success: false, deferred: true };
+      const existing = current.state === 'present' && current.marker.commandId === command.id ? current.marker : null;
+
+      // A settled marker holds the answer: report it, never apply again.
+      const stored = existing === null ? null : settledResultOf(existing);
+      if (stored !== null) return stored;
+
       // A re-offered command whose rollouts are already on its own marker
       // only waits for them; it never applies the configuration twice.
-      const existing = await deps.pending.read();
-      const existingRollouts =
-        existing?.commandId === command.id && existing.type === 'CONFIG_UPDATE'
-          ? readConfigRollouts(existing.payload)
-          : null;
+      const existingRollouts = existing?.type === 'CONFIG_UPDATE' ? readConfigRollouts(existing.payload) : null;
       if (existing !== null && existingRollouts !== null) {
         const result = rolloutResult(
           command.id,
@@ -780,39 +805,35 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
           await settleConfigRollouts(deps, existingRollouts),
           reportFromMarker(existing.payload),
         );
-        if (result === null) return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
-        await deps.pending.clear();
-        return result;
+        if (result === null) return { ...base, success: false, deferred: true };
+        return await reportSettled(deps.pending, existing, result);
       }
+
+      const authority = deps.checkAuthority ? await deps.checkAuthority(command.id) : undefined;
+      if (authority === false) {
+        return { ...base, success: false, error: 'Configuration command is no longer active — not applying it' };
+      }
+      if (authority === null) return { ...base, success: false, deferred: true };
+
       outcome = await settleConfigUpdate(deps, removedKeys, secretValues);
     } catch (err) {
-      return {
-        commandId: command.id,
-        idempotencyKey: command.idempotencyKey,
+      return await reportSettled(deps.pending, marker, {
+        ...base,
         success: false,
         error: String(err),
         failureCode: 'AWS_PERMISSION_DENIED',
-      };
+      });
     }
 
     if (outcome.state === 'failed') {
-      return {
-        commandId: command.id,
-        idempotencyKey: command.idempotencyKey,
-        success: false,
-        error: outcome.reason,
-      };
+      return await reportSettled(deps.pending, marker, { ...base, success: false, error: outcome.reason });
     }
 
     if (outcome.state === 'updating') {
       // Record the debt BEFORE deferring. The marker carries the rollouts
       // and key names only — never a secret value.
-      const recorded = await deps.pending.write({
-        commandId: command.id,
-        idempotencyKey: command.idempotencyKey,
-        type: command.type,
-        stackName: deps.stackName,
-        startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+      const recorded = await saveMarker(deps.pending, {
+        ...marker,
         payload: {
           configRollouts: outcome.rollouts,
           generatedKeys: outcome.report.generatedKeys,
@@ -821,18 +842,16 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
       });
       if (!recorded) {
         return {
-          commandId: command.id,
-          idempotencyKey: command.idempotencyKey,
+          ...base,
           success: false,
           error: 'Configuration rollout started, but the relay could not record that it must report back',
         };
       }
-      return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+      return { ...base, success: false, deferred: true };
     }
 
-    return {
-      commandId: command.id,
-      idempotencyKey: command.idempotencyKey,
+    return await reportSettled(deps.pending, marker, {
+      ...base,
       success: true,
       output: {
         executed: true,
@@ -842,7 +861,7 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
         generatedKeys: outcome.report.generatedKeys,
         unboundSecretKeys: outcome.report.unboundSecretKeys,
       },
-    };
+    });
   };
 }
 
