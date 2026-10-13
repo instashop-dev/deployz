@@ -218,6 +218,38 @@ describe('deployment lifecycle — states, events, and removal', () => {
     expect(events.map((event) => event.eventType)).toContain('destroy.completed');
   });
 
+  it('returns the newest events, oldest first, once a deployment has more than one page', async () => {
+    const deployment = await createDeployment();
+    const [row] = await db
+      .select({ organizationId: schema.deployments.organizationId })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment.id));
+    const start = Date.parse('2026-01-01T00:00:00Z');
+    await db.insert(schema.eventLogs).values(
+      Array.from({ length: 60 }, (_, index) => ({
+        occurredAt: new Date(start + index * 60_000),
+        actorType: 'system',
+        actorId: 'test',
+        organizationId: row!.organizationId,
+        deploymentId: deployment.id,
+        eventType: `test.event-${index}`,
+      })),
+    );
+    await send(app, 'POST', `/api/deployments/${deployment.id}/destroy`, {}, { cookie });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/events`,
+      headers: { cookie },
+    });
+    const { events } = response.json() as { events: Array<{ eventType: string; occurredAt: string }> };
+    expect(events).toHaveLength(50);
+    expect(events.map((event) => event.eventType)).toContain('destroy.completed');
+    expect(events.map((event) => event.eventType)).not.toContain('test.event-0');
+    const times = events.map((event) => Date.parse(event.occurredAt));
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+  });
+
   it('a removed deployment leaves the fleet list but stays reachable', async () => {
     const deployment = await createDeployment();
     await send(app, 'POST', `/api/deployments/${deployment.id}/destroy`, {}, { cookie });

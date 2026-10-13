@@ -6525,14 +6525,16 @@ export async function buildServer({
     const { limit, offset } = request.query as { limit?: string; offset?: string };
     const take = Math.min(Number(limit ?? 50), 200);
     const skip = Number(offset ?? 0);
+    // The newest events, returned oldest first: a long-lived deployment has
+    // more than one page, and its latest activity must be on the first one.
     const rows = await db
       .select()
       .from(schema.eventLogs)
       .where(eq(schema.eventLogs.deploymentId, id))
-      .orderBy(schema.eventLogs.occurredAt)
+      .orderBy(desc(schema.eventLogs.occurredAt), desc(schema.eventLogs.id))
       .limit(take)
       .offset(skip);
-    return { events: rows };
+    return { events: rows.reverse() };
   });
 
   // GET /api/deployments/:id/stack-events — vendor CloudFormation diagnostics
