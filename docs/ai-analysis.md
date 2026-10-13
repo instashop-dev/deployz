@@ -209,7 +209,7 @@ image, a removed npm, pnpm without corepack, an unreadable base image, no
 Dockerfile) is `migration-command-needs-input`: it records
 `migrationNeedsInput`, sets `migration.needsCommand` and blocks
 deployment until the vendor enters a command or chooses "No separate
-migration" — both are vendor overrides that re-analysis keeps. A declared worker
+migration" — both are vendor overrides that re-analysis keeps. Analysis writes its result under a row lock from the row as it is at that moment, so an override saved while a run is in progress is kept. A row with no `vendorOverrides` list (older than the list) keeps its saved port, health path, migration and worker command; analysis fills only empty columns and does not add the list. A declared worker
 process is `worker-process` — informational, because Deployz now runs it
 as its own service. Worker-like code with no declared start command is
 `worker-command` and sets `worker.needsCommand`: a needs-input question
