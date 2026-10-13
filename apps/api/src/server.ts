@@ -3843,12 +3843,16 @@ export async function buildServer({
       }
       set.detectedMetadata = nextMetadata;
     }
-    // A port or start command the vendor sets (or clears) resolves (or
-    // restores) a readiness finding — keep the persisted verdict in step with
-    // the readiness page, which applies the same reconciliation on read.
+    // A port, health path or start command the vendor sets (or clears) resolves
+    // (or restores) a readiness finding — keep the persisted verdict in step
+    // with the readiness page, which applies the same reconciliation on read.
     if (
       existing.analysisStatus === 'COMPLETE' &&
-      (claimed.includes('containerPort') || claimed.includes('migrationCommand') || manifestOnlyChanged)
+      (claimed.includes('containerPort') ||
+        claimed.includes('migrationCommand') ||
+        claimed.includes('healthPath') ||
+        released.includes('healthPath') ||
+        manifestOnlyChanged)
     ) {
       const effective = effectiveReadinessReport({
         containerPort: 'containerPort' in set ? (set.containerPort as number | null) : existing.containerPort,

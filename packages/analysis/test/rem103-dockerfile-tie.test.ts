@@ -108,12 +108,12 @@ describe('dockerfile-target-unresolved', () => {
   const tied = ['Dockerfile', 'docker/Dockerfile.alt'];
   const analysis = withMetadata(node({ express: '^4.18.0' }), { dockerfilePath: 'Dockerfile', dockerfileSelectionTied: tied });
 
-  it('is a required, non-blocking needs_confirmation finding naming the selected file', () => {
+  it('is a recommended, non-blocking needs_confirmation finding naming the selected file', () => {
     const finding = buildReadinessReport(analysis).findings.find((f) => f.id === 'dockerfile-target-unresolved');
-    expect(finding).toMatchObject({ severity: 'required', blocking: false, confidence: 'needs_confirmation' });
+    expect(finding).toMatchObject({ severity: 'recommended', blocking: false, confidence: 'needs_confirmation' });
     expect(finding?.plainEnglishExplanation).toContain('"Dockerfile"');
     expect(finding?.technicalEvidence).toContain('docker/Dockerfile.alt');
-    expect(finding?.suggestedOutcome).toBe('Confirm the Dockerfile in the application details.');
+    expect(finding?.suggestedOutcome).toContain('Dockerfile.production');
   });
 
   it('is not raised without a tie', () => {

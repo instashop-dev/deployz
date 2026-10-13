@@ -506,7 +506,7 @@ export function buildReadinessReport(
       id: 'dockerfile-target-unresolved',
       category: 'container',
       title: 'Confirm which Dockerfile Deployz builds',
-      severity: 'required',
+      severity: 'recommended',
       blocking: false,
       plainEnglishExplanation: `Deployz found several Dockerfiles that could be the application image and picked ${
         selected !== null ? `"${selected}"` : 'one of them'
@@ -514,7 +514,8 @@ export function buildReadinessReport(
       whyItMatters:
         'Deployz builds one Dockerfile for every release. If it builds the wrong one, the app starts the wrong program or never becomes healthy.',
       technicalEvidence: `These Dockerfiles match equally well: ${tiedDockerfiles.join(', ')}.`,
-      suggestedOutcome: 'Confirm the Dockerfile in the application details.',
+      suggestedOutcome:
+        'Check that this Dockerfile builds the application. If it does not, name the application Dockerfile Dockerfile.production, which Deployz prefers, and analyse again.',
       confidence: 'needs_confirmation',
     });
   }

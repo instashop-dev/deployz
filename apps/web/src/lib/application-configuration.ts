@@ -410,7 +410,6 @@ const REQUIRED_CHANGE_LABELS: Record<string, string> = {
   'local-file-storage': 'Store files in object storage, not on the local disk',
   'build-context-git-metadata': 'Stop copying .git into the container build',
   'migration-command-needs-input': 'Choose how database migrations run',
-  'dockerfile-target-unresolved': 'Confirm which Dockerfile Deployz builds',
 };
 
 /** A plain-language label for a finding. Unknown findings keep their own title. */
