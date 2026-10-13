@@ -199,6 +199,14 @@ function timeout, so a crashed invocation does not block the relay for
 long. The install-id function, its provider function and the relay function
 keep their logs for one week.
 
+The API offers a customer-approved connector update when `BOOTSTRAP_BUILD_ID` (the
+build id `publish:bootstrap` prints) is set on the API Lambda and a deployment's
+connector reports another build, or reports no release evidence. The offer
+links the existing stack in the CloudFormation console and the immutable
+template at `bootstrap/v1/versions/<buildId>/bootstrap-template-v1.json`;
+Deployz still cannot update the stack itself. Without `BOOTSTRAP_BUILD_ID` only
+the missing-evidence case is offered, with the fixed latest template.
+
 Until `BOOTSTRAP_TEMPLATE_URL` is set, the API returns no Quick Create URL
 and the install page says no template has been published. A Region that is
 not in `DEPLOYABLE_AWS_REGIONS` is rejected at deployment creation. When the
