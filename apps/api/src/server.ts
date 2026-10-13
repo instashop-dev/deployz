@@ -3,7 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { createHash } from 'node:crypto';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, getTableColumns, gt, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, gte, inArray, isNull, like, ne, notInArray, sql } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -3361,6 +3361,7 @@ export async function buildServer({
         },
       });
     });
+    await dropDefaultHttpsForFreshAttempt(deployment);
     return reply.code(200).send({
       state: 'NOT_INSTALLED',
       attemptNumber: nextAttempt,
@@ -4755,6 +4756,7 @@ export async function buildServer({
           },
         });
       });
+      await dropDefaultHttpsForFreshAttempt(deployment);
       return {
         state: 'NOT_INSTALLED',
         attemptNumber: nextAttempt,
@@ -6376,6 +6378,42 @@ export async function buildServer({
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
+  // A fresh first-install attempt (customer retry, deploy-link retry, reset of
+  // a never-installed deployment) replaces the relay credential, so the
+  // certificate requested for the previous attempt belongs to a relay that no
+  // longer polls. Drop that default-HTTPS state, stop its queued domain jobs
+  // and remove its control-plane DNS records; the next attempt requests a new
+  // certificate. The old certificate is unused and stays in the customer's
+  // account, tagged for a later purge.
+  async function dropDefaultHttpsForFreshAttempt(deployment: DeploymentRow): Promise<void> {
+    const previous = parseDefaultHttps(deployment.defaultHttps);
+    if (!previous) return;
+    await db
+      .update(schema.deployments)
+      .set({ defaultHttps: null })
+      .where(eq(schema.deployments.id, deployment.id));
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'CANCELLED', finishedAt: new Date() })
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.type, ['CONFIGURE_DOMAIN', 'REMOVE_DOMAIN']),
+          like(schema.deploymentJobs.idempotencyKey, `${deployment.id}:%:default-https:%`),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED']),
+        ),
+      );
+    try {
+      await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
+      if (previous.validationName) {
+        await defaultHttpsDeps.dns.deleteDefaultValidationRecord(deployment.id, previous.validationName);
+      }
+    } catch (error) {
+      // Purge reconciliation removes any record this misses.
+      console.error(JSON.stringify({ event: 'default-https:fresh-attempt-record-cleanup-failed', error: String(error) }));
+    }
+  }
+
   // §14 re-enrollment, for an already-loaded, already-owned deployment.
   // Shared by the vendor relay/reset route and the admin recovery action.
   //
@@ -6472,6 +6510,8 @@ export async function buildServer({
         },
       });
     });
+
+    if (neverInstalled) await dropDefaultHttpsForFreshAttempt(deployment);
 
     return { installLinkId: deployment.installLinkId, attemptNumber: nextAttempt };
   }
@@ -9253,8 +9293,10 @@ export async function buildServer({
     // Phase 11 default-HTTPS driver rides the same cadence: every heartbeat
     // on an installed deployment nudges the machine one step (request the
     // cert, write the deployz-zone records, re-describe, probe, activate).
-    // Best-effort for the same reason as the custom-domain check above.
-    if (['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE'].includes(deployment.state)) {
+    // A running INSTALL starts it early so certificate validation overlaps
+    // stack creation. Best-effort for the same reason as the custom-domain
+    // check above.
+    if (['INSTALLING', 'HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE'].includes(deployment.state)) {
       try {
         await runDefaultHttpsCheck(db, deployment, defaultHttpsDeps);
       } catch {

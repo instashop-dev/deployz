@@ -93,6 +93,8 @@ interface DomainCommandPayload {
   hostname: string;
   domainId: string;
   certificateArn?: string;
+  /** Only request and describe the certificate: the install is still creating the stack. */
+  deferListener?: boolean;
 }
 
 function readPayload(command: RelayCommand): DomainCommandPayload {
@@ -166,7 +168,7 @@ async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps):
 
     let httpsConfigured = false;
 
-    if (certificate.status === 'ISSUED' && loadBalancer) {
+    if (certificate.status === 'ISSUED' && loadBalancer && !payload.deferListener) {
       const listeners = await deps.elb.describeListeners(loadBalancer.arn);
       const httpListener = listeners.find((listener) => listener.port === 80);
       const httpsListener = listeners.find((listener) => listener.port === 443);

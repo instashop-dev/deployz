@@ -5298,6 +5298,42 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(String(page.existingStackUpdate!.consoleUrl)).toContain('filteringText=deployz-update-reset-app-1');
   });
 
+  it('relay/reset of a never-installed deployment drops the certificate requested for the dead attempt', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Early Cert Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      defaultHttps: {
+        hostname: 'd-early.deployz.dev',
+        status: 'WAITING_FOR_DNS',
+        certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
+        validationName: '_x.d-early.deployz.dev',
+        validationValue: '_y.acm-validations.aws.',
+        checkCycle: 2,
+        lastError: null,
+      },
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'CONFIGURE_DOMAIN',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:CONFIGURE_DOMAIN:default-https:2`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const reset = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(reset.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.defaultHttps).toBeNull();
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job!.state).toBe('CANCELLED');
+  });
+
   it('relay/reset of a never-installed deployment keeps a Quick Create link with a fresh stack name', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'Fresh Reset App' });
     const customer = await insertCustomer(db, org.organizationId);

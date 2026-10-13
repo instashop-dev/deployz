@@ -22,6 +22,13 @@
  * Driver cadence: the relay heartbeat (~5 min, the same existing background
  * cadence the custom-domain auto-check rides) plus one immediate kick after a
  * successful INSTALL result. All transitions are idempotent.
+ *
+ * The certificate is requested while the INSTALL is still running, so ACM
+ * validation overlaps stack creation. Until the install settles, the relay
+ * only requests and describes the certificate (it defers the 443 listener),
+ * the control plane writes the validation CNAME as soon as it is known, and
+ * the routing CNAME follows once the load balancer exists. Waiting for the
+ * stack in that window consumes none of the configure budget below.
  */
 
 import { and, desc, eq, inArray, isNull, like } from 'drizzle-orm';
@@ -340,7 +347,7 @@ export async function ensureDefaultHttpsConfigureJob(
   db: RuntimeDb,
   deployment: { id: string },
   state: DefaultHttpsState,
-  opts?: { forceNewCycle?: boolean },
+  opts?: { forceNewCycle?: boolean; deferListener?: boolean },
 ): Promise<boolean> {
   const prefix = configureJobPrefix(deployment.id);
   const newest = await newestMachineJob(db, deployment.id, 'CONFIGURE_DOMAIN', prefix);
@@ -365,6 +372,7 @@ export async function ensureDefaultHttpsConfigureJob(
       hostname: state.hostname,
       domainId: deployment.id,
       ...(state.certificateArn ? { certificateArn: state.certificateArn } : {}),
+      ...(opts?.deferListener ? { deferListener: true } : {}),
     },
     requestedBy: null,
   });
@@ -511,6 +519,22 @@ export interface DefaultHttpsDeps {
   minAttemptIntervalMs?: number;
 }
 
+/** Whether the relay has claimed (and not yet settled) this deployment's INSTALL. */
+async function hasRunningInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: schema.deploymentJobs.id })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        eq(schema.deploymentJobs.type, 'INSTALL'),
+        eq(schema.deploymentJobs.state, 'RUNNING'),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
 const EVER_INSTALLED_STATES = new Set<string>(['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE']);
 
 /** Deployment states with no ALB/relay to serve HTTPS — same gating the
@@ -579,11 +603,18 @@ export async function runDefaultHttpsCheck(
   const notRunning =
     NOT_RUNNING_STATES.has(deployment.state) &&
     !(deployment.state === 'FAILED' && (deployment.currentReleaseId ?? null) !== null);
-  if (notRunning || !EVER_INSTALLED_STATES.has(deployment.state)) {
+  // An authorized, running INSTALL starts the certificate early (see the
+  // header). Before the relay claims the INSTALL nothing is authorized yet.
+  const installing = deployment.state === 'INSTALLING' && (await hasRunningInstall(db, deployment.id));
+  if (!installing && (notRunning || !EVER_INSTALLED_STATES.has(deployment.state))) {
     return;
   }
-
   const now = deps.now ?? Date.now;
+  // While the stack is still being created, waiting is not a configure
+  // attempt: the budget clock starts at the first attempt after the install
+  // settles, so a long install cannot use up the budget.
+  const countConfigureAttempt = (value: DefaultHttpsState): DefaultHttpsState =>
+    installing ? value : countAttempt(value, now());
   const state = await reloadState(db, deployment.id);
 
   if (!state) {
@@ -598,8 +629,8 @@ export async function runDefaultHttpsCheck(
       lastError: null,
     };
     await persistState(db, deployment.id, initial);
-    const created = await ensureDefaultHttpsConfigureJob(db, deployment, initial);
-    if (created) {
+    const created = await ensureDefaultHttpsConfigureJob(db, deployment, initial, { deferListener: installing });
+    if (created && !installing) {
       // Phase 12 watchdog: the very first configure request is a configure
       // attempt too — count it against the budget (unit parity: a machine
       // that mints its initial job and then stalls owes the same accounting
@@ -630,9 +661,9 @@ export async function runDefaultHttpsCheck(
     }
     switch (working.status) {
       case 'PENDING': {
-        const created = await ensureDefaultHttpsConfigureJob(db, deployment, working);
+        const created = await ensureDefaultHttpsConfigureJob(db, deployment, working, { deferListener: installing });
         if (created) {
-          await persistState(db, deployment.id, countAttempt(working, now()));
+          await persistState(db, deployment.id, countConfigureAttempt(working));
         }
         return;
       }
@@ -645,13 +676,16 @@ export async function runDefaultHttpsCheck(
         ) {
           return;
         }
-        if (!working.validationName || !working.validationValue || !working.routingTarget) {
+        if (!working.validationName || !working.validationValue) {
           // The cert was requested but the relay has not yet reported the
           // validation record — nudge it to describe the cert again.
-          const created = await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
+          const created = await ensureDefaultHttpsConfigureJob(db, deployment, working, {
+            forceNewCycle: true,
+            deferListener: installing,
+          });
           if (created) {
             await persistState(db, deployment.id, {
-              ...countAttempt(working, now()),
+              ...countConfigureAttempt(working),
               lastDnsCheckAt: new Date(now()).toISOString(),
             });
           }
@@ -660,13 +694,17 @@ export async function runDefaultHttpsCheck(
         const attemptedAt = new Date(now()).toISOString();
         try {
           // The validation CNAME must stay unproxied for ACM's DNS-01 probe;
-          // the routing CNAME is the proxied default record.
+          // the routing CNAME is the proxied default record. The validation
+          // record is written as soon as it is known; the routing record
+          // waits for the load balancer.
           await deps.dns.upsertDefaultValidationRecord(
             deployment.id,
             working.validationName,
             working.validationValue,
           );
-          await deps.dns.upsertDefaultDeploymentRecord(deployment.id, working.routingTarget);
+          if (working.routingTarget) {
+            await deps.dns.upsertDefaultDeploymentRecord(deployment.id, working.routingTarget);
+          }
         } catch (error) {
           // A DNS failure only touches default-HTTPS state: no AWS job is
           // enqueued and no infrastructure is recreated — the next driver
@@ -682,7 +720,7 @@ export async function runDefaultHttpsCheck(
             lastError: rateLimited ? 'CLOUDFLARE_RATE_LIMITED' : 'DNS_WRITE_FAILED',
             lastDnsCheckAt: attemptedAt,
           };
-          const next = rateLimited ? failed : countAttempt(failed, now());
+          const next = rateLimited ? failed : countConfigureAttempt(failed);
           if (!rateLimited && configureBudgetExhausted(next, now())) {
             next.status = 'ERROR';
             next.lastError = 'DEFAULT_DNS_TIMEOUT';
@@ -692,11 +730,14 @@ export async function runDefaultHttpsCheck(
         }
         working = { ...working, lastError: null, lastDnsCheckAt: attemptedAt };
         await persistState(db, deployment.id, working);
-        // DNS is in place — nudge the relay to re-describe the cert and wire
-        // the 443 listener once ACM issues it.
-        const created = await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
+        // DNS is in place — nudge the relay to re-describe the cert, learn
+        // the load balancer and wire the 443 listener once ACM issues it.
+        const created = await ensureDefaultHttpsConfigureJob(db, deployment, working, {
+          forceNewCycle: true,
+          deferListener: installing,
+        });
         if (created) {
-          await persistState(db, deployment.id, countAttempt(working, now()));
+          await persistState(db, deployment.id, countConfigureAttempt(working));
         }
         return;
       }
