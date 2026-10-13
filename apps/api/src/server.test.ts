@@ -7000,6 +7000,25 @@ describe('server — P0 hardening', () => {
       });
     });
 
+    it('reports the default-HTTPS status apart from a custom domain error', async () => {
+      const deployment = await deploymentWithAlb({
+        defaultHttps: { hostname: 'd-p0-split.deployz.dev', status: 'ACTIVE', checkCycle: 1, lastError: null },
+      });
+      await db.insert(schema.customDomains).values({
+        deploymentId: deployment.id,
+        organizationId: org.organizationId,
+        hostname: 'broken.acme.example',
+        status: 'ERROR',
+      });
+      expect((await endpoint(deployment.id)).endpoint).toMatchObject({ httpsState: 'READY', defaultHttpsStatus: 'ACTIVE' });
+
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: { hostname: 'd-p0-split.deployz.dev', status: 'CONFIGURING', checkCycle: 1, lastError: null } })
+        .where(eq(schema.deployments.id, deployment.id));
+      expect((await endpoint(deployment.id)).endpoint).toMatchObject({ defaultHttpsStatus: 'CONFIGURING' });
+    });
+
     it('an ACTIVE custom domain makes the endpoint ready while the default machine is still pending', async () => {
       const deployment = await deploymentWithAlb({
         defaultHttps: { hostname: 'd-p0-custom.deployz.dev', status: 'PENDING', checkCycle: 0, lastError: null },

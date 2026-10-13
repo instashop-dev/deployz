@@ -261,6 +261,8 @@ export interface InfrastructureComponentSummary {
   readonly resources: readonly InfrastructureTechnicalResource[];
   /** Present on the `endpoint` component once the API overlaid the HTTPS truth. */
   readonly httpsState?: InfrastructureHttpsState;
+  /** The Deployz-owned HTTPS machine's own status, apart from a custom domain's. */
+  readonly defaultHttpsStatus?: string;
 }
 
 export interface AggregateInfrastructureOptions {
@@ -471,6 +473,7 @@ export const infrastructureComponentSummarySchema = z
     lifecycle: infrastructureLifecycleSchema,
     resources: z.array(infrastructureResourceSchema),
     httpsState: infrastructureHttpsStateSchema.optional(),
+    defaultHttpsStatus: z.string().optional(),
   })
   .strict();
 

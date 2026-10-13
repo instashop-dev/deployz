@@ -7104,7 +7104,12 @@ export async function buildServer({
           return component;
         }
         const httpsState = endpointHttpsState(domain, defaultHttps);
-        return { ...component, status: endpointStatusForHttpsState(httpsState), httpsState };
+        return {
+          ...component,
+          status: endpointStatusForHttpsState(httpsState),
+          httpsState,
+          ...(defaultHttps ? { defaultHttpsStatus: defaultHttps.status } : {}),
+        };
       });
       const rollup = summarizeInfrastructureStatus(components);
 

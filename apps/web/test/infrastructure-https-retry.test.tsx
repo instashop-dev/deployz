@@ -21,6 +21,7 @@ function render(customDomainFailed: boolean): string {
     lifecycle: 'delete',
     resources: [],
     httpsState: 'FAILED',
+    defaultHttpsStatus: 'ERROR',
   };
   return renderToString(
     <InfrastructureSection

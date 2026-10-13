@@ -140,7 +140,7 @@ function ComponentRow({
   // Retrying the default HTTPS setup cannot repair that, so the action is
   // offered only when the failure is not the custom domain's.
   const needsHttpsRetry =
-    component.kind === 'endpoint' && component.httpsState === 'FAILED' && !customDomainFailed;
+    component.kind === 'endpoint' && component.defaultHttpsStatus === 'ERROR' && !customDomainFailed;
 
   async function onRetryHttps(): Promise<void> {
     setPending(true);
