@@ -109,6 +109,7 @@ import {
   createPendingStore,
   memoryPendingStore,
   pendingParameterName,
+  reportSettled,
   settledResultOf,
   settleMarker,
   type PendingStore,
@@ -1220,7 +1221,7 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
         ...settled.output,
         ...(recoveryReport ? { recovery: recoveryReport } : {}),
       };
-      return settled.success
+      const result: RelayCommandResult = settled.success
         ? {
             commandId: command.id,
             idempotencyKey: command.idempotencyKey,
@@ -1236,6 +1237,12 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
             ...(settled.evidence ? { evidence: settled.evidence } : {}),
             output,
           };
+      // Settle before reporting: a lost report is repeated from the marker.
+      return reportSettled(
+        deps.pending,
+        { commandId: command.id, idempotencyKey: command.idempotencyKey, type: command.type, stackName, startedAt },
+        result,
+      );
     }
 
     // The stack outlived this invocation. Record what we owe an answer to

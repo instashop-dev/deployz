@@ -1722,7 +1722,7 @@ describe('settleInstall executes exactly the templateUrl the payload carries', (
     const result = await createInstallExecutor(makeInstallDeps({ install, pending }))(command);
 
     expect(install).not.toHaveBeenCalled();
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({ phase: 'settled' });
     expect(result.success).toBe(false);
     expect(result.deferred).toBeUndefined();
     expect(result.error).toMatch(/manifest missing/i);
@@ -1789,7 +1789,7 @@ describe('settleInstall executes exactly the templateUrl the payload carries', (
     });
 
     expect(install).not.toHaveBeenCalled();
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({ phase: 'settled' });
     expect(result.success).toBe(false);
     expect(result.deferred).toBeUndefined();
     expect(result.error).toMatch(/invalid deployment manifest/i);
@@ -2824,6 +2824,49 @@ describe('INSTALL settled markers — bounded and honest about an unreadable sto
     const again = await createInstallResumer(makeDeps({ pending, install }))();
     expect(install).not.toHaveBeenCalled();
     expect(again[0]).toMatchObject({ commandId: 'cmd-1', success: false, failureCode: 'STACK_CREATE_FAILED' });
+  });
+
+  it.each([
+    ['success', async () => ({ state: 'succeeded' as const, status: 'CREATE_COMPLETE', outputs: {} }), true],
+    [
+      'failure',
+      async () => ({ state: 'failed' as const, status: 'CREATE_FAILED', reason: 'boom', outputs: {} }),
+      false,
+    ],
+  ])('settles an immediate %s before returning it, so a lost report is repeated without provisioning', async (_n, outcome, success) => {
+    const pending = memoryPendingStore();
+    const install = vi.fn(outcome);
+    const command = {
+      id: 'cmd-1',
+      deploymentId: 'dep-1',
+      type: 'INSTALL' as const,
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: pendingRecord.payload,
+    };
+
+    const first = await createInstallExecutor(makeDeps({ pending, install }))(command);
+    expect(first.success).toBe(success);
+    expect(await pending.read()).toMatchObject({ commandId: 'cmd-1', phase: 'settled', result: { success } });
+
+    const again = await createInstallResumer(makeDeps({ pending, install }))();
+    expect(again).toHaveLength(1);
+    expect(again[0]).toMatchObject({ commandId: 'cmd-1', success });
+    expect(await createInstallExecutor(makeDeps({ pending, install }))(command)).toMatchObject({ success });
+    expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not settle a deferred install', async () => {
+    const pending = memoryPendingStore();
+    await createInstallExecutor(
+      makeDeps({ pending, install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }) }),
+    )({
+      id: 'cmd-1',
+      deploymentId: 'dep-1',
+      type: 'INSTALL' as const,
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: pendingRecord.payload,
+    });
+    expect((await pending.read())?.phase).toBeUndefined();
   });
 
   it('keeps no install payload in the settled marker', async () => {

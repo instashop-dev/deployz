@@ -5,7 +5,7 @@ import type { ScheduledEvent } from 'aws-lambda';
 import type { FetchFn, SecretsClient } from './auth.js';
 import type { RelayCommandResult } from './commands.js';
 import type { EcsDeployClient, EcsDeployDeps } from './deploy.js';
-import { createRelayHandler } from './index.js';
+import { createInstallExecutor, createInstallResumer, createRelayHandler, type InstallExecutorDeps } from './index.js';
 import { createPendingStore } from './pending.js';
 import { createRestartExecutor, createRestartResumer } from './restart.js';
 import type { CloudFormationReader } from './verify.js';
@@ -249,5 +249,51 @@ describe('a result report that is lost', () => {
 
     expect(accepted.posted).toEqual([{ commandId: 'job-restart', success: true }]);
     expect(JSON.parse(ssm.value!)).toMatchObject({ commandId: 'job-newer' });
+  });
+});
+
+describe('an immediate INSTALL result whose report is lost', () => {
+  const install = {
+    id: 'job-install',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: { redisRequired: false, databaseRequired: true, templateUrl: 'https://example.com/t.json' },
+  };
+
+  it.each([
+    ['success', { state: 'succeeded' as const, status: 'CREATE_COMPLETE', outputs: {} }, true],
+    ['failure', { state: 'failed' as const, status: 'CREATE_FAILED', reason: 'boom', outputs: {} }, false],
+  ])('is re-reported from the settled marker after a 503: %s', async (_name, outcome, success) => {
+    const world = awsWorld();
+    const createStack = vi.fn(async () => outcome);
+    const installDeps: InstallExecutorDeps = {
+      installationId: 'inst-dur',
+      install: createStack,
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: world.deps.pending,
+    };
+    const run = (fetchFn: FetchFn) =>
+      createRelayHandler({
+        secretsClient: secretsClient(),
+        fetchFn,
+        sleep: async () => {},
+        executors: { INSTALL: createInstallExecutor(installDeps) },
+        resume: createInstallResumer(installDeps),
+        observe: stubObserve,
+        observeImage: stubObserveImage,
+        observeHealth: stubObserveHealth,
+      })({ time: new Date().toISOString() } as ScheduledEvent);
+
+    const lost = controlPlane([install], Array(8).fill(503));
+    await run(lost.fetchFn);
+    expect(lost.posted).toEqual([]);
+    expect(JSON.parse(ssm.value!)).toMatchObject({ commandId: 'job-install', phase: 'settled', result: { success } });
+
+    const retry = controlPlane([], []);
+    await run(retry.fetchFn);
+    expect(retry.posted).toEqual([{ commandId: 'job-install', success }]);
+    expect(ssm.value).toBeUndefined();
+    expect(createStack).toHaveBeenCalledTimes(1);
   });
 });
