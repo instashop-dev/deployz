@@ -263,10 +263,23 @@ describe('default-https service', () => {
       expect(configure[0]!.payload).toMatchObject({ deferListener: true });
     });
 
+    function makeInstallClock() {
+      let current = Date.now();
+      return {
+        now: () => current,
+        advance: (ms: number) => {
+          current += ms;
+        },
+      };
+    }
+
+    const MINUTE = 60_000;
+
     it('writes the validation CNAME at once, the routing CNAME only once the load balancer is known, and spends no budget', async () => {
       const deployment = await installing();
       const dns = new FakeDnsClient();
-      await runDefaultHttpsCheck(db, deployment, deps({ dns }));
+      const clock = makeInstallClock();
+      await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
       const validationName = `_x1.${defaultHttpsHostname(deployment.id, apex)}`;
       await settleNewestConfigureJob(deployment.id, {
         certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
@@ -276,8 +289,9 @@ describe('default-https service', () => {
       expect((await stateOf(deployment.id))?.status).toBe('WAITING_FOR_DNS');
 
       // Several heartbeats while the stack is still being created.
-      for (let pass = 0; pass < MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES + 2; pass += 1) {
-        await runDefaultHttpsCheck(db, deployment, deps({ dns }));
+      for (let pass = 0; pass < 5; pass += 1) {
+        clock.advance(2 * DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS);
+        await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
         await settleNewestConfigureJob(deployment.id, {
           certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
           certificateStatus: 'PENDING_VALIDATION',
@@ -291,7 +305,8 @@ describe('default-https service', () => {
 
       // The load balancer appears: the routing CNAME follows on the next pass.
       await settleNewestConfigureJob(deployment.id, { routingTarget: 'alb.us-east-1.elb.amazonaws.com' });
-      await runDefaultHttpsCheck(db, deployment, deps({ dns }));
+      clock.advance(2 * DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS);
+      await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
       expect(dns.upserts.at(-1)).toEqual({
         name: defaultHttpsHostname(deployment.id, apex),
         value: 'alb.us-east-1.elb.amazonaws.com',
@@ -319,6 +334,74 @@ describe('default-https service', () => {
       expect(latest.payload).not.toHaveProperty('deferListener');
       expect(latest.payload).toMatchObject({ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early' });
       expect((await stateOf(deployment.id))?.configureAttempts).toBe(1);
+    });
+
+    async function settleInstall(deployment: Awaited<ReturnType<typeof installing>>) {
+      await db
+        .update(schema.deployments)
+        .set({ state: 'HEALTHY' })
+        .where(eq(schema.deployments.id, deployment.id));
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+      return { ...deployment, state: 'HEALTHY' as const };
+    }
+
+    async function waitForInstall(deployment: Awaited<ReturnType<typeof installing>>, clock: ReturnType<typeof makeInstallClock>, dns: CloudflareDnsClient) {
+      await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
+      await settleNewestConfigureJob(deployment.id, {
+        certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
+        validationName: `_x1.${defaultHttpsHostname(deployment.id, apex)}`,
+        validationValue: '_y1.acm-validations.aws.',
+      });
+      for (let elapsed = 0; elapsed < 40 * MINUTE; elapsed += 2 * MINUTE) {
+        clock.advance(2 * MINUTE);
+        await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
+      }
+    }
+
+    it('an install lasting 40 minutes does not use up the budget, and a certificate issued meanwhile still reaches ACTIVE', async () => {
+      const deployment = await installing();
+      const dns = new FakeDnsClient();
+      const clock = makeInstallClock();
+      await waitForInstall(deployment, clock, dns);
+      expect(await stateOf(deployment.id)).toMatchObject({ status: 'WAITING_FOR_DNS', configureAttempts: 0 });
+
+      const installed = await settleInstall(deployment);
+      await settleNewestConfigureJob(deployment.id, { routingTarget: 'alb.us-east-1.elb.amazonaws.com' });
+      clock.advance(2 * MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      const started = await stateOf(deployment.id);
+      expect(started?.status).toBe('WAITING_FOR_DNS');
+      expect(started?.configureStartedAt).toBe(new Date(clock.now()).toISOString());
+
+      await settleNewestConfigureJob(deployment.id, {
+        certificateStatus: 'ISSUED',
+        httpsConfigured: true,
+      });
+      expect((await stateOf(deployment.id))?.status).toBe('CONFIGURING');
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      expect((await stateOf(deployment.id))?.status).toBe('ACTIVE');
+    });
+
+    it('times out only after the budget has elapsed since the install settled', async () => {
+      const deployment = await installing();
+      const dns = new FakeDnsClient();
+      const clock = makeInstallClock();
+      await waitForInstall(deployment, clock, dns);
+      const installed = await settleInstall(deployment);
+      dns.failUpserts = true;
+
+      clock.advance(MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      clock.advance(DEFAULT_HTTPS_CONFIGURE_BUDGET_MS - MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      expect((await stateOf(deployment.id))?.status).toBe('WAITING_FOR_DNS');
+
+      clock.advance(MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      expect(await stateOf(deployment.id)).toMatchObject({ status: 'ERROR', lastError: 'DEFAULT_DNS_TIMEOUT' });
     });
   });
 
