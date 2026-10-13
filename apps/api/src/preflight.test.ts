@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 
-import type { ReadinessReport } from '@deployz/analysis';
+import { reconcileReadiness, type ReadinessReport } from '@deployz/analysis';
 import type { DeploymentManifest } from '@deployz/contracts';
 
 import type { EnvironmentSetting } from '@deployz/contracts';
@@ -147,6 +147,18 @@ describe('evaluatePreflight', () => {
       status: 'warning',
       label: 'Your app only listens on localhost',
     });
+  });
+
+  it('shows no health warning once the vendor has set the health path', () => {
+    const run = (healthPathDecided: boolean) =>
+      evaluatePreflight({
+        manifest: manifest(),
+        providedEnvKeys: ['STRIPE_SECRET_KEY'],
+        readiness: reconcileReadiness(readiness([healthFinding]), { containerPort: 3000, startCommand: null, healthPathDecided }),
+      });
+    expect(run(true).warnings.map((finding) => finding.id)).not.toContain('health-check');
+    expect(run(true).checks.find((check) => check.id === 'health')).toMatchObject({ status: 'passed', detail: 'Health check at /health' });
+    expect(run(false).warnings.map((finding) => finding.id)).toContain('health-check');
   });
 
   it('treats a pre-classification manifest on the old rule: every required key is the customer\'s', () => {

@@ -159,23 +159,27 @@ describe('fix-instructions — buildFixInstructionsContext', () => {
     expect(context!.facts.migrationCommand).toBeNull();
   });
 
-  it('database names the provisioned engine: PostgreSQL first, then MySQL', () => {
-    const withDb = source({ detectedMetadata: { readiness: report(), usesPostgresql: true, usesMysql: true } });
-    expect(buildFixInstructionsContext(withDb)!.facts.database).toBe('postgres');
+  it('database names the required engine, the same rule as the manifest', () => {
+    const postgres = source({ detectedMetadata: { readiness: report(), usesPostgresql: true, postgres: { required: true } } });
+    expect(buildFixInstructionsContext(postgres)!.facts.database).toBe('postgres');
 
-    const mysql = source({ detectedMetadata: { readiness: report(), usesPostgresql: false, usesMysql: true } });
-    expect(buildFixInstructionsContext(mysql)!.facts.database).toBe('mysql');
+    const mysqlWithOptionalPg = source({
+      detectedMetadata: { readiness: report(), usesPostgresql: true, usesMysql: true, postgres: { required: false }, mysql: { required: true } },
+    });
+    expect(buildFixInstructionsContext(mysqlWithOptionalPg)!.facts.database).toBe('mysql');
 
-    const withoutDb = source({ detectedMetadata: { readiness: report(), usesPostgresql: false } });
-    expect(buildFixInstructionsContext(withoutDb)!.facts.database).toBe('none');
+    const driverOnly = source({
+      detectedMetadata: { readiness: report(), usesPostgresql: true, postgres: { required: false } },
+    });
+    expect(buildFixInstructionsContext(driverOnly)!.facts.database).toBe('none');
 
     const unset = source({ detectedMetadata: { readiness: report() } });
     expect(buildFixInstructionsContext(unset)!.facts.database).toBe('none');
   });
 
   it('marks the health path as vendor-set only when the vendor owns it', () => {
-    const detected = source({ healthPath: '/healthz', detectedMetadata: { readiness: report(), vendorOverrides: [] } });
-    const owned = source({ healthPath: '/healthz', detectedMetadata: { readiness: report(), vendorOverrides: ['healthPath'] } });
+    const detected = source({ healthPath: '/healthz', detectedMetadata: { readiness: report({ findings: [finding(), finding({ id: 'localhost-binding' })] }), vendorOverrides: [] } });
+    const owned = source({ healthPath: '/healthz', detectedMetadata: { readiness: report({ findings: [finding(), finding({ id: 'localhost-binding' })] }), vendorOverrides: ['healthPath'] } });
     expect(buildFixInstructionsContext(detected)!.facts.healthPathSetByVendor).toBe(false);
     expect(buildFixInstructionsContext(owned)!.facts.healthPathSetByVendor).toBe(true);
   });
@@ -310,20 +314,43 @@ describe('effectiveReadinessReport — vendor configuration resolves findings', 
   it('reads the container port column, the manifest-only start command and the migration choice as the resolution', () => {
     expect(
       readinessResolution({ containerPort: 8080, detectedMetadata: { manifestOverrides: { startCommand: 'node x.js' } } }),
-    ).toEqual({ containerPort: 8080, startCommand: 'node x.js', migrationCommandDecided: false });
+    ).toEqual({ containerPort: 8080, startCommand: 'node x.js', migrationCommandDecided: false, healthPathDecided: false, dockerfilePathDecided: false });
     expect(readinessResolution({ containerPort: null, detectedMetadata: { manifestOverrides: { startCommand: '' } } })).toEqual({
       containerPort: null,
       startCommand: null,
       migrationCommandDecided: false,
+      healthPathDecided: false,
+      dockerfilePathDecided: false,
     });
     expect(readinessResolution({ containerPort: null, detectedMetadata: null })).toEqual({
       containerPort: null,
       startCommand: null,
       migrationCommandDecided: false,
+      healthPathDecided: false,
+      dockerfilePathDecided: false,
     });
     expect(
       readinessResolution({ containerPort: null, detectedMetadata: { vendorOverrides: ['migrationCommand'] } }).migrationCommandDecided,
     ).toBe(true);
+  });
+
+  it('reads the vendor health path and Dockerfile path as decisions', () => {
+    expect(readinessResolution({ containerPort: null, detectedMetadata: { vendorOverrides: ['healthPath'] } }).healthPathDecided).toBe(true);
+    expect(readinessResolution({ containerPort: null, detectedMetadata: { vendorOverrides: ['containerPort'] } }).healthPathDecided).toBe(false);
+    expect(
+      readinessResolution({ containerPort: null, detectedMetadata: { manifestOverrides: { dockerfilePath: 'apps/api/Dockerfile' } } })
+        .dockerfilePathDecided,
+    ).toBe(true);
+    expect(readinessResolution({ containerPort: null, detectedMetadata: { manifestOverrides: {} } }).dockerfilePathDecided).toBe(false);
+  });
+
+  it('clears the health-check finding only when the vendor set the health path', () => {
+    const health = report({ findings: [finding()] });
+    const withOverride = effectiveReadinessReport({ containerPort: null, detectedMetadata: { readiness: health, vendorOverrides: ['healthPath'] } });
+    expect(withOverride?.findings).toEqual([]);
+    expect(withOverride?.passed.map((check) => check.id)).toContain('health-check');
+    const without = effectiveReadinessReport({ containerPort: null, detectedMetadata: { readiness: health } });
+    expect(without?.findings.map((f) => f.id)).toEqual(['health-check']);
   });
 
   it('applies the resolution to the stored report without changing it', () => {

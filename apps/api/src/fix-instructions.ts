@@ -37,7 +37,8 @@ export function readReadinessReport(
 /**
  * The vendor configuration that can resolve a finding without a repository
  * change: the container port column, the manifest-only start command, and
- * the vendor's own migration choice (a command, or no separate migration).
+ * the vendor's own migration choice (a command, or no separate migration),
+ * the health path, and the manifest-only Dockerfile path.
  */
 export function readinessResolution(application: {
   containerPort: number | null;
@@ -50,6 +51,8 @@ export function readinessResolution(application: {
     containerPort: application.containerPort,
     startCommand: typeof startCommand === 'string' && startCommand.length > 0 ? startCommand : null,
     migrationCommandDecided: Array.isArray(vendorOverrides) && vendorOverrides.includes('migrationCommand'),
+    healthPathDecided: Array.isArray(vendorOverrides) && vendorOverrides.includes('healthPath'),
+    dockerfilePathDecided: typeof overrides?.['dockerfilePath'] === 'string' && overrides['dockerfilePath'].length > 0,
   };
 }
 
@@ -133,6 +136,8 @@ export function buildFixInstructionsContext(
   if (!report || report.findings.length === 0) return null;
 
   const redis = metadata?.['redis'] as { required?: unknown } | undefined;
+  const postgres = metadata?.['postgres'] as { required?: unknown } | undefined;
+  const mysql = metadata?.['mysql'] as { required?: unknown } | undefined;
   const workers = metadata?.['resolvedWorkerCommands'];
   const vendorOverrides = metadata?.['vendorOverrides'];
   const migrationDecided = Array.isArray(vendorOverrides) && vendorOverrides.includes('migrationCommand');
@@ -151,8 +156,7 @@ export function buildFixInstructionsContext(
           ? String(application.containerPort)
           : asString(metadata?.['port']),
       dockerfilePath: asString(metadata?.['dockerfilePath']),
-      database:
-        metadata?.['usesPostgresql'] === true ? 'postgres' : metadata?.['usesMysql'] === true ? 'mysql' : 'none',
+      database: postgres?.required === true ? 'postgres' : mysql?.required === true ? 'mysql' : 'none',
       migrationCommand: application.migrationCommand,
       suggestedMigrationCommand:
         application.migrationCommand === null && !migrationDecided

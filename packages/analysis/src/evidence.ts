@@ -256,7 +256,7 @@ export function deriveAmbiguities(tree: FileTree, analysis: AnalysisResult): Ana
   }
 
   // ── ARCHITECTURE_REQUIREMENT: worker gate borderline (code, no command). ──
-  if (meta['hasWorkerProcesses'] === true) {
+  if (meta['hasWorkerProcesses'] === true && meta['workerNeedsProcess'] !== false) {
     const patterns = asStringArray(meta, 'workerPatterns');
     const declaredCommands = asRecordArray(meta, 'resolvedWorkerCommands').length;
     const legacyCommand = asString(meta, 'resolvedWorkerCommand');

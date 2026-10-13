@@ -87,9 +87,10 @@ const workerWithCommandTree: FileTree = {
   }),
 };
 
-/** Worker-like code with NO resolved start command. */
+/** Worker-like code (a Celery dependency beside bullmq) with NO resolved start command. */
 const workerWithoutCommandTree: FileTree = {
   ...readyTree,
+  'requirements.txt': 'celery==5.3.6\n',
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
