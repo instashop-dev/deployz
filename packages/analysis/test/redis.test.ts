@@ -263,4 +263,34 @@ describe('resolveRedisEnvBindings', () => {
   it('dedupes repeated names', () => {
     expect(resolveRedisEnvBindings(['REDIS_URL', 'REDIS_URL'])).toEqual([{ name: 'REDIS_URL', kind: 'url' }]);
   });
+
+  it('binds a prefixed name with no suffix as a URL', () => {
+    expect(resolveRedisEnvBindings(['PAPERLESS_REDIS'])).toEqual([{ name: 'PAPERLESS_REDIS', kind: 'url' }]);
+  });
+
+  it('does not bind switch names or a bare REDIS', () => {
+    const defaults = resolveRedisEnvBindings([]);
+    for (const name of ['USE_REDIS', 'ENABLE_REDIS', 'APP_USE_REDIS', 'DISABLE_REDIS', 'REDIS', 'REDIS_ENABLED']) {
+      expect(resolveRedisEnvBindings([name]), name).toEqual(defaults);
+    }
+  });
+});
+
+describe('assessRedis: a prefixed name with no suffix', () => {
+  const pythonApp = (read: string): FileTree => ({
+    'pyproject.toml': '[project]\ndependencies = ["celery[redis]>=5"]\n',
+    'src/app/settings.py': `import os\n${read}\n`,
+  });
+
+  it('reports PAPERLESS_REDIS as a connection variable when the app reads it', () => {
+    const result = assessRedis(pythonApp('REDIS_URL_VALUE = parse_redis_url(os.getenv("PAPERLESS_REDIS", None))'));
+    expect(result.required).toBe(true);
+    expect(result.connectionEnvVars).toContain('PAPERLESS_REDIS');
+    expect(resolveRedisEnvBindings(result.connectionEnvVars)).toContainEqual({ name: 'PAPERLESS_REDIS', kind: 'url' });
+  });
+
+  it.each(['USE_REDIS', 'ENABLE_REDIS', 'REDIS_ENABLED'])('does not report %s as a connection variable', (name) => {
+    const result = assessRedis(pythonApp(`FLAG = os.getenv("${name}", "false")`));
+    expect(result.connectionEnvVars).not.toContain(name);
+  });
 });
