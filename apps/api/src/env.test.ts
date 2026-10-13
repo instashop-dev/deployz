@@ -523,16 +523,12 @@ describe('the deploy republishes bootstrap artifacts to every deployable region'
   // The API must only learn a build id whose versioned template gets
   // published in the same run, or the connector update link would be dead.
   it('computes the connector build id only when the republish is on, before the stack deploys', () => {
-    const steps = workflow.slice(workflow.indexOf('
-    steps:
-'));
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
     const start = steps.indexOf('- name: Compute the connector build id');
     expect(start, 'could not locate the build id step').toBeGreaterThan(-1);
-    const step = steps.slice(start, steps.indexOf('
-      - name:', start + 1));
+    const step = steps.slice(start, steps.indexOf('\n      - name:', start + 1));
 
-    expect(step).toMatch(/if:[^
-]*vars\.BOOTSTRAP_REPUBLISH == 'on'/);
+    expect(step).toMatch(/if:[^\n]*vars\.BOOTSTRAP_REPUBLISH == 'on'/);
     expect(step).toContain('BOOTSTRAP_BUILD_ID');
     expect(step).toContain('GITHUB_ENV');
     expect(start).toBeLessThan(steps.indexOf('- name: Deploy the control-plane stack'));
