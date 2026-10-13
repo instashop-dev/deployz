@@ -104,6 +104,10 @@ const ENI_PIN_REASON = /\bnetwork interface\b|\beni-[0-9a-f]{8,}\b/i;
  * (packages/relay/src/destroy.ts) retains exactly these, the delete then
  * completes, and the vendor's next step is Purge — not a retry loop.
  *
+ * Every failed resource must be retained-data evidence: one unrelated
+ * DELETE_FAILED (an ECS cluster, a log group) makes this false, so the
+ * destroy stays a genuine failure.
+ *
  * Evidence-only, per §61's server-side rule: classified from the persisted
  * stack events, never from the relay's coarse code. Returns false for
  * everything else — a permission failure on a security group, a delete
@@ -115,15 +119,17 @@ const ENI_PIN_REASON = /\bnetwork interface\b|\beni-[0-9a-f]{8,}\b/i;
  * predicate to soften the remediation copy until that code lands.
  */
 export function isRetainedDataDeleteBlocked(stackEvents: readonly FailureStackEvent[]): boolean {
-  return stackEvents.some((event) => {
-    if (event.resourceStatus !== 'DELETE_FAILED' || event.resourceType === 'AWS::CloudFormation::Stack') {
-      return false;
-    }
-    const reason = event.resourceStatusReason ?? '';
-    if (PERMISSION_DENIED_REASON.test(reason)) return false;
-    if (event.resourceType.startsWith('AWS::RDS::')) return true;
-    return ENI_PIN_REASON.test(reason);
-  });
+  const failed = stackEvents.filter(
+    (event) => event.resourceStatus === 'DELETE_FAILED' && event.resourceType !== 'AWS::CloudFormation::Stack',
+  );
+  return (
+    failed.length > 0 &&
+    failed.every((event) => {
+      const reason = event.resourceStatusReason ?? '';
+      if (PERMISSION_DENIED_REASON.test(reason)) return false;
+      return event.resourceType.startsWith('AWS::RDS::') || ENI_PIN_REASON.test(reason);
+    })
+  );
 }
 
 /**
