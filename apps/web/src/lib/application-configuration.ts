@@ -410,6 +410,7 @@ const REQUIRED_CHANGE_LABELS: Record<string, string> = {
   'local-file-storage': 'Store files in object storage, not on the local disk',
   'build-context-git-metadata': 'Stop copying .git into the container build',
   'migration-command-needs-input': 'Choose how database migrations run',
+  'dockerfile-target-unresolved': 'Confirm which Dockerfile Deployz builds',
 };
 
 /** A plain-language label for a finding. Unknown findings keep their own title. */
@@ -417,10 +418,9 @@ export function requiredChangeLabel(finding: Pick<ReadinessFinding, 'id' | 'titl
   return REQUIRED_CHANGE_LABELS[finding.id] ?? finding.title;
 }
 
-/** Only `port-unresolved` and `migration-command-needs-input` clear when a
- *  setting is saved (the API's RESOLVABLE_FINDINGS). Every other finding needs
- *  a repository change and a new analysis — a health path or start-command
- *  edit alone does not clear it. */
+/** Only the findings in the API's RESOLVABLE_FINDINGS clear when a setting is
+ *  saved. Every other finding needs a repository change and a new analysis.
+ *  Only the port and migration findings have an editor on this tab. */
 export function requiredChangeFix(finding: Pick<ReadinessFinding, 'id'>): RequiredChangeFix {
   if (finding.id === 'port-unresolved') return { kind: 'edit', field: 'containerPort' };
   if (finding.id === 'migration-command-needs-input') return { kind: 'edit', field: 'migrationCommand' };

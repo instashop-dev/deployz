@@ -86,9 +86,10 @@ const s3WithBucketFixture: FileTree = {
   '.env.example': 'PORT=3000\nDATABASE_URL=postgresql://localhost:5432/mydb\nAWS_S3_BUCKET=my-bucket\n',
 };
 
-/** Express + a worker library (bull) with no declared worker command. */
+/** Express + bull + a Celery dependency with no declared worker command. */
 const workerNoCommandFixture: FileTree = {
   ...expressFixture,
+  'requirements.txt': 'celery==5.3.6\n',
   'package.json': JSON.stringify({
     name: 'my-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
