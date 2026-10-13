@@ -195,7 +195,10 @@ deliberately retained for Purge, not left behind by a fault. Purge then
 removes the database, its secrets (every owned application secret,
 regardless of when the stack was created), the bucket, the ACM
 certificates, the subnet group and the network orphans, one kind per relay
-poll (about 95 minutes for a full purge).
+poll (about 95 minutes for a full purge). Only the database and the
+network it pins (DB subnet group, security group, subnets, VPC) are
+retained this way; any other `DELETE_FAILED` resource (for example an ECS
+cluster or a log group) fails the Disconnect with its resource id and reason.
 
 **After Purge the connector stack is still there and still polling.**
 Expected: the relay cannot delete its own stack. The vendor page and the

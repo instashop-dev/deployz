@@ -30,6 +30,8 @@ import {
   DescribeTasksCommand,
   ECSClient,
   ListTasksCommand,
+  DeregisterTaskDefinitionCommand,
+  ListTaskDefinitionsCommand,
   RegisterTaskDefinitionCommand,
   RunTaskCommand,
   StopTaskCommand,
@@ -418,6 +420,29 @@ function getEcsDeployClient(): EcsDeployClient {
         const arn = response.taskDefinition?.taskDefinitionArn;
         if (!arn) throw new Error('RegisterTaskDefinition returned no task definition ARN');
         return { taskDefinitionArn: arn };
+      },
+      async listTaskDefinitions(input) {
+        // Newest first, bounded to a few pages: older revisions are reached
+        // on later invocations as newer ones are deregistered.
+        const taskDefinitionArns: string[] = [];
+        let nextToken: string | undefined;
+        for (let page = 0; page < 3; page++) {
+          const response = await client.send(
+            new ListTaskDefinitionsCommand({
+              familyPrefix: input.familyPrefix,
+              status: input.status,
+              sort: 'DESC',
+              ...(nextToken !== undefined ? { nextToken } : {}),
+            }),
+          );
+          taskDefinitionArns.push(...(response.taskDefinitionArns ?? []));
+          nextToken = response.nextToken;
+          if (nextToken === undefined) break;
+        }
+        return { taskDefinitionArns };
+      },
+      async deregisterTaskDefinition(input) {
+        await client.send(new DeregisterTaskDefinitionCommand({ taskDefinition: input.taskDefinition }));
       },
       async updateService(input) {
         await client.send(

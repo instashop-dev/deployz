@@ -389,6 +389,20 @@ describe('isRetainedDataDeleteBlocked', () => {
     ).toBe(false);
   });
 
+  it('one unrelated DELETE_FAILED alongside retained-data evidence makes the destroy a genuine failure', () => {
+    expect(
+      isRetainedDataDeleteBlocked([
+        dbDeletionProtected,
+        sgPinnedByEni,
+        {
+          resourceType: 'AWS::ECS::Cluster',
+          resourceStatus: 'DELETE_FAILED',
+          resourceStatusReason: 'The Cluster cannot be deleted while Container Instances are active',
+        },
+      ]),
+    ).toBe(false);
+  });
+
   it('a stack-level DELETE_FAILED alone is unattributable, not retained data', () => {
     expect(
       isRetainedDataDeleteBlocked([

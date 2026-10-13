@@ -25,7 +25,7 @@ import {
   type WaitOptions,
 } from './recover.js';
 import type { StackEventCollector } from './stack-events.js';
-import type { CloudFormationReader } from './verify.js';
+import type { CloudFormationReader, StackResource } from './verify.js';
 
 /** The CloudFormation delete surface this module needs. */
 export interface StackDeleter {
@@ -100,6 +100,42 @@ export interface DestroyDeps {
 }
 
 const ECS_CLUSTER_TYPE = 'AWS::ECS::Cluster';
+const RDS_INSTANCE_TYPE = 'AWS::RDS::DBInstance';
+
+/** The network resources the retained database's ENI pins. */
+const DATABASE_PINNED_TYPES: ReadonlySet<string> = new Set([
+  'AWS::RDS::DBSubnetGroup',
+  'AWS::EC2::SecurityGroup',
+  'AWS::EC2::Subnet',
+  'AWS::EC2::VPC',
+]);
+
+/**
+ * Splits the DELETE_FAILED resources into the ones the data-preserving
+ * recovery may retain (the retained database and the network it pins) and
+ * the ones that are a genuine deletion failure. Network types are retainable
+ * only while the database itself is blocked or already retained in this
+ * stack; with no database, they are a real failure.
+ */
+function partitionDeleteFailed(resources: readonly StackResource[]): {
+  retainable: string[];
+  unrelated: StackResource[];
+} {
+  const databaseBlocked = resources.some(
+    (r) =>
+      r.type === RDS_INSTANCE_TYPE && (r.status === 'DELETE_FAILED' || r.status === 'DELETE_SKIPPED'),
+  );
+  const retainable: string[] = [];
+  const unrelated: StackResource[] = [];
+  for (const resource of resources.filter((r) => r.status === 'DELETE_FAILED')) {
+    if (resource.type === RDS_INSTANCE_TYPE || (databaseBlocked && DATABASE_PINNED_TYPES.has(resource.type))) {
+      retainable.push(resource.logicalId);
+    } else {
+      unrelated.push(resource);
+    }
+  }
+  return { retainable, unrelated };
+}
 
 /**
  * Best-effort: stops every standalone (group `family:…`, no service) task
@@ -180,9 +216,20 @@ export async function settleDestroy(
     // RDS/ElastiCache blockers deleted outright (same recovery the INSTALL
     // retry path runs).
     if (dataDeletionAuthorized !== true) {
-      const blocked = (await deps.cfn.describeStackResources(deps.stackName))
-        .filter((resource) => resource.status === 'DELETE_FAILED')
-        .map((resource) => resource.logicalId);
+      const { retainable: blocked, unrelated } = partitionDeleteFailed(
+        await deps.cfn.describeStackResources(deps.stackName),
+      );
+      if (unrelated.length > 0) {
+        const details = unrelated
+          .map((r) => `${r.logicalId} (${r.type})${r.statusReason ? `: ${r.statusReason}` : ''}`)
+          .join('; ');
+        return {
+          state: 'failed',
+          reason:
+            `Stack "${deps.stackName}" is DELETE_FAILED on resources that are not retained ` +
+            `database data: ${details}`,
+        };
+      }
       if (blocked.length === 0) {
         return {
           state: 'failed',

@@ -64,6 +64,7 @@ import {
 } from './deploy.js';
 import type { TargetHealthReader } from './ecs-health.js';
 import { essentialContainerNames } from './ecs-observe.js';
+import { pruneSupersededRevisions } from './task-revisions.js';
 import {
   reportSettled,
   saveMarker,
@@ -651,6 +652,12 @@ export async function settleConfigRollouts(
     };
   }
   if (inProgress || !(await deploymentTargetsHealthy(deps))) return { state: 'in-progress' };
+  if (operation === 'configuration update') {
+    await pruneSupersededRevisions(
+      deps,
+      Object.values(rollouts).map((rollout) => rollout.taskDefinition),
+    );
+  }
   return { state: 'succeeded' };
 }
 
