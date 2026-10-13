@@ -141,6 +141,7 @@ import {
   setConfigBodySchema,
   type ConfigDeps,
 } from './config.js';
+import { FIX_INSTRUCTIONS_AI_PROBLEMS } from './ai-config.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError, UnauthorizedError, toErrorEnvelope } from './errors.js';
 import {
@@ -390,8 +391,7 @@ export interface ServerDeps {
   aiGateway?: AiGateway | undefined;
   // Injectable gateway for the coding-agent fix instructions, which run on
   // their own model (FIX_INSTRUCTIONS_AI_*, ai-config.ts). Defaults to the
-  // env-configured one; a throwing stub when unconfigured, so the route
-  // answers its retryable 503.
+  // env-configured one; the route answers 503 not_configured when it has none.
   fixInstructionsAiGateway?: AiGateway | undefined;
   // Injectable Jev UNKNOWN-failure shadow runner (telemetry only). Defaults to
   // the env-configured Jev client, which degrades to a noop when Jev is
@@ -2044,7 +2044,7 @@ export async function buildServer({
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.aiGateway),
-  fixInstructionsAiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.fixInstructionsAi),
+  fixInstructionsAiGateway: injectedFixInstructionsAiGateway,
   jevFailureShadow = createJevFailureShadowRunnerFromEnv({ db }, env.jev),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
   defaultHttpsDeps: injectedDefaultHttpsDeps,
@@ -2060,6 +2060,9 @@ export async function buildServer({
     ? createS3TemplatePublisher()
     : NO_OP_TEMPLATE_PUBLISHER,
 }: ServerDeps): Promise<FastifyInstance> {
+  const fixInstructionsAiGateway =
+    injectedFixInstructionsAiGateway ??
+    (env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.fixInstructionsAi));
   const billingFixtureModeResolved = billingFixtureMode ?? env.billingFixtureMode;
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
   // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
@@ -4013,6 +4016,23 @@ export async function buildServer({
         );
       }
 
+      // A missing provider setting never recovers on retry. Say so, and name
+      // the setting only on a local API: production customers never see
+      // variable names.
+      if (injectedFixInstructionsAiGateway === undefined && !env.aiFixtureMode && env.fixInstructionsAiProblem) {
+        const problem = FIX_INSTRUCTIONS_AI_PROBLEMS[env.fixInstructionsAiProblem];
+        request.log.warn({ problem }, 'fix-instructions provider not configured');
+        const localApi = ['localhost', '127.0.0.1'].includes(new URL(env.webUrl).hostname);
+        throw new ApiError(
+          503,
+          'FIX_INSTRUCTIONS_UNAVAILABLE',
+          localApi
+            ? `Fix instructions are not configured: ${problem}. Set it in .env and restart the API.`
+            : "We couldn't generate the instructions right now. Try again in a moment.",
+          { reason: 'not_configured' },
+        );
+      }
+
       // Same commit, same analysis version, same findings → the same
       // document. Reuse it instead of paying for another generation; the
       // vendor can still ask for a fresh one. A re-analysis replaces
@@ -4033,6 +4053,11 @@ export async function buildServer({
       try {
         const instructions = await generateFixInstructions(context, fixInstructionsAiGateway, {
           abortSignal: controller.signal,
+          onDropped: (dropped) =>
+            request.log.warn(
+              { applicationId: id, itemId: dropped.itemId, reason: dropped.reason, rule: dropped.rule, length: dropped.length },
+              'fix-instructions guidance dropped',
+            ),
         });
         const generatedAt = new Date().toISOString();
         const fresh = await loadOwnedApplication(db, id, organizationId);

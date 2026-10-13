@@ -35,7 +35,7 @@ import type { ReadinessFinding } from './readiness-report.js';
  * the prompt or the assembled document must bump it so stored documents
  * regenerate.
  */
-export const FIX_INSTRUCTIONS_VERSION = 3;
+export const FIX_INSTRUCTIONS_VERSION = 4;
 /** Max tokens the PROMPT may occupy — structured facts only, no file contents. */
 export const FIX_INSTRUCTIONS_MAX_PROMPT_TOKENS = 4000;
 /**
@@ -543,19 +543,29 @@ const ITEM_BUILDERS: Record<string, (finding: ReadinessFinding, facts: FixInstru
     doneWhen: ['Data that must survive a redeploy is written to and read from the bucket; the container disk holds only temporary files.'],
     settings: ['Map the app\'s bucket variable to "Managed by Deployz → Bucket name" in the Deployz environment settings when it uses another name.'],
   }),
-  'unsupported-persistent-volume': () => ({
-    name: 'Persistent volume not supported',
-    classification: 'APPLICATION_FIX',
-    actions: [
-      'Find what each volume in the evidence stores.',
-      'If it stores only the data of a service Deployz provides as a managed service (PostgreSQL, MySQL, Redis), report it; no change is needed for it.',
-      'If it stores application files (uploads, media, generated files), move those writes to the Deployz-managed S3 bucket (`STORAGE_BUCKET`, `AWS_REGION`, credentials from the container role), or report the configuration that selects S3 when the app already supports it.',
-      'If the app needs a persistent POSIX filesystem (an embedded database, git repositories, a search index on disk), stop and report it. Deployz does not attach volumes.',
-    ],
-    constraints: ['Do not add access keys or secrets.', 'Do not delete the volume declaration that other installs use; report it instead.'],
-    doneWhen: ['Nothing that must survive a redeploy depends on a volume, or the report names the data that needs one.'],
-    settings: [],
-  }),
+  'unsupported-persistent-volume': (finding) => {
+    // A variable ending in _CONFIG_DIR names configuration the vendor edits,
+    // not runtime data: it ships in the image and never moves to object storage.
+    const configDir = /\b[A-Z][A-Z0-9_]*_CONFIG_DIR\b/.test(finding.technicalEvidence);
+    return {
+      name: 'Persistent volume not supported',
+      classification: configDir ? 'CONFIGURATION_FIX' : 'APPLICATION_FIX',
+      actions: [
+        ...(configDir
+          ? [
+              'The evidence names a configuration directory (a variable ending in `_CONFIG_DIR`). Commit the configuration files to the repository and COPY them into the image; do not move them to object storage.',
+            ]
+          : []),
+        'Find what each volume in the evidence stores.',
+        'If it stores only the data of a service Deployz provides as a managed service (PostgreSQL, MySQL, Redis), report it; no change is needed for it.',
+        'If it stores application files (uploads, media, generated files), move those writes to the Deployz-managed S3 bucket (`STORAGE_BUCKET`, `AWS_REGION`, credentials from the container role), or report the configuration that selects S3 when the app already supports it.',
+        'If the app needs a persistent POSIX filesystem (an embedded database, git repositories, a search index on disk), stop and report it. Deployz does not attach volumes.',
+      ],
+      constraints: ['Do not add access keys or secrets.', 'Do not delete the volume declaration that other installs use; report it instead.'],
+      doneWhen: ['Nothing that must survive a redeploy depends on a volume, or the report names the data that needs one.'],
+      settings: [],
+    };
+  },
   'unsupported-database-sqlite': () => ({
     name: 'Unsupported database engine: SQLite',
     classification: 'DEPLOYZ_LIMITATION',
@@ -963,23 +973,60 @@ export function buildFixInstructionsAiPrompt(
 /**
  * Guidance the model must never give. A match drops that item's guidance —
  * the deterministic actions stay — so one bad sentence cannot reach the
- * coding agent.
+ * coding agent. Each rule has a name so a drop can be logged without the text.
  */
-const UNSAFE_GUIDANCE: readonly RegExp[] = [
-  /\b(?:delete|remove|drop|strip out)\b[^.]{0,60}\b(?:worker|queue|scheduler|job|tests?|auth\w*|middleware|security|csrf|validation|migrations?)\b/i,
-  /\b(?:move|merge|fold|inline|run)\b[^.]{0,40}\b(?:worker|jobs?|queue|consumer)\b[^.]{0,40}\binto\b[^.]{0,20}\b(?:web|main|server|same)\b/i,
-  /\b(?:disable|bypass|turn off|skip)\b[^.]{0,40}\b(?:auth\w*|csrf|tls|ssl|https|security|verification|tests?|lint|type ?check|health ?checks?)\b/i,
-  /--no-verify|chmod\s+777|--privileged|\bprivileged:\s*true/i,
-  /\b(?:hard-?code|embed|commit)\b[^.]{0,40}\b(?:secret|password|api[ _-]?key|token|credential|access key)/i,
-  /\b(?:AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,})\b/,
-  /\b(?:catch|swallow|ignore|suppress)\b[^.]{0,30}\b(?:all )?(?:errors?|exceptions?)\b/i,
-  /\b(?:npm run dev|next dev|vite preview|npm run preview|yarn dev|pnpm dev|flask run|manage\.py runserver|rails s(?:erver)?\b[^.]*development)/i,
+const UNSAFE_GUIDANCE: readonly { name: string; pattern: RegExp }[] = [
+  {
+    name: 'remove-job-code',
+    pattern: /\b(?:delete|remove|drop|strip out)\b[^.]{0,60}\b(?:worker|queue|scheduler|job|tests?|auth\w*|middleware|security|csrf|validation|migrations?)\b/i,
+  },
+  {
+    name: 'merge-worker-into-web',
+    pattern: /\b(?:move|merge|fold|inline|run)\b[^.]{0,40}\b(?:worker|jobs?|queue|consumer)\b[^.]{0,40}\binto\b[^.]{0,20}\b(?:web|main|server|same)\b/i,
+  },
+  {
+    name: 'disable-security',
+    pattern: /\b(?:disable|bypass|turn off|skip)\b[^.]{0,40}\b(?:auth\w*|csrf|tls|ssl|https|security|verification|tests?|lint|type ?check|health ?checks?)\b/i,
+  },
+  { name: 'unsafe-flag', pattern: /--no-verify|chmod\s+777|--privileged|\bprivileged:\s*true/i },
+  {
+    name: 'embed-secret',
+    pattern: /\b(?:hard-?code|embed|commit)\b[^.]{0,40}\b(?:secret|password|api[ _-]?key|token|credential|access key)/i,
+  },
+  { name: 'secret-token', pattern: /\b(?:AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,})\b/ },
+  { name: 'swallow-errors', pattern: /\b(?:catch|swallow|ignore|suppress)\b[^.]{0,30}\b(?:all )?(?:errors?|exceptions?)\b/i },
+  {
+    name: 'dev-server',
+    pattern: /\b(?:npm run dev|next dev|vite preview|npm run preview|yarn dev|pnpm dev|flask run|manage\.py runserver|rails s(?:erver)?\b[^.]*development)/i,
+  },
 ];
+
+/** Why a guidance string was dropped. It never carries the text. */
+export type GuidanceVerdict =
+  | { ok: true }
+  | { ok: false; reason: 'empty' | 'too_long' | 'unsafe'; rule?: string; length: number };
+
+/** Whether one AI guidance string may reach the document, and why not. */
+export function guidanceVerdict(guidance: string): GuidanceVerdict {
+  const text = guidance.trim();
+  const length = text.length;
+  if (length === 0) return { ok: false, reason: 'empty', length };
+  if (length > FIX_INSTRUCTIONS_MAX_GUIDANCE_CHARS) return { ok: false, reason: 'too_long', length };
+  const unsafe = UNSAFE_GUIDANCE.find((rule) => rule.pattern.test(text));
+  return unsafe ? { ok: false, reason: 'unsafe', rule: unsafe.name, length } : { ok: true };
+}
 
 /** Whether one AI guidance string may reach the document. */
 export function isSafeGuidance(guidance: string): boolean {
-  const text = guidance.trim();
-  return text.length > 0 && text.length <= FIX_INSTRUCTIONS_MAX_GUIDANCE_CHARS && !UNSAFE_GUIDANCE.some((rule) => rule.test(text));
+  return guidanceVerdict(guidance).ok;
+}
+
+/** One dropped guidance entry. It holds no guidance text, so a caller may log it. */
+export interface DroppedGuidance {
+  itemId: string;
+  reason: 'empty' | 'too_long' | 'unsafe' | 'unknown_item';
+  rule?: string;
+  length: number;
 }
 
 // ── Deterministic assembly ──────────────────────────────────────────────────
@@ -1068,10 +1115,25 @@ export function assembleFixInstructions(
   context: FixInstructionsContext,
   ai: FixInstructionsAiOutput,
   items: RemediationItem[] = planRemediation(context),
+  options: { onDropped?: ((dropped: DroppedGuidance) => void) | undefined } = {},
 ): string {
-  const guidanceById = new Map(
-    ai.items.filter((entry) => isSafeGuidance(entry.guidance)).map((entry) => [entry.id, entry.guidance]),
-  );
+  const itemIds = new Set(items.map((item) => item.id));
+  const guidanceById = new Map<string, string>();
+  for (const entry of ai.items) {
+    const verdict = guidanceVerdict(entry.guidance);
+    if (!verdict.ok) {
+      options.onDropped?.({
+        itemId: entry.id,
+        reason: verdict.reason,
+        ...(verdict.rule ? { rule: verdict.rule } : {}),
+        length: verdict.length,
+      });
+    } else if (!itemIds.has(entry.id)) {
+      options.onDropped?.({ itemId: entry.id, reason: 'unknown_item', length: entry.guidance.trim().length });
+    } else {
+      guidanceById.set(entry.id, entry.guidance);
+    }
+  }
   const fixes = items.filter((item) => FIX_CLASSES.has(item.classification));
   const decisions = items.filter((item) => DECISION_CLASSES.has(item.classification));
   const supported = items.filter((item) => item.classification === 'ALREADY_SUPPORTED');
@@ -1172,7 +1234,7 @@ export function assembleFixInstructions(
 export async function generateFixInstructions(
   context: FixInstructionsContext,
   gateway: AiGateway,
-  options: { abortSignal?: AbortSignal } = {},
+  options: { abortSignal?: AbortSignal; onDropped?: ((dropped: DroppedGuidance) => void) | undefined } = {},
 ): Promise<string> {
   // Nothing to make concrete: every finding is already supported, so the
   // document is complete without a (paid, slow) model call.
@@ -1199,5 +1261,7 @@ export async function generateFixInstructions(
     throw new SpendLimitExceededError(usedTokens, FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS);
   }
 
-  return assembleFixInstructions(context, fixInstructionsAiSchema.parse(response.object), plan);
+  return assembleFixInstructions(context, fixInstructionsAiSchema.parse(response.object), plan, {
+    onDropped: options.onDropped,
+  });
 }

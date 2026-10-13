@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AI_MODEL_DEFAULT,
+  FIX_INSTRUCTIONS_AI_PROBLEMS,
   FIX_INSTRUCTIONS_MODEL_DEFAULT,
   OPENROUTER_BASE_URL_DEFAULT,
   describeFixInstructionsAiConfig,
@@ -145,5 +146,20 @@ describe('describeFixInstructionsAiConfig', () => {
 
     expect(result.config).toBeUndefined();
     expect(result.problem).toBe('invalid-provider');
+  });
+});
+
+describe('FIX_INSTRUCTIONS_AI_PROBLEMS', () => {
+  it('names the setting to fix for every problem describeFixInstructionsAiConfig reports', () => {
+    const problems = [
+      describeFixInstructionsAiConfig({}).problem,
+      describeFixInstructionsAiConfig({ FIX_INSTRUCTIONS_AI_PROVIDER: 'gateway' }).problem,
+      describeFixInstructionsAiConfig({ FIX_INSTRUCTIONS_AI_PROVIDER: 'openai' }).problem,
+    ];
+
+    for (const problem of problems) {
+      expect(problem).toBeDefined();
+      expect(FIX_INSTRUCTIONS_AI_PROBLEMS[problem!]).toMatch(/[A-Z_]{6,}/);
+    }
   });
 });

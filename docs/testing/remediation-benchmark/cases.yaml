@@ -180,7 +180,7 @@ cases:
     title: homepage — configuration directory as durable state
     tags: [real, storage]
     expect:
-      classes: { unsupported-persistent-volume: APPLICATION_FIX }
+      classes: { unsupported-persistent-volume: CONFIGURATION_FIX }
       truth: { unsupported-persistent-volume: CONFIGURATION_FIX }
   - id: RB-20
     snapshot: repo-025
