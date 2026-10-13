@@ -138,7 +138,25 @@ Repository (GitHub tree, bounded)
   boot (knex `migrate.latest()`, Umzug, Drizzle `migrate()`, TypeORM
   `runMigrations()`, golang-migrate, Flask-Migrate `upgrade()`, Django
   `call_command('migrate')`) sets the migration mode to `startup`. Then no
-  pre-deploy command is kept.
+  pre-deploy command is kept. Only the real start path counts: the image
+  CMD or ENTRYPOINT and the scripts it runs (a `./app migrate && ./app`
+  subcommand, a `migrate deploy` wrapper), a Procfile `web:` line, the s6
+  init scripts behind `/init`, and a Go migrator call (`migrations.Up`,
+  `goose.Up`, `AutoMigrate`) in a server start file or an `Init` function it
+  calls. A runner must be a call, not a declaration. Browser, CLI,
+  test-setup and generated code never count. A Procfile `release:` line is
+  pre-deploy, not startup. `CREATE TABLE IF NOT EXISTS` is never proof of
+  schema upgrades.
+- **Health and listener precedence:** a router mounted through an exported
+  object (`app.use('/api', routes.api)`) keeps its mount prefix; the
+  shortest prefix wins. A Go `r.URL.Path == "/healthz"` check, a NestJS
+  `@Get('ping')` under `@Controller('server')` and the global prefix, and a
+  HEALTHCHECK that every target of a multi-target Dockerfile shares are
+  route candidates. An all-interfaces host in the production start text
+  (`--bind 0.0.0.0`, `ENV HOST=0.0.0.0`, also in the script the ENTRYPOINT
+  runs) overrides a loopback literal in source. Desktop, Electron and Tauri
+  files never count, and a Python `app.run(host="127.0.0.1")` counts only in
+  a module the image runs.
 - **One relational database:** a required MySQL database gets the same
   bindings (the `DATABASE_*` names plus the names the app reads, such as
   `DB_HOST`), migration mode and migration findings as PostgreSQL.
@@ -147,7 +165,11 @@ Repository (GitHub tree, bounded)
   requirement in `go.mod` counts only when non-test, non-vendored Go source
   imports the module. A requirement that no code imports is not evidence of
   PostgreSQL.
-- **Database engine:** PostgreSQL wins when the app can run on it. The
+- **Database engine:** PostgreSQL wins when the app can run on it. A Go
+  PostgreSQL driver in `go.mod` counts when runtime Go source imports it,
+  when an engine selector the app reads defaults to SQLite or PostgreSQL,
+  or when a runtime Go file was outside the bounded fetch (the import cannot
+  be ruled out). The
   engine is MySQL only when a MySQL driver and one independent signal are
   present and PostgreSQL is not a runtime option. The independent signal
   is a `mysql://` or `mysql+pymysql://` URL, a `MYSQL_*` variable, a

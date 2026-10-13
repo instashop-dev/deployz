@@ -482,6 +482,7 @@ cleaner verdict signal but a noisier fact signal.
 - Fix: Partly addressed in version 7: a router mounted at a health prefix, the URL in a Dockerfile `HEALTHCHECK` / Compose `healthcheck`, and Go/Python/Ruby route literals are read (Go sources are now fetched). Remaining: NestJS controllers under a versioned global prefix (ghostfolio), Django health-check apps that register routes outside the repository (Flagsmith), a mount chain through a member expression (kutt `app.use("/api", routes.api)`), and a HEALTHCHECK that runs a script (immich).
 - Phase 3 residual: 36 health-path mismatches remain on the corpus — routes registered in Java/Kotlin/.NET/Elixir/Rust/PHP (Spring `/actuator/health`, Rails `/up`, Phoenix), non-standard names (`/api/ping`, `/status`, `/-/ping`, `/alive`, `/api/app/about`, `/_health`) that no health-segment regex matches, and the `/health` default when only a HEALTHCHECK without a URL exists.
 - Stage B (phase 5): health modes (`explicit` / `root` / `vendor_required`) landed; Go/Python/Ruby/PHP/.NET/JVM/Elixir/Rails route literals, Spring Actuator, context paths and Phoenix scopes are now read, and `/health` is never silently defaulted. Residual on v11: 45 repositories still carry a healthPath fact mismatch (no verdict flips) — the corpus's remaining real health routes live in code shapes no literal regex reads, and the widened vocabulary introduced a NEW over-match class on `…/status`-suffixed feature routes, recorded separately as COMP-039 (5 previously-matching repositories regressed).
+- Analysis v54: kutt (exported-router mount), coder (Go `URL.Path ==` check) and karakeep (HEALTHCHECK shared by every target) now match. immich still reports no path: two apps register routes and the start script is not fetched.
 - Status: open
 
 ### COMP-006 — The manifest migration command falls back to a detector label
@@ -525,6 +526,7 @@ cleaner verdict signal but a noisier fact signal.
   `rpm`, …) last; evaluate Dockerfile-scoped rejections on the selected
   Dockerfile. immich (two real services) remains ambiguous by nature.
 - Fix: Dev-container, test, example and OS-package Dockerfiles rank last; the startup command and HEALTHCHECK are read from the selected Dockerfile only. Regression: stage-a.test.ts COMP-007. Residual: immich (`machine-learning/Dockerfile` vs `server/Dockerfile` — two genuine services, and the GPU check still scans every Dockerfile).
+- Analysis v54: a tie on every other signal is broken by the image that starts something, then by the one that declares a port. immich now selects `server/Dockerfile`, searxng `container/dist.dockerfile`, openstatus `apps/dashboard/Dockerfile`. Candidates that still tie give the recommended finding `dockerfile-target-unresolved`.
 - Status: fixed
 
 ### COMP-008 — A `gcr.io/distroless` base image counts as a Google Cloud deployment
@@ -627,6 +629,7 @@ cleaner verdict signal but a noisier fact signal.
   transports (documenso) remain over-provisioned; documented.
 - Fix: Only S3-specific packages or an S3 client construction count. Regression: stage-a.test.ts COMP-012. Residual: an optional S3 transport that is a real S3 client (documenso `@aws-sdk/client-s3`, Flagsmith `boto3.client("s3")` for exports) still provisions a bucket — over-provisioning, not blocking.
 - Phase 3 residual: 17 `storage` mismatches in both directions — an S3 client shipped for an optional export or backup feature (coder, grafana, casdoor, logto, joplin, superset) reads as "object storage required", while S3 support through a PHP/Kotlin storage abstraction (monica, tolgee, CTFd via a quoted `"s3"` client) is not seen.
+- Analysis v54: a `go.mod` line marked `// indirect` is not S3 usage (coder now `storage: false`).
 - Status: fixed
 
 ### COMP-013 — PostgreSQL "required" evidence misses nested Compose files and non-JS configuration
@@ -667,6 +670,7 @@ cleaner verdict signal but a noisier fact signal.
   Procfile `release:` lines; Go binary flags stay vendor-supplied.
 - Phase 3 residual: 41 `migration` mismatches — the corpus is dominated by apps that migrate at boot (Rails initializers, Go embedded migrations, Flyway/Liquibase, Django `manage.py migrate` in an entrypoint script) or through a non-npm CLI. The gate treats the missing command as a warning, so no verdict changes; the fact stays open for the Phase 5 decision.
 - Stage B (phase 6): migration MODES landed — `pre_deploy` (a deploy-safe command), `startup` (the app migrates on boot; evidence recorded, no command invented), `none` and `unknown`. Boot-time migrators no longer get a "no migration command" warning; the gate's finding is informational. Residual on v11: 55 repositories still carry a `migration` fact mismatch (expected true, actual false) because the harness compares the boolean, not the mode; no verdict flips.
+- Analysis v54: startup migrations are read from the real start path (fider, teable, coder, vikunja, paperless gain evidence; hoppscotch, thelounge and a definition-only immich match lose it). The Stage A `migration` fact compares the command, not the migration mode, so these do not show as fact changes.
 - Status: open
 
 ### COMP-015 — Worker-code detection is Node-only
@@ -966,6 +970,7 @@ cleaner verdict signal but a noisier fact signal.
   `server` build services) while its production file sits under
   `deploy/docker/`; lobehub and LibreChat still count a second built
   service (`fts-search-*`, `rag_api`) on already NOT_COMPATIBLE entries.
+- Analysis v54: a service whose command, health probe or data volume is a database server is infrastructure. lobehub (repo-025) no longer counts `postgresql` (`paradedb/paradedb`); it stays NOT_COMPATIBLE through COMP-050's companion rule (`other-database`, the `pg_search` extension).
 - Status: fixed
 
 ### COMP-027 — Dockerfile naming and ranking miss real images and pick variants
@@ -1026,6 +1031,7 @@ cleaner verdict signal but a noisier fact signal.
   no default in the image; ToolJet, hoppscotch, django-helpdesk, twenty,
   postiz, n8n and microservices-demo expose a port on a Dockerfile or
   service other than the documented one.
+- Analysis v54: the one application service of the production Compose file that publishes a port ranks before a source literal (postiz now 5000).
 - Status: fixed
 
 ### COMP-029 — PostgreSQL drivers outside Node, Python, Ruby and Go are invisible
@@ -1332,6 +1338,7 @@ cleaner verdict signal but a noisier fact signal.
   `dogfood/`, `examples/` and `chart/` packaging as the "one option"
   COMP-033 warned about — corroborate with in-cluster client code before
   rejecting.
+- Analysis v54: `dogfood/` and `scaletest/` are deployment-sample directories. coder (repo-041) no longer has `terraform` and now matches NEEDS_CONFIGURATION. kafdrop is unchanged.
 - Status: open
 
 ### COMP-041 — A TCP-probe-only health check is invisible to the vendor-required health gate
@@ -1444,6 +1451,7 @@ cleaner verdict signal but a noisier fact signal.
 - Evidence: all four Dockerfiles (`dev/build/Dockerfile`, `dev/build-arm/Dockerfile`, `dev/containers/Dockerfile`, `dev/openshift/Dockerfile`) sit under `dev/`, and `DEV_ONLY_DOCKERFILE_REGEX` in `detectUnbuildableDockerfile` rejects every path with a `dev/` segment. `dev/build/Dockerfile` is the release image: a multi-stage build that compiles the assets from the repository (`yarn build`), has a `Release` stage, `EXPOSE 3000` and `CMD ["node", "--no-deprecation", "server"]`. Only `dev/containers/Dockerfile` is a development image (it says "DO NOT USE IN PRODUCTION"). The directory name alone is not proof of a development image.
 - Customer relevance: medium — a repository that keeps its release Dockerfile in a `dev/` tooling directory gets a hard rejection instead of a normal import.
 - Recommended action: decide development-only status from the Dockerfile content (a "do not use in production" header, no `CMD` that starts the application), and use the path only when no other signal exists. Rerun repo-023.
+- Analysis v54: PR #528 (v53) accepts the `dev/build/Dockerfile`. repo-023 is still a false rejection, now for `local-filesystem`.
 - Status: open
 
 ### COMP-049 — A migration whose development script needs a development-only tool leaves no migration command
@@ -1455,4 +1463,41 @@ cleaner verdict signal but a noisier fact signal.
 - Evidence: `server/package.json` `db:migrate` runs `ts-node ... typeorm migration:run`. `ts-node` is a development tool, so rejecting that script is correct (COMP-046). The same file also has `db:migrate:prod`, which runs `node ./node_modules/typeorm/cli.js migration:run --dataSource dist/src/migration-helpers/db-migrations-datasource.js` on the compiled output, and the root `package.json` forwards it. The repository therefore needs a migration and a runnable command exists, but the analyser selects none, so the customer must type one.
 - Customer relevance: low — only the migration fact changes. The verdict is unchanged because the repository is rejected for other reasons.
 - Recommended action: prefer a `:prod` variant of a migration script when the plain script needs a development-only tool. Rerun repo-022.
+- Status: open
+
+### COMP-050 — A storage or engine selector that defaults to local disk or SQLite is not required
+
+- Repositories: repo-012 (zipline), repo-085 (teable), repo-059 (vikunja), repo-019 (linkwarden), repo-218 (gotify).
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NEEDS_CONFIGURATION while the app would store files on the container disk or data in SQLite
+- Actual (analysis version 53): zipline and teable READY; vikunja `VIKUNJA_FILES_TYPE` (default `local`) not required; linkwarden builds its S3 client only when `SPACES_ENDPOINT`, `SPACES_REGION`, `SPACES_KEY` and `SPACES_SECRET` are all set, and Deployz minted a random `SPACES_SECRET`; gotify `GOTIFY_DATABASE_DIALECT` (default `sqlite3`) not seen.
+- Evidence: an S3 SDK or a PostgreSQL driver shows that a backend is supported, not that it is selected. zipline `DATASOURCE_TYPE` defaults to `local` (zod); teable `BACKEND_STORAGE_PROVIDER=local` in the runtime env sample, the read is outside the bounded fetch; vikunja `FilesType.setDefault("local")`.
+- Fix: `<APP>_FILES_TYPE` and `DATASOURCE_TYPE` are storage selector names; a runtime sample value is the default when the fetched tree never reads the selector; a selector read through a config table or named by a Go string constant, with no default found, is required; every variable of an S3 presence chain that Deployz does not bind is required and never generated. Companion (REM-106): a ParadeDB, TimescaleDB or Citus Compose image is `other-database`. `ANALYSIS_VERSION` 54.
+- Regression: `packages/analysis/test/selector-safety.test.ts`, `packages/analysis/test/rejection-scope.test.ts`.
+- Verification: Stage A at v54 — zipline and teable match NEEDS_CONFIGURATION; vikunja, linkwarden and gotify require the selector values; outline, documenso and logto stay READY.
+- Customer relevance: high — the deployment was accepted and uploaded files or the database were lost at the next task replacement.
+- Status: fixed
+
+### COMP-051 — A declared Go PostgreSQL driver is dropped when its importer is outside the bounded fetch
+
+- Repositories: repo-059 (vikunja), repo-064 (casdoor), repo-039 (memos).
+- Type: ANALYSIS_BUG
+- Expected: `postgres: true`
+- Actual (analysis version 53, after PR #528): `postgres: false`. vikunja and memos were then accepted on their SQLite default; casdoor became READY with no database and would fail at boot.
+- Evidence: #528 counts a direct `go.mod` driver only when fetched runtime Go source imports it. The importing file (vikunja `pkg/db/db.go`, casdoor `object/ormer.go`) is not in the bounded fetch, so a missing import proves nothing.
+- Fix: the requirement stands when a runtime Go file in the full path list was not read, or when an engine selector the app reads defaults to SQLite or PostgreSQL. A fully read repository whose Go source never imports the driver still drops it (#528). `ANALYSIS_VERSION` 54.
+- Regression: `packages/analysis/test/embedded-fallback.test.ts`.
+- Verification: Stage A at v54 — vikunja, casdoor and memos have `postgres: true`; vikunja and memos require their engine selector.
+- Customer relevance: high — an accepted deployment kept its database on the container disk.
+- Status: fixed
+
+### COMP-052 — A Dockerfile VOLUME named by a base-image variable reads as durable state
+
+- Repositories: repo-209 (searxng).
+- Type: ANALYSIS_BUG
+- Expected: NEEDS_CONFIGURATION, `unsupported: []`
+- Actual (analysis version 54): NOT_COMPATIBLE with `local-filesystem`
+- Evidence: the correctly selected `container/dist.dockerfile` declares `VOLUME $__SEARXNG_CONFIG_PATH` and `VOLUME $__SEARXNG_DATA_PATH`. The values (`/etc/searxng`, `/var/cache/searxng`) come from the base image `docker.io/searxng/base`, which is not in the repository. A `VOLUME $VAR` that the same Dockerfile sets is resolved; this one cannot be. Before v54 the wrong Dockerfile (`builder.dockerfile`) was selected and the verdict matched by chance.
+- Customer relevance: medium — a false rejection of a stateless app. Guessing the path from the variable name would risk a false acceptance on a real data path, so it is not done.
+- Recommended action: decide an unresolved `VOLUME $VAR` from the production Compose mount of the same service, or ask the vendor. Rerun repo-209.
 - Status: open

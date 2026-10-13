@@ -180,7 +180,8 @@ frozen manifest.
 - **Selectors must be set.** A selector is an env variable that picks the
   database engine (`DB_TYPE`, `DATABASE_CLIENT`, `DB_CONNECTION`,
   `*_DBENGINE`, `<APP>_DRIVER` with an engine default) or the file storage
-  (`STORAGE_TYPE`, `ACTIVE_STORAGE_SERVICE`, `UPLOAD_PROVIDER`). When its
+  (`STORAGE_TYPE`, `ACTIVE_STORAGE_SERVICE`, `UPLOAD_PROVIDER`,
+  `<APP>_FILES_TYPE`, `DATASOURCE_TYPE`). When its
   default (code, config file, sample or compose value) is an embedded engine
   (`sqlite`, `h2`, …), a different engine, or local disk, and Deployz
   provisions the managed resource, the selector is **required**. The app
@@ -192,7 +193,16 @@ frozen manifest.
   (`env.ts`), a `@Env('X') field = 'sqlite'` config class, a typed viper key,
   a NestJS `get('X', 'local')` or a Django-environ `env.str('X', …)` read. A
   YAML `config.yml` that reads an engine selector as `$(DB_TYPE)` with no
-  default also makes it required.
+  default also makes it required. A runtime env sample value counts as the
+  default when the fetched tree never reads the selector. A selector read
+  through a config table (`env('datasource.type', 'DATASOURCE_TYPE')`) or
+  named by a Go string constant, with no default found, is required too: the
+  choice is undecided. When the code shows no S3 value, the source line asks
+  for a value that stores files outside the container.
+- **S3 switched on by presence.** When the app builds its S3 client only if
+  several variables are all set (`A && B && C ? new S3(…)`), each of them that
+  Deployz does not bind or derive is required: otherwise the files go to the
+  container disk. These variables are never generated secrets.
 - **Deployz-derived public URL.** When the app reads its own public URL with
   no default, the variable is **Managed by Deployz**. The names are
   `PUBLIC_URL`, `APP_URL`, `BASE_URL`, `SITE_URL`, `ROOT_URL`, `WEB_URL`,
