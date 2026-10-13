@@ -806,7 +806,7 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     for (const path of wanted) expect(tree).toHaveProperty(path);
   });
 
-  it('keeps s6 service scripts and Go init files inside the ANALYSIS_MAX_FILES cap, and not their look-alikes', async () => {
+  it('keeps s6 service scripts, Go init files and Go start commands inside the ANALYSIS_MAX_FILES cap, and not their look-alikes', async () => {
     const services = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
       path: `pkg/feature${i}/service.go`,
       type: 'blob' as const,
@@ -819,6 +819,8 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
       'rootfs/etc/cont-init.d/10-migrate',
       'pkg/initialize/init.go',
       'pkg/boot/bootstrap.go',
+      'pkg/cmd/web.go',
+      'cmd/serve.go',
     ];
     const lookalikes = [
       'docker/rootfs/etc/s6-overlay/s6-rc.d/init-migrations/finish',
@@ -826,6 +828,8 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
       'bin/run',
       'pkg/initialize/init_test.go',
       'test/helpers/init.go',
+      'a/b/cmd/migrate.go',
+      'a/b/cmd/webhook.go',
     ];
     const fetchFn: FetchFn = async (url) => {
       if (url.includes('/git/trees/')) {

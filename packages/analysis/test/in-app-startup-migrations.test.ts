@@ -101,6 +101,15 @@ describe('in-process startup migrations', () => {
       expect(detectStartupMigrationEvidence(tree)).toEqual([]);
     });
 
+    it('does not take a runner declaration or CREATE TABLE IF NOT EXISTS as a migration, and keeps the pre-deploy command', () => {
+      const tree = app({
+        'src/repositories/database.repository.ts': 'export class DatabaseRepository {\n  async runMigrations(): Promise<void> {}\n}\n',
+        'src/db.ts': 'await pool.query("CREATE TABLE IF NOT EXISTS users (id serial primary key)");\n',
+      });
+      expect(detectStartupMigrationEvidence(tree)).toEqual([]);
+      expect(analyseRepo(tree).metadata['migrationMode']).toBe('pre_deploy');
+    });
+
     it('keeps the command of an app that only migrates before deploy', () => {
       const tree = app({ 'src/index.ts': 'app.listen(3000);\n' });
       expect(selectMigrationScript(tree)?.[1]).toBe('knex migrate:latest');

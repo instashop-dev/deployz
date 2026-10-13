@@ -781,7 +781,7 @@ function isLockfilePath(path: string): boolean {
 // the ones the port/health/env detectors need most on a repository with far
 // more source files than the cap (a Go or Django tree can carry hundreds).
 const ENTRY_FILE_REGEX =
-  /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\/|(?:^|\/)(?:init|initialize|bootstrap)\.go$/i;
+  /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\/|(?:^|\/)(?:init|initialize|bootstrap)\.go$|(?:^|\/)cmd\/(?:web|serve|server|start|run)\.go$/i;
 // Files that read the environment and name the datastore the app uses:
 // `environment.service.ts`, `env/GlobalValues.ts`, `configs/database.config.ts`. They are few
 // and small, and a deep one would otherwise lose its slot to hundreds of `index.ts`. A plain
