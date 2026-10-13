@@ -32,6 +32,11 @@ export function activityEventLabel(event: ActivityEvent): string {
   if (event.eventType === 'deployment.step_completed' && typeof step === 'string' && step in STEP_LABEL) {
     return STEP_LABEL[step as DeploymentStep].done;
   }
+  // A configured first start finishes its install with zero tasks: the
+  // application has not started and its health is unverified.
+  if (event.eventType === 'install.completed' && event.payload['startAfterConfig'] === true) {
+    return 'Infrastructure ready';
+  }
   return eventTypeLabel(event.eventType);
 }
 

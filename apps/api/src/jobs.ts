@@ -186,3 +186,20 @@ export async function hasStartedInstall(db: RuntimeDb, deploymentId: string): Pr
     return (j.payload as Record<string, unknown> | null)?.['startAfterConfig'] !== true;
   });
 }
+
+/**
+ * A zero-task install (`payload.startAfterConfig`, DEPLOY-009) succeeded and
+ * no deploy has started the application since.
+ */
+export async function awaitsFirstStart(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  if (await hasStartedInstall(db, deploymentId)) return false;
+  const installs = await db
+    .select({ state: schema.deploymentJobs.state, payload: schema.deploymentJobs.payload })
+    .from(schema.deploymentJobs)
+    .where(and(eq(schema.deploymentJobs.deploymentId, deploymentId), eq(schema.deploymentJobs.type, 'INSTALL')));
+  return installs.some(
+    (j) =>
+      (j.state === 'SUCCEEDED' || j.state === 'SUCCESS') &&
+      (j.payload as Record<string, unknown> | null)?.['startAfterConfig'] === true,
+  );
+}

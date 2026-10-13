@@ -203,6 +203,7 @@ import {
 import { createReleaseRecord, ensureBuildConfigurationReady } from './releases.js';
 import { evaluateForApplication, readEnvironmentSettings } from './environment-setup.js';
 import {
+  awaitsFirstStart,
   createOrReuseJob,
   hasStartedInstall,
   newerReadyReleaseExists,
@@ -6893,7 +6894,17 @@ export async function buildServer({
       // reads) whenever its CloudFormation rows are complete.
       const domain = await findActiveDomain(db, id);
       const defaultHttps = parseDefaultHttps(deployment.defaultHttps);
+      // A configured first start (DEPLOY-009) creates the service with zero
+      // tasks: its CloudFormation rows complete before any task has run, so
+      // the application is not "ready" until a deploy has started it.
+      const applicationNeverStarted =
+        deployment.currentReleaseId === null &&
+        aggregate.components.some((c) => c.kind === 'application' && c.status === 'ready') &&
+        (await awaitsFirstStart(db, id));
       const components = aggregate.components.map((component) => {
+        if (applicationNeverStarted && component.kind === 'application') {
+          return { ...component, status: 'pending' as const };
+        }
         if (component.kind !== 'endpoint' || component.status !== 'ready' || deployment.state === 'DELETED') {
           return component;
         }
@@ -8200,6 +8211,14 @@ export async function buildServer({
               ? { reportedFailureCode }
               : {}),
             ...(unrecognisedFailureCode ? { unrecognisedFailureCode } : {}),
+            // A configured first start (DEPLOY-009) created the stack with
+            // zero tasks: this event means "infrastructure ready", not
+            // "application started and healthy".
+            ...(job.type === 'INSTALL' &&
+            state !== 'FAILED' &&
+            (job.payload as Record<string, unknown> | null)?.['startAfterConfig'] === true
+              ? { startAfterConfig: true }
+              : {}),
           },
         });
       }

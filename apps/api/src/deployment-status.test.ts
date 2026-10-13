@@ -802,6 +802,32 @@ describe('step derivation — one per stage', () => {
     expect(status.step).toBe('MIGRATION');
   });
 
+  it('FAILED first DEPLOY_RELEASE with MIGRATION_FAILED names MIGRATION even when the application row has no migration command', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'FAILED', currentReleaseId: null }),
+      application: makeApplication({ migrationCommand: null }),
+      jobs: [
+        makeJob({ type: 'INSTALL', state: 'SUCCEEDED', payload: { startAfterConfig: true } }),
+        makeJob({ type: 'DEPLOY_RELEASE', state: 'FAILED', failureCode: 'MIGRATION_FAILED' }),
+      ],
+    });
+    expect(status.steps).toContain('MIGRATION');
+    expect(status.step).toBe('MIGRATION');
+  });
+
+  it('a configured first start has not started the application until a deploy succeeds', () => {
+    const base = {
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'UNKNOWN', currentReleaseId: null }),
+      jobs: [makeJob({ type: 'INSTALL', state: 'SUCCEEDED', payload: { startAfterConfig: true } })],
+    };
+    expect(derive(base).step).toBe('APPLICATION');
+    const started = derive({
+      ...base,
+      jobs: [...base.jobs, makeJob({ type: 'DEPLOY_RELEASE', state: 'SUCCEEDED' })],
+    });
+    expect(started.step).toBe('HEALTH_CHECK');
+  });
+
   it('FAILED INSTALL with no snapshot falls back to the FAILURE_COMPONENT map (database)', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'FAILED' }),

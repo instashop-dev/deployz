@@ -222,6 +222,7 @@ export interface DerivationJob {
   state: JobState;
   failureCode: FailureCode | null;
   result: Record<string, unknown> | null;
+  payload?: unknown;
   lastProgressAt: Date | null;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -867,9 +868,12 @@ function snapshotFailedStep(
 }
 
 /** Applicable steps for this deployment, in canonical order — REDIS/DATABASE_STORAGE only when required, MIGRATION only for apps with a migration command. */
-function applicableSteps(application: DerivationApplication): DeploymentStep[] {
+function applicableSteps(application: DerivationApplication, migrationFailed = false): DeploymentStep[] {
   const databaseStorageRequired = (application.databaseRequired ?? false) || (application.storageRequired ?? false);
-  const migrationConfigured = typeof application.migrationCommand === 'string' && application.migrationCommand.length > 0;
+  // The migration command can be frozen with the release rather than set on
+  // the application row, so a MIGRATION_FAILED job proves the step applies.
+  const migrationConfigured =
+    migrationFailed || (typeof application.migrationCommand === 'string' && application.migrationCommand.length > 0);
   return DEPLOYMENT_STEP_ORDER.filter((step) => {
     if (step === 'DATABASE_STORAGE') return databaseStorageRequired;
     if (step === 'REDIS') return application.redisRequired ?? false;
@@ -1082,6 +1086,17 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
   let currentActivity: string;
 
   const latestFailed = latestFailedJob(jobs);
+  const awaitingFirstStart =
+    deployment.currentReleaseId === null &&
+    jobs.some(
+      (job) =>
+        job.type === 'INSTALL' &&
+        SUCCEEDED_JOB_STATES.has(job.state) &&
+        (job.payload as Record<string, unknown> | null | undefined)?.['startAfterConfig'] === true,
+    ) &&
+    !jobs.some(
+      (job) => (job.type === 'DEPLOY_RELEASE' || job.type === 'ROLLBACK') && SUCCEEDED_JOB_STATES.has(job.state),
+    );
   const installJobState = latestOfType(jobs, 'INSTALL')?.state;
   const failureEntry = deployment.state === 'FAILED' ? failureEntryFor(latestFailed?.failureCode ?? null) : undefined;
 
@@ -1178,6 +1193,9 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       // being brought up). An unhealthy app — or one already behind its
       // HTTPS URL with a health problem — reports the health-check step.
       step = deployment.healthStatus === 'HEALTHY' && !httpsUrl ? 'TLS' : 'HEALTH_CHECK';
+      // A configured first start (DEPLOY-009) has no task yet: the
+      // application is still to be started, so it is not past that step.
+      if (awaitingFirstStart) step = 'APPLICATION';
       break;
     case 'READY':
       step = 'READY';
@@ -1215,7 +1233,10 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     }
   }
 
-  const steps = applicableSteps(application);
+  const steps = applicableSteps(
+    application,
+    stage === 'FAILED' && latestFailed?.type !== 'INSTALL' && latestFailed?.failureCode === 'MIGRATION_FAILED',
+  );
   if (!steps.includes(step)) {
     // The failure-component fallback above can name a step the application's
     // current flags exclude (a REDIS_* failure code after redisRequired was

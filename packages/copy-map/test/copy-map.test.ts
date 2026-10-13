@@ -183,6 +183,12 @@ describe('§62 event result labels', () => {
 
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
+describe('MIGRATION_FAILED remediation', () => {
+  it('does not claim a previous version is running (a first install has none)', () => {
+    expect(FAILURE_REMEDIATION.MIGRATION_FAILED.fix).not.toMatch(/previous version/i);
+  });
+});
+
 describe('§61 failure codes', () => {
   it('defines exactly the twenty-three §61 taxonomy codes', () => {
     expect(FAILURE_CODES).toEqual([

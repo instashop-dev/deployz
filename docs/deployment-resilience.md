@@ -124,6 +124,10 @@ watchdog, and the stack-event progress route's settlement backstop):
   configuration is fixed (`requireDeployableState` allows a FAILED
   deployment whose install succeeded); retry-install stays for installs that
   never created a stack.
+  Until that first deploy succeeds the application has not started and its
+  health is unverified: the install event reads "Infrastructure ready"
+  (`startAfterConfig` in its payload), the step stays on starting the
+  application, and the infrastructure card shows the application as pending.
 - A failed **CONFIG_UPDATE** or **PURGE** never touches deployment state
   (a failed purge used to resurrect a DELETED deployment); a purge failure
   lands on `cleanupState: PURGE_FAILED` instead, which keeps it retryable.

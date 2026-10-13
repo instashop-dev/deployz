@@ -609,7 +609,7 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
   MIGRATION_FAILED: {
     what: 'The database migration step failed, so the new version was not started.',
     why: 'The migration command exited with an error.',
-    fix: 'Fix the migration in your repository, publish a new release, and deploy it. The previous version is still running.',
+    fix: 'Fix the migration in your repository, publish a new release, and deploy it.',
   },
   RELAY_DISCONNECTED: {
     what: 'The helper running in your customer’s cloud account stopped checking in.',

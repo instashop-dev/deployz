@@ -6707,6 +6707,38 @@ describe('server — P0 hardening', () => {
       expect(view.endpoint.httpsState).toBeUndefined();
     });
 
+    it('the application is not Ready until a configured first start has started it', async () => {
+      const deployment = await deploymentWithAlb({ defaultHttps: null });
+      const applicationStatus = async () => {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/api/deployments/${deployment.id}/infrastructure`,
+          headers: { cookie: org.cookie },
+        });
+        const body = response.json() as { components: Array<{ kind: string; status: string }> };
+        return body.components.find((c) => c.kind === 'application')!.status;
+      };
+      expect(await applicationStatus()).toBe('ready');
+
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment.id,
+        type: 'INSTALL',
+        state: 'SUCCEEDED',
+        idempotencyKey: `${deployment.id}:INSTALL:zero-task`,
+        payload: { startAfterConfig: true },
+      });
+      expect(await applicationStatus()).toBe('pending');
+
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'SUCCEEDED',
+        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:first-start`,
+        payload: {},
+      });
+      expect(await applicationStatus()).toBe('ready');
+    });
+
     it('a removed deployment keeps the post-deletion view (no overlay)', async () => {
       const deployment = await deploymentWithAlb({
         state: 'DELETED',
