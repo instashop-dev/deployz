@@ -1241,7 +1241,7 @@ const ROUTER_ROOT_DIRS = new Set(['routes', 'pages', 'app']);
 // The prefix is as literal as a route string, so composing mount prefix +
 // route path yields the path the app actually serves.
 const ROUTER_MOUNT_REGEX =
-  /([A-Za-z_$][\w$]*)\s*\.\s*use\s*\(\s*['"`](\/[\w/-]*)['"`]\s*,\s*([A-Za-z_$][\w$]*)/g;
+  /([A-Za-z_$][\w$]*)\s*\.\s*use\s*\(\s*['"`](\/[\w/-]*)['"`]\s*,\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)/g;
 
 // Priority for resolving a single normalized `path` when more than one
 // signal names one: an exact route registration (or NestJS adapter call) in
@@ -1342,7 +1342,8 @@ function composeMountedPath(
   let composed = false;
   while (current !== undefined && !seen.has(current)) {
     seen.add(current);
-    const mount = mounts.find((candidate) => candidate.router === current);
+    // A router mounted twice (`/api/v2` and `/api`) is served at both: the shortest prefix is deterministic.
+    const mount = mounts.filter((candidate) => candidate.router === current).sort((a, b) => a.prefix.length - b.prefix.length)[0];
     if (!mount) break;
     // `app.use('/', router)` is a root mount — joining must not double the slash.
     path = `${mount.prefix.replace(/\/+$/, '')}${path}`;
@@ -1539,11 +1540,23 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   // 0. Router mounts, collected first because a mount and the routes it
   // carries usually live in different files.
   const mounts: { mounter: string; prefix: string; router: string; file: string }[] = [];
+  // `module.exports = { api: apiRouter }` lets a mount name the router by its export key (`routes.api`).
+  const exportedRouters = new Map<string, string>();
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) || !content) continue;
+    for (const exported of content.matchAll(/module\.exports\s*=\s*\{([^}]*)\}/g)) {
+      for (const [, key, value] of (exported[1] ?? '').matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)\s*(?:,|$)/g)) {
+        if (key && value) exportedRouters.set(key, value);
+      }
+    }
+  }
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) || !content) continue;
     for (const match of content.matchAll(ROUTER_MOUNT_REGEX)) {
       if (match[1] && match[2] && match[3]) {
-        mounts.push({ mounter: match[1], prefix: match[2], router: match[3], file: path });
+        const member = match[3].split('.');
+        const router = member.length === 2 ? (exportedRouters.get(member[1]!) ?? match[3]) : match[3];
+        mounts.push({ mounter: match[1], prefix: match[2], router, file: path });
       }
     }
   }
@@ -1572,7 +1585,18 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     .split('\n')
     .filter((line) => /^\s*HEALTHCHECK\b/i.test(line) && !/^\s*HEALTHCHECK\s+NONE\b/i.test(line))
     .at(-1);
-  const probedPath = healthcheckLine === undefined ? null : healthcheckProbePath(healthcheckLine, tree);
+  let probedPath = healthcheckLine === undefined ? null : healthcheckProbePath(healthcheckLine, tree);
+  // A multi-target Dockerfile may put the HEALTHCHECK on a sibling target (`web`), not on the last
+  // stage (`cli`): use the HEALTHCHECK lines of the whole file only when every one probes one path.
+  if (healthcheckLine === undefined && dockerfile) {
+    const probes = new Set(
+      dockerfile.content
+        .split('\n')
+        .filter((line) => /^\s*HEALTHCHECK\b/i.test(line) && !/^\s*HEALTHCHECK\s+NONE\b/i.test(line))
+        .map((line) => healthcheckProbePath(line, tree)),
+    );
+    if (probes.size === 1 && !probes.has(null)) probedPath = [...probes][0]!;
+  }
   if (probedPath !== null) {
     addCandidate({ path: probedPath, priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'dockerfile', label: 'HEALTHCHECK (Dockerfile)' });
   }
@@ -1660,6 +1684,15 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     }
   }
 
+  // Go middleware that special-cases a health path: `r.URL.Path == "/healthz"`.
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.go$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    for (const match of content.matchAll(/\.URL\.Path\s*==\s*"(\/[\w/-]*)"/g)) {
+      if (!HEALTH_PATH_SEGMENT_REGEX.test(match[1]!)) continue;
+      addCandidate({ path: match[1]!, priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION, source: 'source', label: `health path check (${path})`, file: path });
+    }
+  }
+
   // ── Phoenix (Elixir): routes are declared inside `scope "/api/v1" do` ────
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.(?:ex|exs)$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
@@ -1691,9 +1724,15 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.ts$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
     const controller = /@Controller\(\s*(?:\{\s*path:\s*)?['"]([^'"]+)['"]/.exec(content)?.[1];
-    if (!controller || !/@Get\(\s*(?:['"]{2})?\s*\)/.test(content)) continue;
-    const routePath = `/${controller.replace(/^\/+/, '')}`;
-    if (!HEALTH_PATH_SEGMENT_REGEX.test(routePath)) continue;
+    if (!controller) continue;
+    const controllerPath = `/${controller.replace(/^\/+/, '')}`;
+    // `@Get()` serves the controller path; `@Get('ping')` serves a sub-path of it.
+    const getPaths = [...content.matchAll(/@Get\(\s*(?:['"]([\w/-]*)['"])?\s*\)/g)].map((m) => {
+      const sub = (m[1] ?? '').replace(/^\/+/, '');
+      return sub ? `${controllerPath}/${sub}` : controllerPath;
+    });
+    const routePath = getPaths.find((candidate) => HEALTH_PATH_SEGMENT_REGEX.test(candidate));
+    if (routePath === undefined) continue;
     const prefix = nestPrefixOptions.includes(`'${controller}'`) ? '' : nestGlobalPrefix;
     const version = /VERSION_NEUTRAL|\bversion:/.test(content) || !nestDefaultVersion ? '' : `/v${nestDefaultVersion}`;
     addCandidate({
@@ -2625,6 +2664,10 @@ const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
     pattern: /\b(?:npm\s+run|yarn|pnpm(?:\s+run)?)\s+(?:db[:-])?migrate(?::(?:deploy|latest|up|prod))?(?=\s|$|[&;"'\]])/,
     name: 'migrate script',
   },
+  // A binary's migrate SUBCOMMAND chained before the server (`./fider migrate && ./fider`).
+  { pattern: /(?:^|[\s"'&;|])\.{0,2}\/[\w./-]*[A-Za-z][\w-]*\s+migrate(?=\s*(?:&&|;|\|\||$|["']))/, name: 'binary migrate subcommand' },
+  // A wrapper script that forwards the prisma subcommands (`run-prisma-command.mjs migrate deploy`).
+  { pattern: /\bmigrate\s+deploy\b/, name: 'migrate deploy' },
   // A binary's own migrate-on-boot flag (`./app -migrate`).
   { pattern: /(?:^|[\s"',])--?(?:auto-)?migrate(?:=true)?(?=[\s"',\]]|$)/, name: 'binary migrate flag' },
 ];
@@ -2638,7 +2681,11 @@ const STARTUP_CODE_MIGRATION_PATTERNS: { all: RegExp[]; name: string }[] = [
   { all: [/\bnew\s+Umzug\b/, /\.up\s*\(/], name: 'umzug up()' },
   { all: [/drizzle-orm\/[\w-]+\/migrator/, /\bmigrate\s*\(/], name: 'drizzle migrate()' },
   { all: [/\bdb-migrate\b/, /\bgetInstance\s*\(/, /\.up\s*\(/], name: 'db-migrate up()' },
-  { all: [/(?<!\bfunction\s+)\b(?:runMigrations|migrateDb|checkPendingMigrations)\s*\(/], name: 'migration runner call' },
+  // A call, never a declaration (`async runMigrations(): Promise<void> {`).
+  {
+    all: [/(?<!\b(?:function|async|private|public|protected|static)\s+)\b(?:runMigrations|migrateDb|checkPendingMigrations)\s*\((?![^)]*\)\s*(?::\s*[\w<>[\]| ]+\s*)?\{)/],
+    name: 'migration runner call',
+  },
   { all: [/\bmigrationsRun\s*:\s*true\b/], name: 'typeorm migrationsRun' },
   {
     all: [/\b(?:exec|spawn)\w*\s*\(/, /prisma\s+migrate\s+deploy\b|["']migrate["']\s*,\s*["']deploy["']/],
@@ -2653,7 +2700,16 @@ const STARTUP_CODE_MIGRATION_PATTERNS: { all: RegExp[]; name: string }[] = [
 
 const APP_CODE_FILE_REGEX = /\.(?:[cm]?[jt]sx?|py|go)$/;
 // Migration definitions and seed data are never the code that runs them.
-const MIGRATION_DEFINITION_SEGMENT_REGEX = /(?:^|\/)(?:migrations?|seeds?|seeders?|cli)(?:\/|$)/i;
+// Browser, CLI-subcommand and test-setup files never run at server start.
+const MIGRATION_DEFINITION_SEGMENT_REGEX =
+  /(?:^|\/)(?:migrations?|seeds?|seeders?|cli|command-line|commands?|client|frontend|web-frontend|webapp|browser)(?:\/|$)|(?:^|\/)test-?setup\.[a-z]+$/i;
+// A file that stores data in the browser is front-end code: its `runMigrations()` upgrades local data.
+const BROWSER_STORAGE_REGEX = /\b(?:localStorage|sessionStorage|indexedDB)\b/;
+// Go files a server command runs, and the migrator calls they make.
+const GO_ENTRY_FILE_REGEX = /(?:^|\/)(?:main|web|server|serve|start|run)\.go$/;
+const GO_MIGRATOR_CALL_REGEX = /\b(?:migrations?\.(?:Up|UpWithFS|Migrate)|goose\.Up\w*|\w+\.AutoMigrate)\b/;
+// The extension-less scripts an s6-overlay image (`ENTRYPOINT ["/init"]`) runs at start.
+const S6_SCRIPT_PATH_REGEX = /(?:^|\/)s6-rc\.d\/[^/]+\/(?:run|up)$|(?:^|\/)cont-init\.d\/[^/]+$/;
 
 /** An `ENV RUN_MIGRATIONS=1` / `AUTO_MIGRATE=true` style switch in the Dockerfile. */
 const STARTUP_MIGRATION_ENV_REGEX =
@@ -2986,6 +3042,46 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     followScripts(`${cmd ?? ''} ${entry ?? ''}`, true);
   }
 
+  // A Procfile `web:` line starts the app. `release:` runs before deploy and is never startup.
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !PROCFILE_REGEX.test(path) || !isRuntimeSourcePath(path)) continue;
+    const web = /^web:\s*(.+)$/m.exec(content);
+    if (web?.[1]) consider(web[1], `Procfile web (${path})`, false);
+  }
+
+  if (dockerfile && /^\s*(?:ENTRYPOINT|CMD)\s+\[?\s*["']?\/init\b/m.test(dockerfile.content)) {
+    for (const [path, content] of Object.entries(tree)) {
+      if (content && S6_SCRIPT_PATH_REGEX.test(path)) consider(content, path, true);
+    }
+  }
+
+  // Go: a server command file that calls a migrator, or the package function it calls (`initialize.FullInit()`).
+  const imageRuntime = dockerfile ? startedRuntime(tree, productionStageText(dockerfile.content)) : null;
+  if (imageRuntime === null || imageRuntime === 'go') {
+    const goFiles = Object.entries(tree).filter(
+      ([path, content]) =>
+        content &&
+        /\.go$/.test(path) &&
+        isRuntimeSourcePath(path) &&
+        !/(?:^|\/)(?:gen|dump|tools?)\//.test(path) &&
+        !/migrat/i.test(path.split('/').pop() ?? ''),
+    );
+    for (const [path, content] of goFiles) {
+      if (!GO_ENTRY_FILE_REGEX.test(path)) continue;
+      const reached: [string, string][] = [[path, content]];
+      for (const [, pkg] of content.matchAll(/\b(\w+)\.(?:Full)?Init\w*\s*\(/g)) {
+        for (const [other, otherContent] of goFiles) {
+          if (other !== path && new RegExp(`(?:^|/)${pkg}/[^/]+\\.go$`).test(other)) reached.push([other, otherContent]);
+        }
+      }
+      for (const [file, text] of reached) {
+        if (GO_MIGRATOR_CALL_REGEX.test(text) && !evidence.some((entry) => entry.source === file)) {
+          evidence.push({ source: file, pattern: 'go migrator call on the start path', fromDockerCommand: true });
+        }
+      }
+    }
+  }
+
   for (const [path, content] of Object.entries(tree)) {
     if (chainVisited.has(path) || !content || !isRuntimeSourcePath(path)) continue;
     const basename = (path.split('/').pop() ?? '').toLowerCase();
@@ -3008,6 +3104,7 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
   for (const [path, content] of Object.entries(tree)) {
     if (chainVisited.has(path) || !content || !APP_CODE_FILE_REGEX.test(path) || !isRuntimeSourcePath(path)) continue;
     if (MIGRATION_DEFINITION_SEGMENT_REGEX.test(path) || cliStems.has(scriptStem(path))) continue;
+    if (BROWSER_STORAGE_REGEX.test(content)) continue;
     considerCode(path, true);
   }
 
@@ -5136,6 +5233,9 @@ const COMMAND_HOST_FLAG_REGEX = /(?:--host(?:name)?[=\s]+|-H\s+|-b\s+|--bind[=\s
 const DOCKERFILE_ENV_HOST_REGEX = /^\s*ENV\s+(?:HOST|HOSTNAME|BIND_ADDRESS)[=\s]+["']?(127\.0\.0\.1|localhost|0\.0\.0\.0)\b/m;
 const LOOPBACK_BY_DEFAULT_REGEX = /(?:^|\s)(?:uvicorn|flask\s+run)(?:\s|$)(?![^\n]*(?:--host|-h\s))/;
 const PROCFILE_REGEX = /(?:^|\/)Procfile$/;
+// A desktop shell (Electron, Tauri) listens on loopback by design and is never the deployed server.
+const DESKTOP_SEGMENT_REGEX = /(?:^|\/)(?:desktop|electron|tauri|src-tauri)(?:\/|$)/i;
+const ELECTRON_IMPORT_REGEX = /from\s+['"]electron['"]|require\(\s*['"]electron['"]\s*\)/;
 
 /** `["uvicorn", "main:app"]` (Dockerfile exec form) → `uvicorn main:app`. */
 function execFormToShell(command: string): string {
@@ -5180,9 +5280,15 @@ function startCommandTexts(tree: FileTree): { file: string; text: string }[] {
  */
 export function detectBindAddress(tree: FileTree): DetectorFinding {
   const loopback: string[] = [];
+  // A loopback literal in source is a default: an all-interfaces host in the production command overrides it.
+  const sourceLoopback: string[] = [];
   const allInterfaces: string[] = [];
 
   const dockerfile = selectedDockerfile(tree);
+  // What the image runs at start, including the shell script its ENTRYPOINT/CMD names.
+  const startText = dockerfile ? startCommandText(tree, productionStageText(dockerfile.content)) : '';
+  const startFlag = COMMAND_HOST_FLAG_REGEX.exec(startText);
+  if (startFlag?.[1] && !LOOPBACK_HOST.test(startFlag[1])) allInterfaces.push(`${startFlag[0].trim()} (start command)`);
   const envHost = dockerfile ? DOCKERFILE_ENV_HOST_REGEX.exec(dockerfile.content) : null;
   if (dockerfile && envHost?.[1]) {
     (LOOPBACK_HOST.test(envHost[1]) ? loopback : allInterfaces).push(`${envHost[0].trim()} (${dockerfile.path})`);
@@ -5200,25 +5306,30 @@ export function detectBindAddress(tree: FileTree): DetectorFinding {
 
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !isRuntimeSourcePath(path)) continue;
+    if (DESKTOP_SEGMENT_REGEX.test(path) || ELECTRON_IMPORT_REGEX.test(content)) continue;
     if (JS_SOURCE.test(path)) {
       for (const match of content.matchAll(LISTEN_CALL_REGEX)) {
         const args = match[1] ?? '';
-        if (LOOPBACK_LITERAL.test(args)) loopback.push(`listen(${args.trim()}) (${path})`);
+        if (LOOPBACK_LITERAL.test(args)) sourceLoopback.push(`listen(${args.trim()}) (${path})`);
         else if (ALL_INTERFACES_LITERAL.test(args)) allInterfaces.push(`listen(${args.trim()}) (${path})`);
       }
     } else if (PY_SOURCE.test(path)) {
-      if (PY_RUN_HOST_REGEX.test(content)) loopback.push(`server host set to a loopback address (${path})`);
+      // An `app.run(host=…)` counts only in a module the image runs (a dev `serve.py` is never started).
+      const module = (path.split('/').pop() ?? path).replace(/\.py$/, '');
+      const runByImage = startText === '' || startText.split(/[^\w-]+/).includes(module);
+      if (runByImage && PY_RUN_HOST_REGEX.test(content)) sourceLoopback.push(`server host set to a loopback address (${path})`);
       if (/gunicorn/i.test(path) && GUNICORN_CONF_BIND_REGEX.test(content)) {
-        loopback.push(`gunicorn bind on a loopback address (${path})`);
+        sourceLoopback.push(`gunicorn bind on a loopback address (${path})`);
       }
     } else if (GO_SOURCE.test(path)) {
       for (const match of content.matchAll(LISTEN_AND_SERVE_REGEX)) {
         const host = match[1] ?? '';
-        if (LOOPBACK_HOST.test(host)) loopback.push(`ListenAndServe("${host}:…") (${path})`);
+        if (LOOPBACK_HOST.test(host)) sourceLoopback.push(`ListenAndServe("${host}:…") (${path})`);
       }
     }
   }
 
+  if (allInterfaces.length === 0) loopback.push(...sourceLoopback);
   if (loopback.length > 0) {
     return {
       detector: 'bind-address',
