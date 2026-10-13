@@ -23,6 +23,7 @@ import {
   isWorkerServiceCommand,
   LANGUAGE_SOURCE_REGEX,
   listDockerfileCandidates,
+  listProductionComposeFiles,
   WORKER_SERVICE_NAME_REGEX,
 } from './detectors.js';
 import type { RedisRequirement } from './redis.js';
@@ -442,6 +443,8 @@ const CLICKHOUSE_TOKENS = [
 ] as const;
 const CLICKHOUSE_ECTO_ADAPTERS: readonly string[] = ['ecto_ch', 'clickhousex'];
 const CLICKHOUSE_ENV_REGEX = /^CLICKHOUSE_(?:URL|HOST|DATABASE_URL|DB_URL)$/;
+// ParadeDB, TimescaleDB and Citus images ship PostgreSQL extensions that Amazon RDS does not offer.
+const POSTGRES_EXTENSION_IMAGE_REGEX = /^(?:[\w.-]+(?::\d+)?\/)*(?:paradedb\/|timescale\/timescaledb|citusdata\/citus)/i;
 const EMBEDDED_JVM_DB_TOKENS = ['com.h2database', 'org.hsqldb', 'org.apache.derby'] as const;
 
 /**
@@ -474,6 +477,18 @@ export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding
         detected: true,
         dependency: 'clickhouse',
         reason: `Unsupported database driver: ${token}, and ${corroboration}. Deployz does not support ClickHouse.`,
+      };
+    }
+  }
+  for (const path of listProductionComposeFiles(tree)) {
+    const image = [...(tree[path] ?? '').matchAll(/^\s*image:\s*["']?([^\s"'#]+)/gm)]
+      .map((match) => match[1] ?? '')
+      .find((name) => POSTGRES_EXTENSION_IMAGE_REGEX.test(name));
+    if (image) {
+      return {
+        detected: true,
+        dependency: 'other-database',
+        reason: `Unsupported database: the production Compose file ${path} runs ${image}. The app needs a PostgreSQL extension that managed PostgreSQL (Amazon RDS) does not provide.`,
       };
     }
   }
@@ -524,7 +539,7 @@ function runtimeTree(tree: FileTree): FileTree {
 // the app, so they warn and never block (docs and example directories are
 // already outside `isRuntimeSourcePath`).
 const DEPLOYMENT_SAMPLE_DIR_REGEX =
-  /(?:^|\/)(?:charts?|helm|k8s|kube|kubernetes|deploy|deployments?|infra|infrastructure|terraform|contrib|install|[\w.-]+-docker)(?:\/|$)/i;
+  /(?:^|\/)(?:charts?|helm|k8s|kube|kubernetes|deploy|deployments?|infra|infrastructure|terraform|contrib|install|dogfood|scaletest|[\w.-]+-docker)(?:\/|$)/i;
 
 function outsideDeploymentSamples(paths: string[]): string[] {
   return paths.filter((path) => !DEPLOYMENT_SAMPLE_DIR_REGEX.test(path));
@@ -1081,10 +1096,17 @@ export function checkExplicitPersistentDataDir(tree: FileTree): RejectionFinding
  * config never declares app state.
  */
 function findExplicitDurableDir(tree: FileTree): string | null {
+  const selected = listDockerfileCandidates(tree)[0];
+  const dockerfileLines =
+    selected === undefined ? [] : (tree[selected] ?? '').replace(/^\s*#.*$/gm, '').replace(/\\\s*\r?\n\s*/g, ' ').split('\n');
+  // A configuration directory that the Dockerfile fills from the repository holds shipped
+  // configuration, not state the customer writes (data, home and storage variables stay durable).
+  const shippedConfigDir = (name: string, value: string): boolean =>
+    /CONFIG_DIR$/.test(name) && selected !== undefined && dockerfileCopiesInto(dockerfileLines, value);
   const isRuntimeDirVar = (name: string, value: string): boolean => {
     if (!DIRECTORY_VAR.test(name)) return false;
     if (value.includes('://')) return false;
-    return true;
+    return !shippedConfigDir(name, value);
   };
 
   // 1. Env-file declarations.
@@ -1101,13 +1123,12 @@ function findExplicitDurableDir(tree: FileTree): string | null {
   //    several variables on one logical line via `\` continuations, so
   //    continuation folds happen before scanning. Only the image Deployz
   //    builds counts, and only a durable-dir-named variable with a local value.
-  const selected = listDockerfileCandidates(tree)[0];
   if (selected !== undefined) {
     const folded = (tree[selected] ?? '').replace(/\\\s*\r?\n\s*/g, ' ');
     for (const m of folded.matchAll(/^\s*ENV\s+(.+)$/gm)) {
       for (const pair of (m[1] ?? '').split(/\s+(?=[A-Z][A-Z0-9_]*\s*=)/)) {
         const kv = /^([A-Z][A-Z0-9_]*)\s*=\s*"?([^"\s]+)/.exec(pair);
-        if (kv?.[1] && (isDurableImageDirVar(kv[1]) || isDataHomeVar(kv[1], kv[2] ?? '')) && isLocalDirValue(kv[2] ?? '')) {
+        if (kv?.[1] && (isDurableImageDirVar(kv[1]) || isDataHomeVar(kv[1], kv[2] ?? '')) && isLocalDirValue(kv[2] ?? '') && !shippedConfigDir(kv[1], kv[2] ?? '')) {
           return `${kv[1]}=${kv[2]} (${selected})`;
         }
       }
@@ -1125,7 +1146,7 @@ function findExplicitDurableDir(tree: FileTree): string | null {
       return 'THELOUNGE_HOME (runtime source)';
     }
     const ref = /(HOMEPAGE_CONFIG_DIR|[A-Z][A-Z0-9_]*_(?:DATA_DIR|CONFIG_DIR|DATA_FOLDER)|STORAGE_PATH)\b[^\n]*["'](\/[\w./-]+?)["']/.exec(content);
-    if (ref?.[1] && ref[2] && !ref[2].includes('://')) {
+    if (ref?.[1] && ref[2] && !ref[2].includes('://') && !shippedConfigDir(ref[1], ref[2])) {
       return `${ref[1]}=${ref[2]} (${path})`;
     }
     // Multiline fallback: `process.env.HOMEPAGE_CONFIG_DIR ? … : join(…, "config")`
@@ -1136,6 +1157,25 @@ function findExplicitDurableDir(tree: FileTree): string | null {
   }
 
   return null;
+}
+
+/** True when a COPY or ADD of the Dockerfile writes into the image directory, or copies the whole build context into one of its parents. */
+function dockerfileCopiesInto(dockerfileLines: string[], directory: string): boolean {
+  const target = directory.replace(/\/+$/, '');
+  for (const line of dockerfileLines) {
+    const match = /^\s*(?:COPY|ADD)\s+(.+)$/i.exec(line);
+    if (!match?.[1] || /--from=/i.test(match[1])) continue;
+    const words = match[1]
+      .replace(/[[\]",]/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word !== '' && !word.startsWith('--'));
+    const destination = words.at(-1)?.replace(/\/+$/, '');
+    if (destination === undefined || words.length < 2) continue;
+    if (destination === target) return true;
+    const wholeContext = words.slice(0, -1).some((source) => source === '.' || source === './');
+    if (wholeContext && target.startsWith(`${destination}/`)) return true;
+  }
+  return false;
 }
 
 /** A durable-dir name in the selected image's ENV. */
