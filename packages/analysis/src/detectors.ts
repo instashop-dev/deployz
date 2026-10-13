@@ -2002,6 +2002,28 @@ function goModuleImportedByRuntimeSource(tree: FileTree, module: string): boolea
 }
 
 /**
+ * True when runtime source or the image defaults an engine selector to a known engine
+ * (`DatabaseType.setDefault("sqlite")`): the app picks its engine at run time, so a
+ * declared driver exists for the other choice even when no fetched source imports it.
+ */
+function runtimeEngineSelectorDefault(tree: FileTree): boolean {
+  const isEngine = ([name, value]: [string, string]): boolean =>
+    DB_SELECTOR_NAME_REGEX.test(name) && (EMBEDDED_ENGINE_REGEX.test(value) || ENGINE_VALUE_REGEX.postgres.test(value));
+  const dockerfile = selectedDockerfile(tree);
+  return (
+    (dockerfile !== null && dockerfileEnvValues(dockerfile.content).some(isEngine)) ||
+    Object.entries(tree).some(
+      ([path, content]) =>
+        content &&
+        GO_SOURCE.test(path) &&
+        !/(?:^|\/)vendor\//.test(path) &&
+        isRuntimeSourcePath(path) &&
+        [...scanDefaultedEnvReads(content), ...scanViperEnvDefaults(content)].some(isEngine),
+    )
+  );
+}
+
+/**
  * True when a language-level driver signal comes from a manifest the
  * deployed app is built from (not a tool, test or docs manifest) and, for
  * Go, is a direct requirement rather than an `// indirect` one.
@@ -2014,7 +2036,7 @@ function languageDriverDeclaredAtRuntime(tree: FileTree, signal: string): boolea
     if (!isDependencyManifest(path) || !isRuntimeSourcePath(path)) return false;
     if (!GO_DEPENDENCY_FILES.test(path)) return true;
     const line = new RegExp(`^[^\\n]*${tokenPattern(token)}[^\\n]*$`, 'm').exec(tree[path] ?? '')?.[0] ?? '';
-    return !/\/\/\s*indirect/.test(line) && goModuleImportedByRuntimeSource(tree, token);
+    return !/\/\/\s*indirect/.test(line) && (goModuleImportedByRuntimeSource(tree, token) || runtimeEngineSelectorDefault(tree));
   });
 }
 
