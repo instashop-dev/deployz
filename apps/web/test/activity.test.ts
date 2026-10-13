@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { JARGON_PATTERN } from '@deployz/copy-map';
 
-import { activityFailureSummary, activityRawError, newestFirst } from '../src/lib/activity';
+import { activityEventLabel, activityFailureSummary, activityRawError, newestFirst } from '../src/lib/activity';
 import type { ActivityEvent } from '../src/lib/deployments';
 
 function event(overrides: Partial<ActivityEvent>): ActivityEvent {
@@ -81,5 +81,14 @@ describe('activityFailureSummary', () => {
       ),
     ).toBe('raw error text');
     expect(activityRawError(event({ result: 'success', payload: { error: 'ignored' } }))).toBeNull();
+  });
+});
+
+describe('activityEventLabel', () => {
+  it('does not claim a healthy install for a configured first start', () => {
+    expect(activityEventLabel(event({ eventType: 'install.completed' }))).toBe('Installed and healthy');
+    expect(
+      activityEventLabel(event({ eventType: 'install.completed', payload: { startAfterConfig: true } })),
+    ).toBe('Infrastructure ready');
   });
 });
