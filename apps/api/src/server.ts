@@ -3556,16 +3556,17 @@ export async function buildServer({
   });
 
   // §36 PATCH-only — mirrors POST but all-optional. `nullish` fields let the
-  // client clear a currently-set value by sending `null`; boolean columns are
-  // NOT NULL in the DB so they use `.optional()` (never null).
+  // client clear a currently-set value by sending `null`. For the boolean
+  // requirement fields `null` means "reset to the detected value" (the columns
+  // are NOT NULL, so the handler writes the detected value, never null).
   const patchApplicationBodySchema = z.object({
     name: z.string().min(1).optional(),
     containerPort: z.number().int().nullish(),
     healthPath: z.string().nullish(),
     migrationCommand: z.string().nullish(),
-    databaseRequired: z.boolean().optional(),
-    storageRequired: z.boolean().optional(),
-    redisRequired: z.boolean().optional(),
+    databaseRequired: z.boolean().nullish(),
+    storageRequired: z.boolean().nullish(),
+    redisRequired: z.boolean().nullish(),
     // Phase 2 manifest overrides — stored on detected_metadata.manifestOverrides.
     appRoot: z.string().nullish(),
     dockerfilePath: z.string().nullish(),
@@ -3776,9 +3777,16 @@ export async function buildServer({
     if (body.containerPort !== undefined) set.containerPort = body.containerPort ?? null;
     if (body.healthPath !== undefined) set.healthPath = body.healthPath ?? null;
     if (body.migrationCommand !== undefined) set.migrationCommand = body.migrationCommand ?? null;
-    if (body.databaseRequired !== undefined) set.databaseRequired = body.databaseRequired;
-    if (body.storageRequired !== undefined) set.storageRequired = body.storageRequired;
-    if (body.redisRequired !== undefined) set.redisRequired = body.redisRequired;
+    const detectedRequirements = readApplicationAnalysis(existing.detectedMetadata);
+    if (body.databaseRequired !== undefined) {
+      set.databaseRequired = body.databaseRequired ?? detectedRequirements?.database.required ?? false;
+    }
+    if (body.storageRequired !== undefined) {
+      set.storageRequired = body.storageRequired ?? detectedRequirements?.storage.objectStorageDetected ?? false;
+    }
+    if (body.redisRequired !== undefined) {
+      set.redisRequired = body.redisRequired ?? detectedRequirements?.redis.required ?? false;
+    }
 
     // Phase 2 manifest-only overrides (app root, Dockerfile, build
     // context/command, start command) have no applications column; they live

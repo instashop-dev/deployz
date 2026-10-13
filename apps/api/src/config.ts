@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, notInArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, ne, notInArray, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { DEFAULT_PENDING_SECRET_TTL_MS, deliversConfigValue, type EnvironmentSetting } from '@deployz/contracts';
@@ -913,8 +913,11 @@ function createApplicationOrganizationIdFinder(
  * secure storage existed) is excluded — its plaintext was already discarded,
  * so it can never actually reach a build or a deployment. Counting it as
  * "provided" is exactly the readiness-says-ready-but-nothing-arrives gap
- * this module closes. A customer-scope masked row stays counted: it may
- * already live in that customer's own Secrets Manager from an earlier write.
+ * this module closes. A customer-scope masked secret row is counted only
+ * while its value can still reach a deployment: an unexpired pending-secret
+ * row, or a live deployment of this customer whose secret store was already
+ * written by a finished configuration update. Otherwise the customer enters
+ * it again.
  */
 export async function listProvidedConfigKeys(
   db: RuntimeDb,
@@ -940,12 +943,80 @@ export async function listProvidedConfigKeys(
       ),
     );
   const settingsByKey = new Map((settings ?? []).map((setting) => [setting.key, setting]));
+  const customerSecretKeys = rows.filter((row) => row.customerId !== null && row.isSecret).map((row) => row.key);
+  const reachable =
+    customerId === null || customerSecretKeys.length === 0
+      ? new Set<string>()
+      : await reachableCustomerSecretKeys(db, applicationId, customerId, customerSecretKeys);
+  // A customer row wins over the vendor row for its key, so an unreachable
+  // customer secret leaves the key without a value even when the vendor has one.
+  const unreachable = new Set(
+    customerId === null ? [] : customerSecretKeys.filter((key) => !reachable.has(key)),
+  );
   const deliverable = rows.filter(
     (row) =>
       !(row.customerId === null && row.isSecret && row.encryptedValue === null) &&
+      !(row.customerId !== null && row.isSecret && unreachable.has(row.key)) &&
+      !(row.customerId === null && unreachable.has(row.key)) &&
       deliversConfigValue(settingsByKey.get(row.key), row.customerId === null ? 'vendor' : 'customer'),
   );
   return [...new Set(deliverable.map((row) => row.key))];
+}
+
+/**
+ * The customer secret keys whose value can still reach a deployment of this
+ * customer: held in an unexpired pending-secret row (staged, or bound to one
+ * of the customer's deployments), or already in the secret store of a live
+ * deployment that finished a configuration update.
+ */
+async function reachableCustomerSecretKeys(
+  db: RuntimeDb,
+  applicationId: string,
+  customerId: string,
+  keys: readonly string[],
+): Promise<Set<string>> {
+  const now = new Date();
+  const staged = await db
+    .select({ key: schema.pendingSecrets.key })
+    .from(schema.pendingSecrets)
+    .where(
+      and(
+        eq(schema.pendingSecrets.applicationId, applicationId),
+        eq(schema.pendingSecrets.customerId, customerId),
+        isNull(schema.pendingSecrets.deploymentId),
+        inArray(schema.pendingSecrets.key, [...keys]),
+        gt(schema.pendingSecrets.expiresAt, now),
+      ),
+    );
+  const bound = await db
+    .select({ key: schema.pendingSecrets.key })
+    .from(schema.pendingSecrets)
+    .innerJoin(schema.deployments, eq(schema.deployments.id, schema.pendingSecrets.deploymentId))
+    .where(
+      and(
+        eq(schema.deployments.applicationId, applicationId),
+        eq(schema.deployments.customerId, customerId),
+        inArray(schema.pendingSecrets.key, [...keys]),
+        gt(schema.pendingSecrets.expiresAt, now),
+      ),
+    );
+  const [configured] = await db
+    .select({ id: schema.deploymentJobs.id })
+    .from(schema.deploymentJobs)
+    .innerJoin(schema.deployments, eq(schema.deployments.id, schema.deploymentJobs.deploymentId))
+    .where(
+      and(
+        eq(schema.deployments.applicationId, applicationId),
+        eq(schema.deployments.customerId, customerId),
+        notInArray(schema.deployments.state, ['DELETING', 'DELETED']),
+        eq(schema.deploymentJobs.type, 'CONFIG_UPDATE'),
+        inArray(schema.deploymentJobs.state, ['SUCCEEDED', 'SUCCESS']),
+      ),
+    )
+    .limit(1);
+  return configured !== undefined
+    ? new Set(keys)
+    : new Set([...staged, ...bound].map((row) => row.key));
 }
 
 /**

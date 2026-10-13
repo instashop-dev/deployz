@@ -1275,11 +1275,11 @@ describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
     expect((response.json() as { healthPath: string | null }).healthPath).toBeNull();
   });
 
-  it('PATCH with databaseRequired: null returns 400 VALIDATION_ERROR', async () => {
-    const application = await insertApplication(db, org.organizationId);
+  it('PATCH with databaseRequired: null resets the column to the default when nothing was detected', async () => {
+    const application = await insertApplication(db, org.organizationId, { databaseRequired: true });
     const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { databaseRequired: null }, { cookie: org.cookie });
-    expect(response.statusCode).toBe(400);
-    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('VALIDATION_ERROR');
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { databaseRequired: boolean }).databaseRequired).toBe(false);
   });
 
   it('PATCH with identity-locked field silently ignores it', async () => {
@@ -3356,6 +3356,26 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
           .from(schema.deployments)
           .where(eq(schema.deployments.id, deployment.id));
         expect(JSON.stringify(row!.desiredState)).toBe(frozenBefore);
+      });
+
+      it('PATCH with null resets a requirement override to the detected value and releases ownership', async () => {
+        const application = await insertApplication(db, org.organizationId, {
+          analysisStatus: 'COMPLETE',
+          compatibilityStatus: 'READY',
+          databaseRequired: true,
+          detectedMetadata: { application: detected, vendorOverrides: ['databaseRequired'] },
+        });
+
+        const patch = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { databaseRequired: null }, { cookie: org.cookie });
+        expect(patch.statusCode, patch.body).toBe(200);
+
+        const body = patch.json() as { databaseRequired: boolean; detectedMetadata: { vendorOverrides: string[] } };
+        expect(body.databaseRequired).toBe(false);
+        expect(body.detectedMetadata.vendorOverrides).toEqual([]);
+
+        const response = await readinessBody(application.id);
+        const requirements = (response.json() as { requirements: { database: { effective: boolean; overridden: boolean } } }).requirements;
+        expect(requirements.database).toMatchObject({ effective: false, overridden: false });
       });
 
       it('a frozen manifest aligned with the effective requirements yields an empty array', async () => {
