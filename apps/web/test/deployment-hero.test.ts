@@ -314,6 +314,20 @@ describe('deriveHero', () => {
     expect(hero.title).toBe(REMOVED_PROGRESS.DELETING.title);
   });
 
+  it('DELETED with an active PURGE job reads as deleting retained data, then as removed', () => {
+    const running = deriveHero(
+      input({ state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE', jobs: [job({ type: 'PURGE', state: 'RUNNING' })] }),
+    );
+    expect(running.kind).toBe('deleting');
+    expect(running.tone).toBe('progress');
+    expect(running.title).toBe('Deleting retained data');
+    const done = deriveHero(
+      input({ state: 'DELETED', cleanupState: 'COMPLETE', jobs: [job({ type: 'PURGE', state: 'SUCCEEDED' })] }),
+    );
+    expect(done.kind).toBe('deleted');
+    expect(done.description).not.toContain('may still exist');
+  });
+
   it('DELETED explains what is left behind per cleanup state', () => {
     expect(deriveHero(input({ state: 'DELETED', cleanupState: 'COMPLETE' })).description).toContain(
       'removed everything',

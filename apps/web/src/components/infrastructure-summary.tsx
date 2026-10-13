@@ -15,6 +15,7 @@ import {
   infrastructureNotRequiredKinds,
   operationalComponentStatus,
   operationalSummaryStatus,
+  purgeProgress,
   showInfrastructureRows,
   visibleResources,
   type DeploymentState,
@@ -139,7 +140,8 @@ export function InfrastructureSummary({
   // (the manifest asked for it and it is not there).
   const notRequiredKinds = infrastructureNotRequiredKinds(infrastructure.expectations);
   const missingKinds = infrastructureMissingKinds(infrastructure.expectations, state);
-  const summaryStatus = operationalSummaryStatus(infrastructure, state);
+  const purge = purgeProgress(detail);
+  const summaryStatus = operationalSummaryStatus(infrastructure, state, purge);
   const resourceCount = infrastructure.components.reduce(
     (total, component) => total + visibleResources(component.resources, state).length,
     0,
@@ -161,7 +163,9 @@ export function InfrastructureSummary({
         ) : (
           <p className="flex items-center gap-2 text-sm font-medium">
             {SUMMARY_ICON[summaryStatus]}
-            {SUMMARY_LINE[summaryStatus]}
+            {purge === 'complete' && summaryStatus === 'retained'
+              ? 'Retained data was deleted.'
+              : SUMMARY_LINE[summaryStatus]}
           </p>
         )}
         {infrastructure.connectionState === 'disconnected' ? (
@@ -176,8 +180,8 @@ export function InfrastructureSummary({
         {infrastructure.components.length > 0 || notRequiredKinds.length > 0 || missingKinds.length > 0 ? (
           <ul aria-label="Services" className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
             {infrastructure.components.map((component) => {
-              const status = operationalComponentStatus(component, state);
-              const label = infrastructureComponentStatusLabel({ ...component, status });
+              const status = operationalComponentStatus(component, state, purge);
+              const label = infrastructureComponentStatusLabel({ ...component, status }, state);
               return (
                 <li key={component.kind} className="inline-flex min-w-0 items-center gap-1.5">
                   {STATUS_ICON[status]}
@@ -225,6 +229,7 @@ export function InfrastructureSummary({
               data={infrastructure}
               deploymentId={detail.id}
               deploymentState={detail.state}
+              purge={purge}
             />
           </CollapsibleContent>
         </Collapsible>

@@ -2,7 +2,7 @@ import type { VendorDeploymentStatus } from '@deployz/contracts';
 
 import { isTerminalStage, REMOVED_PROGRESS } from './deployment-progress';
 import type { DeploymentState } from './deployment-vocabulary';
-import { everInstalled } from './deployment-vocabulary';
+import { everInstalled, purgeProgress } from './deployment-vocabulary';
 import { isAppOwnedStartupFailure, STARTUP_FAILURE_TITLE } from './diagnostic-vocabulary';
 import type { DeploymentJob, FleetDeploymentDetail } from './deployments';
 import { formatReleaseVersion } from './release-version';
@@ -168,6 +168,17 @@ export function deriveHero(detail: HeroInput): HeroModel {
   const status = detail.deploymentStatus;
   const state = detail.state as DeploymentState;
   const installed = everInstalled(state, detail.currentReleaseId);
+
+  if (state === 'DELETED' && purgeProgress(detail) === 'running') {
+    return {
+      kind: 'deleting',
+      tone: 'progress',
+      title: 'Deleting retained data',
+      description: `Deployz is deleting the retained resources from ${detail.customerName}'s AWS account. This cannot be undone.`,
+      liveReleaseNote: null,
+      showSteps: false,
+    };
+  }
 
   if (state === 'DELETED') {
     const description =
