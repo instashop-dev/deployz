@@ -383,13 +383,18 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
  * (Stage A COMP-026).
  */
 export const INFRA_COMPOSE_IMAGE_REGEX =
-  /postgres|postgis|pgvector|pgadmin|adminer|mysql|mariadb|mssql|sqlserver|sql-edge|oracle|cockroach|mongo|redis|valkey|keydb|elasticsearch|opensearch|rabbitmq|kafka|zookeeper|nats|minio|seaweedfs|garage|memcached|localstack|azurite|mailhog|mailpit|maildev|mailcatcher|smtp|postfix|clickhouse|dynamodb|meilisearch|typesense|qdrant|weaviate|milvus|chroma|nginx|caddy|traefik|haproxy|httpd|keycloak|gotenberg|tika|browserless|chrome|chromium|playwright|searxng|rustfs|ollama|vllm|prometheus|grafana|loki|jaeger|tempo|otel|temporalio|getsentry\/spotlight|pictrs|spicedb|authzed|cubejs|hashicorp\/vault/i;
+  /postgres|postgis|pgvector|pgadmin|adminer|mysql|mariadb|mssql|sqlserver|sql-edge|oracle|cockroach|mongo|redis|valkey|keydb|elasticsearch|opensearch|rabbitmq|kafka|zookeeper|nats|minio|seaweedfs|garage|memcached|localstack|azurite|mailhog|mailpit|maildev|mailcatcher|smtp|postfix|clickhouse|dynamodb|meilisearch|typesense|qdrant|weaviate|milvus|chroma|nginx|caddy|traefik|haproxy|httpd|keycloak|gotenberg|tika|browserless|chrome|chromium|playwright|searxng|rustfs|ollama|vllm|prometheus|grafana|loki|jaeger|tempo|otel|temporalio|paradedb|pgautoupgrade|getsentry\/spotlight|pictrs|spicedb|authzed|cubejs|hashicorp\/vault/i;
 
 // A bare language runtime image or a front-end/ORM dev server is a tool the
 // stack runs next to the app (a build helper, a dev server, a database
 // studio), never the application image.
 const TOOL_COMPOSE_IMAGE_REGEX =
   /^(?:docker\.io\/)?(?:library\/)?(?:node|python|ruby|golang|php|openjdk|eclipse-temurin|maven|gradle|bun|deno|alpine|busybox|ubuntu|debian)(?:[:@]|$)/i;
+// A service that runs a database or cache server (its command, its health probe or its data
+// volume) is infrastructure even when its image name does not say so (`paradedb`). The
+// `POSTGRES_*` keys are not a signal: an application sets them to connect.
+const INFRA_COMPOSE_COMMAND_REGEX = /^(?:postgres|mysqld|mariadbd|mongod|redis-server|valkey-server|memcached)\b/i;
+const INFRA_COMPOSE_BODY_REGEX = /\bpg_isready\b|\bmysqladmin\s+ping\b|:\/var\/lib\/(?:postgresql|mysql)\b/;
 const DEV_TOOL_COMMAND_REGEX =
   /\b(?:vite|webpack(?:-dev-server)?|storybook|nodemon|ts-node-dev|tsx\s+watch|jest|vitest|prisma\s+studio|next\s+dev|(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|watch))\b|--watch\b/i;
 
@@ -408,7 +413,8 @@ export function composeApplicationServices(tree: FileTree): { file: string; serv
       (s) =>
         !s.optional &&
         (!s.image || (!INFRA_COMPOSE_IMAGE_REGEX.test(s.image) && !TOOL_COMPOSE_IMAGE_REGEX.test(s.image))) &&
-        !(s.command !== null && DEV_TOOL_COMMAND_REGEX.test(s.command)),
+        !(s.command !== null && (DEV_TOOL_COMMAND_REGEX.test(s.command) || INFRA_COMPOSE_COMMAND_REGEX.test(s.command))) &&
+        !INFRA_COMPOSE_BODY_REGEX.test(s.body),
     ),
   };
 }
@@ -502,8 +508,10 @@ const PY_DEV_GROUP_REGEX = new RegExp(String.raw`^\s*(?:${PY_DEV_GROUP})\s*=`);
 const PY_DEV_REQUIREMENTS_REGEX = /(?:^|\/)requirements[-_.](?:dev|test|tests|lint|docs|ci)[\w.-]*\.txt$/i;
 
 /** A dependency manifest's content without the Python dev-only declarations. */
-function runtimeManifestContent(path: string, content: string): string {
+function runtimeManifestContent(path: string, content: string, directOnly: boolean): string {
   if (PY_DEV_REQUIREMENTS_REGEX.test(path)) return '';
+  // A `// indirect` go.mod line is a transitive module, not something the app imports.
+  if (directOnly && GO_DEPENDENCY_FILES.test(path)) return content.split('\n').filter((line) => !/\/\/\s*indirect\b/.test(line)).join('\n');
   if (!/(?:^|\/)pyproject\.toml$/.test(path)) return content;
   let inDevTable = false;
   let inGroups = false;
@@ -529,9 +537,10 @@ function runtimeManifestContent(path: string, content: string): string {
  * specifier, a Python `import x` statement, or a language package-manager
  * install in a Dockerfile. Prose (READMEs, comments that
  * merely mention a product name) never counts — an undeclared mention is not
- * a dependency the app runs on.
+ * a dependency the app runs on. With `directOnly`, a `// indirect` go.mod
+ * line (a transitive module) is not a declaration.
  */
-export function findDependencyEvidence(tree: FileTree, token: string): string[] {
+export function findDependencyEvidence(tree: FileTree, token: string, directOnly = false): string[] {
   const evidence: string[] = [];
   for (const [path, content] of Object.entries(tree)) {
     if (!content) continue;
@@ -543,7 +552,7 @@ export function findDependencyEvidence(tree: FileTree, token: string): string[] 
       }
       continue;
     }
-    if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(runtimeManifestContent(path, content))) {
+    if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(runtimeManifestContent(path, content, directOnly))) {
       evidence.push(path);
       continue;
     }
@@ -639,33 +648,39 @@ function productionStageText(content: string): string {
   const clean = normalizeDockerfile(content);
   const stages = parseDockerfileStages(clean);
   if (stages.length === 0) return clean;
-  const lineageOf = (index: number): number[] => {
-    const chain = [index];
-    for (let current = index; ; ) {
-      const image = stages[current]!.image.toLowerCase();
-      let parent = -1;
-      for (let i = current - 1; i >= 0; i -= 1) {
-        if (stages[i]!.name === image || String(i) === image) {
-          parent = i;
-          break;
-        }
+  const firstFrom = clean.search(/^\s*FROM\s/im);
+  return `${firstFrom > 0 ? clean.slice(0, firstFrom) : ''}\n${stageLineageText(stages, productionStageIndex(stages))}`;
+}
+
+/** Stage indexes from the root of a stage's `FROM <stage>` lineage down to the stage itself. */
+function stageLineage(stages: DockerfileStage[], index: number): number[] {
+  const chain = [index];
+  for (let current = index; ; ) {
+    const image = stages[current]!.image.toLowerCase();
+    let parent = -1;
+    for (let i = current - 1; i >= 0; i -= 1) {
+      if (stages[i]!.name === image || String(i) === image) {
+        parent = i;
+        break;
       }
-      if (parent < 0) return chain.reverse();
-      chain.push(parent);
-      current = parent;
     }
-  };
-  const textOf = (index: number): string => lineageOf(index).map((i) => stages[i]!.body).join('\n');
-  let selected = stages.length - 1;
+    if (parent < 0) return chain.reverse();
+    chain.push(parent);
+    current = parent;
+  }
+}
+
+function stageLineageText(stages: DockerfileStage[], index: number): string {
+  return stageLineage(stages, index).map((i) => stages[i]!.body).join('\n');
+}
+
+/** The stage `docker build` produces: the last non-tooling stage whose lineage starts something, else the last stage. */
+function productionStageIndex(stages: DockerfileStage[]): number {
   for (let i = stages.length - 1; i >= 0; i -= 1) {
     const name = stages[i]!.name;
-    if ((name === null || !NON_RUNTIME_STAGE_NAME_REGEX.test(name)) && /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/im.test(textOf(i))) {
-      selected = i;
-      break;
-    }
+    if ((name === null || !NON_RUNTIME_STAGE_NAME_REGEX.test(name)) && /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/im.test(stageLineageText(stages, i))) return i;
   }
-  const firstFrom = clean.search(/^\s*FROM\s/im);
-  return `${firstFrom > 0 ? clean.slice(0, firstFrom) : ''}\n${textOf(selected)}`;
+  return stages.length - 1;
 }
 
 // A base image whose default command is a shell, and an interpreter or launcher that
@@ -738,7 +753,17 @@ function isUnusableDockerfile(path: string, content: string): boolean {
   return installsSystemPackages && !startsSomething && !copiesApp;
 }
 
-function compareDockerfileCandidates(tree: FileTree): (a: string, b: string) => number {
+function dockerfileStartsSomething(content: string): boolean {
+  return /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/im.test(productionStageText(content));
+}
+
+function dockerfileDeclaresPort(content: string): boolean {
+  const stage = productionStageText(content);
+  return exposedPorts(stage).length > 0 || DOCKERFILE_ENV_PORT_REGEX.test(stage);
+}
+
+// `tied` keeps the alphabetical tie unresolved, so the caller can see which candidates no signal separates.
+function compareDockerfileCandidates(tree: FileTree, tied = false): (a: string, b: string) => number {
   return (a, b) => {
     const aUnusable = isUnusableDockerfile(a, tree[a] ?? '');
     const bUnusable = isUnusableDockerfile(b, tree[b] ?? '');
@@ -767,8 +792,28 @@ function compareDockerfileCandidates(tree: FileTree): (a: string, b: string) => 
     const segmentDiff = (a.split('/').pop() ?? '').split('.').length - (b.split('/').pop() ?? '').split('.').length;
     if (segmentDiff !== 0) return segmentDiff;
 
-    return a.localeCompare(b);
+    // An image that starts something, and one that listens on a port, outranks one that does not.
+    const aStarts = dockerfileStartsSomething(tree[a] ?? '');
+    const bStarts = dockerfileStartsSomething(tree[b] ?? '');
+    if (aStarts !== bStarts) return aStarts ? -1 : 1;
+
+    const aPort = dockerfileDeclaresPort(tree[a] ?? '');
+    const bPort = dockerfileDeclaresPort(tree[b] ?? '');
+    if (aPort !== bPort) return aPort ? -1 : 1;
+
+    return tied ? 0 : a.localeCompare(b);
   };
+}
+
+/** The candidates that no ranking signal separates from the selected Dockerfile, or null when one candidate wins. */
+export function dockerfileSelectionTied(tree: FileTree): string[] | null {
+  const first = selectedDockerfile(tree)?.path;
+  if (first === undefined) return null;
+  const compare = compareDockerfileCandidates(tree, true);
+  const tiedWithFirst = listDockerfileCandidates(tree).filter(
+    (candidate) => !isUnusableDockerfile(candidate, tree[candidate] ?? '') && compare(first, candidate) === 0,
+  );
+  return tiedWithFirst.length > 1 ? tiedWithFirst : null;
 }
 
 /**
@@ -848,13 +893,14 @@ export function siblingAppFilter(tree: FileTree): (path: string) => boolean {
 // 2. Framework
 // ---------------------------------------------------------------------------
 
+// Nest runs on Express, so a Nest dependency names the framework before Express does.
 const KNOWN_FRAMEWORKS = [
+  'nest',
+  '@nestjs/core',
   'express',
   'fastify',
   'next',
   'nuxt',
-  'nest',
-  '@nestjs/core',
   'koa',
   'hapi',
   '@hapi/hapi',
@@ -863,9 +909,15 @@ const KNOWN_FRAMEWORKS = [
 
 /**
  * Detect the application framework from package.json dependencies.
- * Returns the first matching framework name.
+ * Returns the first matching framework name. An image that does not run Node
+ * has no Node framework: a desktop shell or docs site in the repository does
+ * not make a Go or Python image an Express app.
  */
 export function detectFramework(tree: FileTree): DetectorFinding {
+  if (selectedDockerfile(tree) !== null) {
+    const runtime = detectRuntime(tree);
+    if (runtime.detected && runtime.value !== 'node') return { detector: 'framework', detected: false };
+  }
   const deps = collectDependencyNames(tree);
   for (const framework of KNOWN_FRAMEWORKS) {
     if (deps.includes(framework)) {
@@ -1089,9 +1141,22 @@ export function detectPort(tree: FileTree): DetectorFinding {
     );
   }
 
-  // 4. Source code: process.env.PORT || fallback.
+  // 4. Exactly one application service of the production Compose file publishes
+  //    a port (host:container — the container side). A source default in a tree
+  //    of several apps may belong to a service behind that port.
+  const composeApps = composeApplicationServices(tree);
+  const publishers = (composeApps?.services ?? []).filter((service) => service.ports.some((mapping) => COMPOSE_PORT_MAPPING_REGEX.test(`- ${mapping}`)));
+  const publishedPort = publishers.length === 1 ? publishers[0]!.ports.map((mapping) => COMPOSE_PORT_MAPPING_REGEX.exec(`- ${mapping}`)?.[1]).find(Boolean) : undefined;
+  if (publishedPort) {
+    return result(
+      { value: publishedPort, source: 'compose', confidence: 'high', details: `Port ${publishedPort} detected in ${composeApps!.file} (ports mapping)` },
+      'compose',
+    );
+  }
+
+  // 5. Source code: process.env.PORT || fallback.
   for (const [path, content] of Object.entries(tree)) {
-    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
+    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) && isRuntimeSourcePath(path)) {
       const match = PORT_PROCESS_REGEX.exec(content);
       if (match?.[1]) {
         return result(
@@ -1102,10 +1167,9 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 5. The application service's production Compose port mapping
+  // 6. The application service's production Compose port mapping
   //    (host:container — the container side). A database, cache or proxy
   //    service's mapping is never the application's port.
-  const composeApps = composeApplicationServices(tree);
   for (const mapping of composeApps?.services.flatMap((service) => service.ports) ?? []) {
     const match = COMPOSE_PORT_MAPPING_REGEX.exec(`- ${mapping}`);
     if (match?.[1]) {
@@ -1116,7 +1180,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 6. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
+  // 7. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
   const literal = runtimeLiteralPort(tree);
   if (literal) {
     return result(
@@ -1125,7 +1189,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
     );
   }
 
-  // 7. Framework default — prefill only, never silently deployable.
+  // 8. Framework default — prefill only, never silently deployable.
   const frameworkDefault = frameworkDefaultPort(tree);
   if (frameworkDefault && LITERAL_PORT.test(frameworkDefault)) {
     return result(
@@ -2472,7 +2536,7 @@ export function detectS3(tree: FileTree): DetectorFinding {
     { token: 'ex_aws_s3', name: 'ex_aws_s3 (Elixir)' },
   ] as const;
   for (const { token, name } of LANGUAGE_S3_TOKENS) {
-    if (findDependencyEvidence(tree, token).length > 0 && !detected.includes(name)) {
+    if (findDependencyEvidence(tree, token, true).length > 0 && !detected.includes(name)) {
       detected.push(name);
     }
   }
@@ -3756,6 +3820,29 @@ function detectComposeBuildArgs(tree: FileTree): Map<string, string> {
 }
 
 /**
+ * A global `ARG NAME` with no default (before the first `FROM`) that a `FROM` of the
+ * production stage lineage reads (`FROM ${NAME}`) is a build input the image needs:
+ * without a value the base image is empty and the build fails (coder: `BASE_IMAGE`).
+ * An argument a production Compose file sets through `build.args` is not asked for.
+ */
+function detectBaseImageBuildArgs(tree: FileTree): Map<string, string> {
+  const found = new Map<string, string>();
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return found;
+  const content = normalizeDockerfile(dockerfile.content);
+  const stages = parseDockerfileStages(content);
+  if (stages.length === 0) return found;
+  const firstFrom = content.search(/^\s*FROM\s/im);
+  const globalArgs = firstFrom > 0 ? content.slice(0, firstFrom) : '';
+  const baseImages = stageLineage(stages, productionStageIndex(stages)).map((index) => stages[index]!.image);
+  for (const [, name] of globalArgs.matchAll(/^\s*ARG\s+([A-Z][A-Z0-9_]*)\s*$/gm)) {
+    const referenced = baseImages.some((image) => new RegExp(`\\$(?:${name}\\b|\\{${name}\\})`).test(image));
+    if (referenced) found.set(name!, `${dockerfile.path} build arg ${name} selects the base image; the build fails without it`);
+  }
+  return found;
+}
+
+/**
  * The §11.2 env-var model — every environment variable the app reads or
  * declares, with honest required/secret/source attributes.
  *
@@ -4422,7 +4509,8 @@ export function detectEnvVarModel(
   // (rallly: `SELF_HOSTED=true` switches Next.js to `output: standalone`, and the
   // Dockerfile copies that output). Deployz passes only vendor build values, so
   // the variable must be listed as required, with the compose value as evidence.
-  const composeBuildArgs = detectComposeBuildArgs(tree);
+  // An `ARG` that selects the base image is the same kind of input.
+  const composeBuildArgs = new Map([...detectBaseImageBuildArgs(tree), ...detectComposeBuildArgs(tree)]);
 
   // ── 3. Combine into the model. ──
   const keys = new Set<string>([
@@ -4703,7 +4791,10 @@ function imageName(image: string): string {
 
 function runtimeFromImage(image: string): RuntimeFamily | null {
   const name = imageName(image);
-  return RUNTIME_IMAGES.find(({ pattern }) => pattern.test(name))?.runtime ?? null;
+  const known = RUNTIME_IMAGES.find(({ pattern }) => pattern.test(name))?.runtime;
+  if (known !== undefined) return known;
+  // `astral-sh/uv:0.12-python3.14-trixie-slim` is a Python image with uv on top.
+  return /(?:^|\/)astral-sh\/uv$/.test(name) && /[:-]python\d/.test(image.split('@')[0] ?? image) ? 'python' : null;
 }
 
 interface DockerfileStage {
@@ -4804,21 +4895,24 @@ function runtimeFromCopiedStages(finalStage: DockerfileStage, stages: Dockerfile
 
 /**
  * Detect the runtime family the deployed container runs. The selected
- * Dockerfile decides first: the final stage's own base image when it is
- * itself a recognizable runtime; otherwise the runtime reached through that
- * stage's own `COPY --from=` references (see `runtimeFromCopiedStages`).
+ * Dockerfile decides first: the base image of the production stage or of the
+ * stage it is built `FROM` (walking the lineage from the leaf to the root);
+ * otherwise the runtime reached through the final stage's own `COPY --from=`
+ * references (see `runtimeFromCopiedStages`).
  * Without either, the shallowest dependency manifest decides — a root
- * `package.json` outranks a nested `requirements.txt`.
+ * `package.json` outranks a nested `requirements.txt`. A manifest that names
+ * no application (a `go.mod` with no Go source below it, a `package.json`
+ * with no dependencies) is tooling and decides only when nothing else remains.
  */
 export function detectRuntime(tree: FileTree): DetectorFinding {
   const dockerfile = selectedDockerfile(tree);
   if (dockerfile) {
-    const stages = parseDockerfileStages(dockerfile.content);
+    const stages = parseDockerfileStages(normalizeDockerfile(dockerfile.content));
     const finalStage = stages[stages.length - 1];
     if (finalStage) {
-      const ownRuntime = runtimeFromImage(finalStage.image);
-      const resolved = ownRuntime
-        ? { runtime: ownRuntime, image: finalStage.image }
+      const lineageStage = dockerfileStageChain(stages, productionStageIndex(stages)).find((stage) => runtimeFromImage(stage.image) !== null);
+      const resolved = lineageStage
+        ? { runtime: runtimeFromImage(lineageStage.image)!, image: lineageStage.image }
         : stages.length > 1
           ? runtimeFromCopiedStages(finalStage, stages)
           : null;
@@ -4834,10 +4928,18 @@ export function detectRuntime(tree: FileTree): DetectorFinding {
     }
   }
 
-  const manifests = Object.keys(tree)
+  const allPaths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS] ?? Object.keys(tree);
+  const isToolingManifest = (path: string): boolean => {
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+    if (GO_DEPENDENCY_FILES.test(path)) return !allPaths.some((candidate) => candidate.startsWith(dir) && GO_SOURCE.test(candidate));
+    if (PACKAGE_JSON_REGEX.test(path)) return collectDependencyNames({ [path]: tree[path] ?? '' }).length === 0;
+    return false;
+  };
+  const allManifests = Object.keys(tree)
     .filter((path) => RUNTIME_MANIFESTS.some(({ pattern }) => pattern.test(path)))
     .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
-  for (const path of manifests) {
+  const appManifests = allManifests.filter((path) => !isToolingManifest(path));
+  for (const path of appManifests.length > 0 ? appManifests : allManifests) {
     const runtime = RUNTIME_MANIFESTS.find(({ pattern }) => pattern.test(path))?.runtime;
     if (runtime) {
       return {
@@ -5251,6 +5353,20 @@ const DEV_ONLY_DOCKERFILE_REGEX =
   /(?:^|\/)(?:\.devcontainer|\.gitpod)\/|(?:^|\/)dockerfile(?:[.-]\w+)*[.-](?:dev|development|test|e2e|ci|gitpod)(?:[.-]\w+)*$|(?:^|\/)[\w-]*(?:dev|test|ci)[\w-]*\.dockerfile$/i;
 
 /**
+ * A Dockerfile whose name marks it for development (`Dockerfile.dev`) is dev-only when its
+ * content agrees: it runs a dev server, starts nothing, or builds nothing. A name alone is not
+ * evidence: a project can publish its production image from `Dockerfile.dev`.
+ */
+function isDevOnlyDockerfile(path: string, content: string): boolean {
+  if (!DEV_ONLY_DOCKERFILE_REGEX.test(path)) return false;
+  const lines = productionStageText(content).split('\n');
+  const start = lines.filter((line) => /^\s*(?:CMD|ENTRYPOINT)\b/i.test(line));
+  const runsDevServer = start.some((line) => DEV_RUNTIME_REGEX.test(line.replace(/["',[\]\s]+/g, ' ')));
+  const buildsSomething = lines.some((line) => /^\s*RUN\b.*\b(?:build|compile|publish)\b/i.test(line));
+  return runsDevServer || start.length === 0 || !buildsSomething;
+}
+
+/**
  * Why the repository has no Dockerfile that builds a production image, or
  * null when it has one or the evidence is incomplete (COMP-021). Complete
  * evidence needs the full tracked path list, every Dockerfile in it fetched,
@@ -5267,7 +5383,7 @@ export function detectUnbuildableDockerfile(tree: FileTree): string | null {
   if (tracked.length === 0) return 'No Dockerfile exists in the repository.';
 
   const buildable = tracked.filter(
-    (path) => !DEV_ONLY_DOCKERFILE_REGEX.test(path) && !isUnusableDockerfile(path, tree[path] ?? ''),
+    (path) => !isDevOnlyDockerfile(path, tree[path] ?? '') && !isUnusableDockerfile(path, tree[path] ?? ''),
   );
   if (buildable.length === 0) {
     return `The only Dockerfile${tracked.length > 1 ? 's are' : ' is'} for development or a template (${tracked.slice(0, 3).join(', ')}).`;
@@ -5335,4 +5451,67 @@ export function detectDockerfileBuildContext(tree: FileTree): DetectorFinding {
     details: `${dockerfile.path} is written for the repository root as its build context: ${[...evidence].join('; ')}`,
     source: 'dockerfile',
   };
+}
+
+/**
+ * Where a repository file lies in the runtime image of the selected Dockerfile: a path relative
+ * to the image's final `WORKDIR` (absolute when the file lies outside it). The build context
+ * follows `detectDockerfileBuildContext`; `COPY --from` is followed through the stages. Null when
+ * no `COPY` or `ADD` of the production lineage places the file. A repository path is not an
+ * image path (paperless: `COPY ./src ./` puts `src/manage.py` at `manage.py`).
+ */
+export function pathInRuntimeImage(tree: FileTree, repoPath: string): string | null {
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return null;
+  const stages = parseDockerfileStages(normalizeDockerfile(dockerfile.content));
+  if (stages.length === 0) return null;
+  const directory = dockerfile.path.includes('/') ? dockerfile.path.slice(0, dockerfile.path.lastIndexOf('/')) : '';
+  const contextDir = detectDockerfileBuildContext(tree).detected ? '' : directory;
+  const clean = (token: string): string => token.replace(/^[["']+|[\]",']+$/g, '');
+
+  // Where `target` (a context path, or a path in a source stage) lies in one stage's image, and that stage's WORKDIR.
+  const trace = (index: number, target: string, depth: number): { placed: string | null; workdir: string } => {
+    let placed: string | null = null;
+    let workdir = '/';
+    if (depth > stages.length) return { placed, workdir };
+    for (const lineageIndex of stageLineage(stages, index)) {
+      for (const line of stages[lineageIndex]!.body.split('\n')) {
+        const dir = /^\s*WORKDIR\s+(\S+)/i.exec(line)?.[1];
+        if (dir !== undefined) {
+          workdir = posixPath.resolve(workdir, clean(dir));
+          continue;
+        }
+        const args = /^\s*(?:COPY|ADD)\s+(.+)$/i.exec(line)?.[1];
+        if (args === undefined) continue;
+        const fromStage = /--from=(\S+)/.exec(args)?.[1];
+        const tokens = args.trim().split(/\s+/).filter((token) => !token.startsWith('--')).map(clean);
+        if (tokens.length < 2 || tokens.some((token) => /[$*?<]|:\/\//.test(token))) continue;
+        let source = { path: target, workdir: contextDir };
+        if (fromStage !== undefined) {
+          const sourceStage = resolveDockerfileStage(fromStage, stages, lineageIndex);
+          if (sourceStage === undefined) continue;
+          const upstream = trace(stages.indexOf(sourceStage), target, depth + 1);
+          if (upstream.placed === null) continue;
+          source = { path: upstream.placed, workdir: upstream.workdir };
+        }
+        const dest = tokens.pop()!;
+        const destination = posixPath.resolve(workdir, dest);
+        for (const token of tokens) {
+          const sourcePath = fromStage === undefined ? posixJoin(source.workdir, token) : posixPath.resolve(source.workdir, token);
+          if (source.path === sourcePath) {
+            const intoDirectory = dest.endsWith('/') || dest === '.' || tokens.length > 1;
+            placed = intoDirectory ? posixPath.join(destination, posixPath.basename(source.path)) : destination;
+          } else if (sourcePath === '' || source.path.startsWith(`${sourcePath === '/' ? '' : sourcePath}/`)) {
+            placed = posixPath.join(destination, sourcePath === '' ? source.path : source.path.slice(sourcePath === '/' ? 1 : sourcePath.length + 1));
+          }
+        }
+      }
+    }
+    return { placed, workdir };
+  };
+
+  const { placed, workdir } = trace(productionStageIndex(stages), repoPath, 0);
+  if (placed === null) return null;
+  const relative = posixPath.relative(workdir, placed);
+  return relative.startsWith('..') ? placed : relative;
 }
