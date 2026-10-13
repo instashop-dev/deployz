@@ -21,14 +21,13 @@ export interface ConnectorUpdateConfig {
   deployableRegions: readonly string[];
 }
 
-export function connectorUpdateOffer(
-  deployment: { region: string; state: string; relayBoundAt: Date | null; bootstrapStackName: string | null },
+/** Console page of an existing connector stack and the template to choose when updating it. */
+export function connectorUpdateLinks(
+  region: string,
+  stackName: string | null,
   config: ConnectorUpdateConfig,
-): ConnectorUpdateOffer | null {
-  if (deployment.relayBoundAt === null || deployment.state === 'DELETING' || deployment.state === 'DELETED') {
-    return null;
-  }
-  const latest = resolveBootstrapTemplate(deployment.region, {
+): { updateUrl: string; templateUrl: string | null } {
+  const latest = resolveBootstrapTemplate(region, {
     ...(config.legacyUrl ? { legacyUrl: config.legacyUrl } : {}),
     deployableRegions: config.deployableRegions,
   });
@@ -39,12 +38,22 @@ export function connectorUpdateOffer(
           `/versions/${config.buildId}/${BOOTSTRAP_TEMPLATE_KEY}`,
         )
       : (latest ?? null);
-  const filter = deployment.bootstrapStackName
-    ? `&filteringText=${encodeURIComponent(deployment.bootstrapStackName)}`
-    : '';
+  const filter = stackName ? `&filteringText=${encodeURIComponent(stackName)}` : '';
+  return {
+    updateUrl: `https://${region}.console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(region)}#/stacks?filteringStatus=active${filter}`,
+    templateUrl,
+  };
+}
+
+export function connectorUpdateOffer(
+  deployment: { region: string; state: string; relayBoundAt: Date | null; bootstrapStackName: string | null },
+  config: ConnectorUpdateConfig,
+): ConnectorUpdateOffer | null {
+  if (deployment.relayBoundAt === null || deployment.state === 'DELETING' || deployment.state === 'DELETED') {
+    return null;
+  }
   return {
     publishedBuildId: config.buildId ?? null,
-    updateUrl: `https://${deployment.region}.console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(deployment.region)}#/stacks?filteringStatus=active${filter}`,
-    templateUrl,
+    ...connectorUpdateLinks(deployment.region, deployment.bootstrapStackName, config),
   };
 }

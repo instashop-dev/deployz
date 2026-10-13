@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 
 import { CustomerInstallSections } from '@/components/customer-install-sections';
 import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-invalid-state';
+import { ExistingConnectorUpdate } from '@/components/existing-connector-update';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
@@ -84,7 +85,7 @@ export default async function DeployPage({
           installLinkId={publicId}
           deploymentId=""
           initialStatus={initialStatus}
-          quickCreateUrl={data.quickCreateUrl}
+          quickCreateUrl={data.quickCreateUrl ?? data.existingStackUpdate?.consoleUrl ?? null}
           initialDomain={data.domain}
           routingTarget={data.routingTarget}
           plan={data.plan}
@@ -154,6 +155,13 @@ export default async function DeployPage({
           securityHref={securityHref}
         />
 
+        {data.existingStackUpdate ? (
+          <ExistingConnectorUpdate
+            installLinkId={publicId}
+            update={data.existingStackUpdate}
+            deployLink={deployLink}
+          />
+        ) : (
         <section aria-labelledby="connect-aws" className="flex flex-col gap-3">
           <h2 id="connect-aws" className="text-base font-semibold">
             Connect AWS account
@@ -185,6 +193,7 @@ export default async function DeployPage({
             No Deployz account needed.
           </p>
         </section>
+        )}
 
         <PoweredBy />
       </div>
@@ -207,7 +216,7 @@ export default async function DeployPage({
         installLinkId={publicId}
         deploymentId=""
         initialStatus={initialStatus}
-        quickCreateUrl={data.quickCreateUrl}
+        quickCreateUrl={data.quickCreateUrl ?? data.existingStackUpdate?.consoleUrl ?? null}
         initialDomain={data.domain}
         routingTarget={data.routingTarget}
         plan={data.plan}

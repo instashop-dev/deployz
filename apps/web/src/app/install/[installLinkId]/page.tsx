@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 
 import { CustomerInstallSections } from '@/components/customer-install-sections';
+import { ExistingConnectorUpdate } from '@/components/existing-connector-update';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallLoadError } from '@/components/install-load-error';
 import { InstallProgress } from '@/components/install-progress';
@@ -133,7 +134,7 @@ export default async function InstallPage({
           installLinkId={installLinkId}
           deploymentId={data.deploymentId}
           initialStatus={initialStatus}
-          quickCreateUrl={data.quickCreateUrl}
+          quickCreateUrl={data.quickCreateUrl ?? data.existingStackUpdate?.consoleUrl ?? null}
           initialDomain={data.domain}
           routingTarget={data.routingTarget}
           preinstall
@@ -212,7 +213,7 @@ export default async function InstallPage({
             installLinkId={installLinkId}
             deploymentId={data.deploymentId}
             initialStatus={initialStatus}
-            quickCreateUrl={data.quickCreateUrl}
+            quickCreateUrl={data.quickCreateUrl ?? data.existingStackUpdate?.consoleUrl ?? null}
             initialDomain={data.domain}
             routingTarget={data.routingTarget}
           />
@@ -269,6 +270,9 @@ export default async function InstallPage({
 
           <CustomerInstallSections plan={data.plan} />
 
+          {data.existingStackUpdate ? (
+            <ExistingConnectorUpdate installLinkId={installLinkId} update={data.existingStackUpdate} />
+          ) : (
           <section aria-labelledby="connect-aws" className="flex flex-col gap-2">
             <h2 id="connect-aws" className="sr-only">
               Connect AWS account
@@ -296,6 +300,7 @@ export default async function InstallPage({
               Deployz account needed.
             </p>
           </section>
+          )}
 
           <TechnicalDetails className="border-t pt-4">
             <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">

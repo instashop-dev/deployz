@@ -8,7 +8,7 @@ import type { CustomerDeploymentStatus, DeploymentPlan } from '@deployz/contract
 
 import { apiUrl, serverApiUrl } from '@/lib/api-url';
 import type { CustomDomainView } from '@/lib/domains';
-import { InstallRetryError } from '@/lib/install-data';
+import { InstallRetryError, type ExistingStackUpdate } from '@/lib/install-data';
 
 /** The secret half of a deploy link, as the /deploy page carries it. */
 export interface DeployLinkToken {
@@ -29,6 +29,7 @@ export interface DeployLinkData {
   waitingForRelay: boolean;
   relayStuck: boolean;
   quickCreateUrl: string | null;
+  existingStackUpdate: ExistingStackUpdate | null;
   domain: CustomDomainView | null;
   /** The CNAME target a customer without a custom domain yet would point at. */
   routingTarget: string | null;

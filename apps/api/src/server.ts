@@ -275,7 +275,7 @@ import {
   toDomainView,
   type CustomDomainRow,
 } from './domains.js';
-import { connectorUpdateOffer, type ConnectorUpdateOffer } from './connector-update.js';
+import { connectorUpdateLinks, connectorUpdateOffer, type ConnectorUpdateOffer } from './connector-update.js';
 import {
   deriveDeploymentStatus,
   endpointHttpsState,
@@ -720,11 +720,18 @@ function deployLinkQuickCreateUrl(input: {
   appName: string;
   attemptNumber: number;
   bootstrapStackName: string | null;
+  previousBootstrapStackName?: string | null;
   enrollmentCode: string;
   enrollmentUsedAt: Date | null;
   relayCredential?: string | null;
 }): string | null {
   if (input.enrollmentUsedAt !== null) return null;
+  if (
+    input.bootstrapStackName !== null &&
+    input.bootstrapStackName === input.previousBootstrapStackName
+  ) {
+    return null;
+  }
   const stackName =
     input.bootstrapStackName ??
     bootstrapStackName({
@@ -756,6 +763,48 @@ function connectorUpdateFor(deployment: DeploymentRow): ConnectorUpdateOffer | n
     legacyUrl: env.bootstrapTemplateUrl,
     deployableRegions: env.deployableAwsRegions,
   });
+}
+
+// A reset of a deployment that was installed before keeps its bootstrap stack
+// name, because the connector stack still exists in the customer's account: a
+// Quick Create would fail with AlreadyExists. The customer instead UPDATES that
+// stack with the new relay credential and enrollment code. Null for any other
+// deployment (including a never-installed reset, which gets a fresh stack name).
+function existingStackUpdateFor(input: {
+  region: DeploymentRow['region'];
+  bootstrapStackName: string | null;
+  previousBootstrapStackName: string | null;
+  enrollmentCode: string;
+  enrollmentUsedAt: Date | null;
+  relayCredential: string | null;
+}): {
+  stackName: string;
+  consoleUrl: string;
+  templateUrl: string | null;
+  enrollmentCode: string;
+  relayCredential: string | null;
+  controlPlaneUrl: string;
+} | null {
+  if (
+    input.enrollmentUsedAt !== null ||
+    input.bootstrapStackName === null ||
+    input.bootstrapStackName !== input.previousBootstrapStackName
+  ) {
+    return null;
+  }
+  const links = connectorUpdateLinks(input.region, input.bootstrapStackName, {
+    buildId: env.bootstrapBuildId,
+    legacyUrl: env.bootstrapTemplateUrl,
+    deployableRegions: env.deployableAwsRegions,
+  });
+  return {
+    stackName: input.bootstrapStackName,
+    consoleUrl: links.updateUrl,
+    templateUrl: links.templateUrl,
+    enrollmentCode: input.enrollmentCode,
+    relayCredential: input.relayCredential,
+    controlPlaneUrl: env.apiUrl,
+  };
 }
 
 /**
@@ -2878,6 +2927,7 @@ export async function buildServer({
         customerId: schema.deployments.customerId,
         attemptNumber: schema.deployments.attemptNumber,
         bootstrapStackName: schema.deployments.bootstrapStackName,
+        previousBootstrapStackName: schema.deployments.previousBootstrapStackName,
         installStartedAt: schema.deployments.installStartedAt,
         installLinkExpiresAt: schema.deployments.installLinkExpiresAt,
         installLinkRevokedAt: schema.deployments.installLinkRevokedAt,
@@ -3003,7 +3053,7 @@ export async function buildServer({
       // DZ-AUDIT-013: the relayCredential is carried alongside the enrollment
       // code whenever one has been established. Spent codes get no link.
       quickCreateUrl:
-        !alreadyInstalled
+        !alreadyInstalled && existingStackUpdateFor(row) === null
           ? (() => {
               const templateUrl = resolveBootstrapTemplate(row.region, {
                 ...(env.bootstrapTemplateUrl
@@ -3023,6 +3073,7 @@ export async function buildServer({
                 : null;
             })()
           : null,
+      existingStackUpdate: existingStackUpdateFor(row),
       alreadyInstalled,
     };
     },
@@ -4459,10 +4510,12 @@ export async function buildServer({
           appName: application.name,
           attemptNumber: deployment.attemptNumber,
           bootstrapStackName: deployment.bootstrapStackName,
+          previousBootstrapStackName: deployment.previousBootstrapStackName,
           enrollmentCode: deployment.enrollmentCode,
           enrollmentUsedAt: deployment.enrollmentUsedAt,
           relayCredential: deployment.relayCredential,
         }),
+        existingStackUpdate: existingStackUpdateFor(deployment),
         domain: domain ? toDomainView(domain) : null,
         routingTarget: domain?.routingTarget ?? null,
         status: toCustomerDeploymentStatus(derived),
@@ -7756,7 +7809,7 @@ export async function buildServer({
       // Anything else is a second party trying to take the deployment over.
       // Refusing (rather than rebinding, which is what this route used to do)
       // is what keeps the real relay connected; the vendor recovers with
-      // "Reconnect relay", which mints a fresh code.
+      // "Issue new install link", which mints a fresh code and credential.
       await recordEvent(db, {
         organizationId: deployment.organizationId,
         eventType: 'install.enrollment.rejected',
@@ -7770,7 +7823,7 @@ export async function buildServer({
       throw new ApiError(
         409,
         'RELAY_ALREADY_ENROLLED',
-        'This installation is already connected. Ask the vendor to reconnect it before installing again.',
+        'This installation is already connected. To install again, ask the software provider to issue a new install link, then update the existing connector stack in your AWS account with the new RelayCredential and EnrollmentCode. Do not create a second stack.',
       );
     }
 
@@ -7943,7 +7996,7 @@ export async function buildServer({
       throw new ApiError(
         409,
         'RELAY_ALREADY_ENROLLED',
-        'This installation is already connected. Ask the vendor to reconnect it before installing again.',
+        'This installation is already connected. To install again, ask the software provider to issue a new install link, then update the existing connector stack in your AWS account with the new RelayCredential and EnrollmentCode. Do not create a second stack.',
       );
     }
 

@@ -28,6 +28,8 @@ interface InstallData {
    * template is published yet.
    */
   quickCreateUrl: string | null;
+  /** Set instead of `quickCreateUrl` when the connector stack already exists in the customer's account (a reconnect): they update it. */
+  existingStackUpdate: ExistingStackUpdate | null;
   /** True once a relay has enrolled — the link has already been used. */
   alreadyInstalled: boolean;
   /** The deployment this install link names — needed once installed, to scope the domain card. */
@@ -49,6 +51,16 @@ interface InstallData {
   relayStuck: boolean;
   /** §24 component view, same derivation the fleet row uses. Null until enrolled. */
   components: Record<string, string> | null;
+}
+
+/** The connector stack that already exists in the customer's account; a reconnect updates it. */
+export interface ExistingStackUpdate {
+  stackName: string;
+  consoleUrl: string;
+  templateUrl: string | null;
+  enrollmentCode: string;
+  relayCredential: string | null;
+  controlPlaneUrl: string;
 }
 
 /** The outcome of resolving a public install link. */

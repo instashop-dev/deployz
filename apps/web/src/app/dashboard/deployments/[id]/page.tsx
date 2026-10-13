@@ -2166,7 +2166,8 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            A new link invalidates the old one.
+            A new link invalidates the old one. If the connector is already installed, the customer
+            updates the existing connector stack with the new values on the link page.
           </p>
           {stuck ? (
             <div className="flex flex-col gap-1">

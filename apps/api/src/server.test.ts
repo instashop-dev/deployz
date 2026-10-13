@@ -5261,6 +5261,62 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(dep!.enrollmentCode).not.toBe(deployment.enrollmentCode);
   });
 
+  it('relay/reset of an installed deployment offers an update of the existing connector stack, never a Quick Create', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Update Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const installLinkId = crypto.randomUUID();
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      installLinkId,
+      installationId: 'inst-installed',
+      bootstrapStackName: 'deployz-update-reset-app-1',
+      enrollmentUsedAt: new Date(),
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+    const reset = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(reset.statusCode).toBe(200);
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.bootstrapStackName).toBe('deployz-update-reset-app-1');
+
+    const page = (await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })).json() as {
+      quickCreateUrl: string | null;
+      existingStackUpdate: Record<string, unknown> | null;
+    };
+    expect(page.quickCreateUrl).toBeNull();
+    expect(page.existingStackUpdate).toMatchObject({
+      stackName: 'deployz-update-reset-app-1',
+      enrollmentCode: dep!.enrollmentCode,
+      relayCredential: dep!.relayCredential,
+    });
+    expect(String(page.existingStackUpdate!.consoleUrl)).toContain('filteringText=deployz-update-reset-app-1');
+  });
+
+  it('relay/reset of a never-installed deployment keeps a Quick Create link with a fresh stack name', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Fresh Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const installLinkId = crypto.randomUUID();
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installLinkId,
+      bootstrapStackName: 'deployz-fresh-reset-app-0',
+    });
+    const reset = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(reset.statusCode).toBe(200);
+    const page = (await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })).json() as {
+      quickCreateUrl: string | null;
+      existingStackUpdate: unknown;
+    };
+    expect(page.existingStackUpdate).toBeNull();
+    expect(page.quickCreateUrl).not.toBeNull();
+  });
+
   it('relay/reset records the PREVIOUS installationId/bootstrapStackName for a later purge (§9.6)', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'Reset Tracking App' });
     const customer = await insertCustomer(db, org.organizationId);

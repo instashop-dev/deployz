@@ -625,7 +625,7 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
   RELAY_DISCONNECTED: {
     what: 'The helper running in your customer’s cloud account stopped checking in.',
     why: 'It was removed, it lost its credential, or the account can no longer reach Deployz.',
-    fix: 'Use Reconnect relay on this deployment and ask your customer to run the install link again.',
+    fix: 'Use Issue new install link on this deployment. Your customer then updates the existing connector stack in their AWS account with the new RelayCredential and EnrollmentCode.',
   },
   ECS_DEPLOYMENT_FAILED: {
     what: 'The new version could not be rolled out.',
