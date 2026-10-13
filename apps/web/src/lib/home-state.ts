@@ -29,8 +29,10 @@ export function attentionReason(deployment: FleetDeployment): string | null {
     return null;
   }
   if (deployment.relayStatus === 'DISCONNECTED') return 'Lost contact with this deployment';
-  if (deployment.healthStatus === 'UNHEALTHY') return 'Health check failing';
-  if (deployment.healthStatus === 'DEGRADED') return 'Health check degraded';
+  // Every workload intentionally at zero tasks is not an outage.
+  const notStarted = deployment.deploymentStatus?.health?.notStarted === true;
+  if (!notStarted && deployment.healthStatus === 'UNHEALTHY') return 'Health check failing';
+  if (!notStarted && deployment.healthStatus === 'DEGRADED') return 'Health check degraded';
   // The latest day-2 attempt failed while the previous release still serves
   // (the API only sets this once a later release fails after an earlier one
   // succeeded — see apps/api/src/deployment-status.ts).

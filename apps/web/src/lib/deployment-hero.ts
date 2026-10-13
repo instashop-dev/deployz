@@ -19,6 +19,7 @@ export type HeroKind =
   | 'live'
   | 'degraded'
   | 'unhealthy'
+  | 'not-started'
   | 'lost-contact'
   | 'updating'
   | 'operation-failed'
@@ -294,6 +295,16 @@ export function deriveHero(detail: HeroInput): HeroModel {
       };
     }
     const health = status.health.status;
+    if (status.health.notStarted) {
+      return {
+        kind: 'not-started',
+        tone: 'neutral',
+        title: 'Your application is not started',
+        description: `${releaseLabel(detail.version)} is configured and waiting for its first start. Deploy it to start the application.`,
+        liveReleaseNote: null,
+        showSteps: false,
+      };
+    }
     if (health === 'UNHEALTHY') {
       return {
         kind: 'unhealthy',

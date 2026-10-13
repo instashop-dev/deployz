@@ -10,7 +10,7 @@ import { makeInfrastructureResponse } from './fixtures/infrastructure';
 // failed custom domain into the endpoint's HTTPS state, and that retry
 // cannot repair it.
 
-function render(customDomainFailed: boolean): string {
+function render(customDomainFailed: boolean, defaultHttpsStatus = 'ERROR'): string {
   const endpoint: InfrastructureComponent = {
     kind: 'endpoint',
     name: 'Endpoint',
@@ -21,7 +21,7 @@ function render(customDomainFailed: boolean): string {
     lifecycle: 'delete',
     resources: [],
     httpsState: 'FAILED',
-    defaultHttpsStatus: 'ERROR',
+    defaultHttpsStatus,
   };
   return renderToString(
     <InfrastructureSection
@@ -40,5 +40,9 @@ describe('Retry HTTPS setup', () => {
 
   it('is not offered when the custom domain is the failure', () => {
     expect(render(true)).not.toContain('Retry HTTPS setup');
+  });
+
+  it('is not offered when the default HTTPS setup is not in error', () => {
+    expect(render(false, 'ACTIVE')).not.toContain('Retry HTTPS setup');
   });
 });

@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 
 import { PreflightSummary } from '@/components/preflight-summary';
 import { ActivityFeed } from '@/components/activity-feed';
+import { ConnectorUpdateAlert } from '@/components/connector-update-alert';
 import { DeploymentHero } from '@/components/deployment-hero';
 import { StatusBadge } from '@/components/status-badge';
 import { TechnicalDetails } from '@/components/technical-details';
@@ -137,7 +138,7 @@ import {
   updateTargetRelease,
   type Release,
 } from '@/lib/releases';
-import { formatReleaseVersion } from '@/lib/release-version';
+import { formatReleaseVersion, runningReleaseDisplay } from '@/lib/release-version';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 type DetailState =
@@ -495,6 +496,8 @@ function DetailBody({
         </DeploymentHero>
       </section>
 
+      <ConnectorUpdateAlert connector={detail.deploymentStatus.connector} customerName={detail.customerName} />
+
       {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY' ? (
         <InstallLinkCard detail={detail} />
       ) : null}
@@ -538,6 +541,7 @@ function DetailBody({
 function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
   const created = new Date(detail.createdAt);
   const regionName = REGION_LABELS[detail.region as Region];
+  const release = runningReleaseDisplay(detail.version, detail.deploymentStatus.servingRelease.confirmed);
 
   return (
     <section aria-labelledby="overview">
@@ -562,11 +566,12 @@ function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
         <MetaRow
           label="Running release"
           value={
-            detail.version ? (
-              <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span>
-            ) : (
-              'Not deployed yet'
-            )
+            <>
+              <span className={detail.version ? 'tabular-nums' : undefined}>{release.text}</span>
+              {release.note ? (
+                <span className="block text-xs font-normal text-muted-foreground">{release.note}</span>
+              ) : null}
+            </>
           }
         />
         {/* Paddle migration Phase 11 — the vendor's one-line answer to "what
