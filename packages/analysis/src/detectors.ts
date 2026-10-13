@@ -5406,6 +5406,8 @@ export function detectBindAddress(tree: FileTree): DetectorFinding {
       loopback.push(`${text.trim()} binds 127.0.0.1 by default (${file})`);
     }
   }
+  // Only the start command or the image ENV overrides a source default; another file's 0.0.0.0 does not.
+  const commandBindsAllInterfaces = allInterfaces.length > 0;
 
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !isRuntimeSourcePath(path)) continue;
@@ -5432,7 +5434,7 @@ export function detectBindAddress(tree: FileTree): DetectorFinding {
     }
   }
 
-  if (allInterfaces.length === 0) loopback.push(...sourceLoopback);
+  if (!commandBindsAllInterfaces) loopback.push(...sourceLoopback);
   if (loopback.length > 0) {
     return {
       detector: 'bind-address',

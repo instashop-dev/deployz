@@ -141,6 +141,15 @@ describe('REM-104 loopback binding', () => {
     expect(detectBindAddress(tree).value).toBe('all-interfaces');
   });
 
+  it('keeps a loopback server when only another source file listens on 0.0.0.0', () => {
+    const tree: FileTree = {
+      Dockerfile: 'FROM node:22\nEXPOSE 3000\nCMD ["node","server.js"]\n',
+      'server.js': "require('http').createServer(h).listen(3000, '127.0.0.1');\n",
+      'metrics.js': "require('http').createServer(m).listen(9100, '0.0.0.0');\n",
+    };
+    expect(isLoopback(tree)).toBe(true);
+  });
+
   it('counts a Python app.run(host=loopback) in the module the image runs', () => {
     expect(
       isLoopback({

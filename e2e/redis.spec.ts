@@ -166,11 +166,12 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   await expect(
     page.getByRole('region', { name: 'Services & resources' }).getByText('No blocking issues'),
   ).toBeVisible();
+  // BullMQ jobs run in the web process by default: no worker question (REM-103).
   await expect(
     page
       .getByTestId('services-table')
       .getByText('Background job runner', { exact: false }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   // ── 3. Create a customer + deployment for this application, then open the
   // install link page: the "Deployz will create" table includes a Cache
