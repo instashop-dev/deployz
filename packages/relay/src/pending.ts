@@ -16,9 +16,10 @@
  * tag condition. The value can carry install-time secret parameter values
  * (an INSTALL payload), so it is written as a SecureString parameter.
  *
- * Nothing here throws. A store that cannot be read reports "nothing
- * pending"; a write or clear that fails says so in its return value, so the
- * caller can refuse to defer work it would not be able to pick back up.
+ * Nothing here throws. `inspect` tells a marker that is absent from one that
+ * cannot be read, so a caller never mistakes an outage for "nothing pending";
+ * a write or clear that fails says so in its return value, so the caller can
+ * refuse to defer work it would not be able to pick back up.
  */
 
 import {
@@ -28,6 +29,8 @@ import {
   SSMClient,
 } from '@aws-sdk/client-ssm';
 import type { FailureEvidence } from '@deployz/contracts';
+
+import type { RelayCommandResult } from './commands.js';
 
 /**
  * The terminal answer a settled pending marker carries. Kept in the marker so
@@ -92,8 +95,26 @@ export interface PendingCommand {
   readonly settledAt?: string;
 }
 
+/**
+ * What the store holds. `unreadable` covers a store that cannot be reached or
+ * a marker that does not parse: the command's state is unknown, so a caller
+ * must defer and mutate nothing.
+ */
+export type PendingRead =
+  | { readonly state: 'absent' }
+  | { readonly state: 'present'; readonly marker: PendingCommand }
+  | { readonly state: 'unreadable'; readonly errorCode: string };
+
+/**
+ * Asks the control plane whether a command may still change AWS: `true` is
+ * active, `false` superseded, `null` unknown.
+ */
+export type CheckAuthority = (commandId: string) => Promise<boolean | null>;
+
 export interface PendingStore {
+  /** The marker, or `null` when absent OR unreadable. Use `inspect` to tell them apart. */
   read(): Promise<PendingCommand | null>;
+  inspect(): Promise<PendingRead>;
   /** `false` when the marker could not be persisted. */
   write(pending: PendingCommand): Promise<boolean>;
   /** `false` when the marker may still be there. */
@@ -126,6 +147,9 @@ export function memoryPendingStore(): PendingStore {
   const store: PendingStore = {
     async read() {
       return pending;
+    },
+    async inspect() {
+      return pending === null ? { state: 'absent' } : { state: 'present', marker: pending };
     },
     async write(next) {
       pending = next;
@@ -179,6 +203,11 @@ function describeError(err: unknown): { name: string; message: string } {
 export function toPendingStore(client: SendsCommands, parameterName: string): PendingStore {
   const store: PendingStore = {
     async read(): Promise<PendingCommand | null> {
+      const current = await store.inspect();
+      return current.state === 'present' ? current.marker : null;
+    },
+
+    async inspect(): Promise<PendingRead> {
       try {
         // The marker is a SecureString (see `write`): without
         // `WithDecryption` SSM hands back the KMS ciphertext, which parses
@@ -188,18 +217,24 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
         )) as { Parameter?: { Value?: string } };
 
         const value = response.Parameter?.Value;
-        if (value === undefined) return null;
-        const pending = parse(value);
-        if (pending === null) {
+        if (value === undefined) return { state: 'absent' };
+        const marker = parse(value);
+        if (marker === null) {
           console.error(
             JSON.stringify({ event: 'relay:pending-marker-unreadable', parameterName }),
           );
+          return { state: 'unreadable', errorCode: 'MalformedMarker' };
         }
-        return pending;
-      } catch {
-        // `ParameterNotFound` and `AccessDenied` are the same answer to
-        // "is there something to resume?" — no.
-        return null;
+        return { state: 'present', marker };
+      } catch (err) {
+        // Only `ParameterNotFound` proves nothing is pending. `AccessDenied`,
+        // throttling and transport errors say nothing about the marker.
+        if (err instanceof Error && err.name === 'ParameterNotFound') return { state: 'absent' };
+        const error = describeError(err);
+        console.error(
+          JSON.stringify({ event: 'relay:pending-read-failed', parameterName, error }),
+        );
+        return { state: 'unreadable', errorCode: error.name };
       }
     },
 
@@ -262,14 +297,18 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
     },
 
     async compareAndSet(expectedCommandId, next): Promise<boolean> {
-      const current = await store.read();
-      if (current === null) {
+      const read = await store.inspect();
+      if (read.state === 'unreadable') {
+        logCasRefused(parameterName, expectedCommandId);
+        return false;
+      }
+      if (read.state === 'absent') {
         if (next === null) return true;
         logCasRefused(parameterName, expectedCommandId);
         return false;
       }
-      if (current.commandId !== expectedCommandId) {
-        logCasRefused(parameterName, expectedCommandId, current.commandId);
+      if (read.marker.commandId !== expectedCommandId) {
+        logCasRefused(parameterName, expectedCommandId, read.marker.commandId);
         return false;
       }
       const applied = next === null ? await store.clear() : await store.write(next);
@@ -303,6 +342,135 @@ function logCasRefused(
 /** Production store — credentials come from the standard SDK chain. */
 export function createPendingStore(parameterName: string, region?: string): PendingStore {
   return toPendingStore(new SSMClient(region === undefined ? {} : { region }), parameterName);
+}
+
+/** The terminal answer a settled marker holds, rebuilt as a reportable result. */
+export function settledResultOf(pending: PendingCommand): RelayCommandResult | null {
+  const result = pending.result;
+  if (pending.phase !== 'settled' || !result) return null;
+  return {
+    commandId: pending.commandId,
+    idempotencyKey: pending.idempotencyKey,
+    success: result.success,
+    ...(result.output ? { output: result.output } : {}),
+    ...(result.error ? { error: result.error } : {}),
+    ...(result.failureCode ? { failureCode: result.failureCode } : {}),
+    ...(result.evidence ? { evidence: result.evidence } : {}),
+  };
+}
+
+const MAX_ERROR_LENGTH = 1000;
+const MAX_OUTPUT_TEXT_LENGTH = 200;
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Output entries small enough to keep: scalars, short text and lists of key names. */
+function compactOutput(output: Record<string, unknown>): Record<string, unknown> {
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(output)) {
+    if (typeof value === 'boolean' || typeof value === 'number') kept[key] = value;
+    else if (typeof value === 'string') kept[key] = clip(value, MAX_OUTPUT_TEXT_LENGTH);
+    else if (Array.isArray(value) && value.every((item) => typeof item === 'string')) kept[key] = value;
+  }
+  return kept;
+}
+
+/**
+ * Shrink a settled marker's result until the marker fits SSM's value limit.
+ * Deterministic: first the error text is clipped, then the evidence goes, then
+ * the output keeps only its scalars and key-name lists, then the output goes.
+ * `success`, `failureCode` and a short error always survive.
+ */
+function fitSettledMarker(marker: PendingCommand): PendingCommand {
+  const fits = (candidate: PendingCommand): boolean =>
+    JSON.stringify(candidate).length <= PENDING_MARKER_MAX_LENGTH;
+  if (fits(marker)) return marker;
+
+  const result = marker.result as PersistedCommandResult;
+  const { evidence: _evidence, ...withoutEvidence } = result;
+  const clipped = (candidate: PersistedCommandResult, max: number): PersistedCommandResult => ({
+    ...candidate,
+    ...(candidate.error !== undefined ? { error: clip(candidate.error, max) } : {}),
+  });
+  const attempts: PersistedCommandResult[] = [
+    clipped(result, MAX_ERROR_LENGTH),
+    clipped(withoutEvidence, MAX_ERROR_LENGTH),
+    ...(result.output ? [{ ...clipped(withoutEvidence, MAX_ERROR_LENGTH), output: compactOutput(result.output) }] : []),
+  ];
+  const { output: _output, ...bare } = withoutEvidence;
+  attempts.push(clipped(bare, MAX_OUTPUT_TEXT_LENGTH));
+
+  const chosen = attempts.find((attempt) => fits({ ...marker, result: attempt })) ?? attempts[attempts.length - 1]!;
+  console.error(JSON.stringify({ event: 'relay:pending-result-truncated', commandId: marker.commandId }));
+  return { ...marker, result: chosen };
+}
+
+/**
+ * Persist a command's terminal answer as a settled marker BEFORE it is
+ * reported, so a report that never arrives is retried from the marker instead
+ * of running the command again. The marker keeps no payload: the answer is all
+ * a settled command needs, and an install payload can carry secret values.
+ *
+ * `false` means the answer is not on record: the marker belongs to another
+ * command, cannot be read, or could not be written. `createIfAbsent` is for an
+ * executor whose command never wrote a marker; a resumer never recreates one.
+ */
+export async function settleMarker(
+  store: PendingStore,
+  pending: Pick<PendingCommand, 'commandId' | 'idempotencyKey' | 'type' | 'stackName' | 'startedAt'>,
+  result: PersistedCommandResult,
+  createIfAbsent: boolean,
+): Promise<boolean> {
+  const settled = fitSettledMarker({
+    commandId: pending.commandId,
+    idempotencyKey: pending.idempotencyKey,
+    type: pending.type,
+    stackName: pending.stackName,
+    startedAt: pending.startedAt,
+    payload: {},
+    phase: 'settled',
+    result: {
+      success: result.success,
+      ...(result.output ? { output: result.output } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {}),
+      ...(result.failureCode !== undefined ? { failureCode: result.failureCode } : {}),
+      ...(result.evidence ? { evidence: result.evidence } : {}),
+    },
+    settledAt: new Date().toISOString(),
+  });
+  const current = await store.inspect();
+  if (current.state === 'absent' && createIfAbsent) return store.write(settled);
+  if (current.state !== 'present') return false;
+  return store.compareAndSet(pending.commandId, settled);
+}
+
+/**
+ * An executor's terminal answer: recorded as settled first, then handed back
+ * for reporting. An answer that cannot be recorded is still reported — the
+ * mutation already happened, and silence would be worse.
+ */
+export async function reportSettled(
+  store: PendingStore,
+  pending: Pick<PendingCommand, 'commandId' | 'idempotencyKey' | 'type' | 'stackName' | 'startedAt'>,
+  result: RelayCommandResult,
+): Promise<RelayCommandResult> {
+  await settleMarker(store, pending, result, true);
+  return result;
+}
+
+/**
+ * Write a running marker. A marker that is this command's own is replaced
+ * only by compare-and-set; a store that cannot be read is never written blind.
+ */
+export async function saveMarker(store: PendingStore, marker: PendingCommand): Promise<boolean> {
+  const current = await store.inspect();
+  if (current.state === 'unreadable') return false;
+  if (current.state === 'present' && current.marker.commandId === marker.commandId) {
+    return store.compareAndSet(marker.commandId, marker);
+  }
+  return store.write(marker);
 }
 
 /** Defensive read of a settled marker's stored result; a malformed one is dropped. */
