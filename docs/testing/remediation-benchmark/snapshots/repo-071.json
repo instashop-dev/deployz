@@ -2,7 +2,7 @@
   "id": "repo-071",
   "repository": "chatwoot/chatwoot",
   "commit": "da4898e7f5e2f2146cd2c24d3a7bd3124016cf82",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "chatwoot/chatwoot",
     "containerPort": 3000,
@@ -44,7 +44,7 @@
         }
       ],
       "analysisCommitSha": "da4898e7f5e2f2146cd2c24d3a7bd3124016cf82",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -94,10 +94,10 @@
           "key": "ACTIVE_STORAGE_SERVICE",
           "secret": false,
           "source": [
-            "storage selector: default \"local\" stores files on the container disk — set an S3 value to use the managed S3 bucket",
+            "storage selector: default \"local\" stores files on the container disk — set a value that stores files outside the container",
             ".env.example declares ACTIVE_STORAGE_SERVICE",
-            "read in config/environments/production.rb",
-            "read in config/environments/development.rb"
+            "read in config/environments/development.rb",
+            "read in config/environments/production.rb"
           ],
           "purpose": "optional_configuration",
           "required": true,
@@ -628,8 +628,8 @@
           "secret": false,
           "source": [
             ".env.example declares LOG_LEVEL",
-            "read in config/environments/production.rb",
             "read in config/environments/development.rb",
+            "read in config/environments/production.rb",
             "read in config/environments/staging.rb",
             "read in config/environments/test.rb",
             "read in config/initializers/sidekiq.rb"
@@ -644,8 +644,8 @@
           "secret": false,
           "source": [
             ".env.example declares LOG_SIZE",
-            "read in config/environments/production.rb",
             "read in config/environments/development.rb",
+            "read in config/environments/production.rb",
             "read in config/environments/staging.rb"
           ],
           "purpose": "optional_configuration",
@@ -1009,8 +1009,8 @@
           "secret": false,
           "source": [
             ".env.example declares RAILS_MAX_THREADS",
-            "read in config/puma.rb",
-            "read in config/database.yml"
+            "read in config/database.yml",
+            "read in config/puma.rb"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -1394,8 +1394,8 @@
           "key": "SIDEKIQ_CONCURRENCY",
           "secret": false,
           "source": [
-            "read in config/sidekiq.yml",
-            "read in config/database.yml"
+            "read in config/database.yml",
+            "read in config/sidekiq.yml"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -2060,8 +2060,8 @@
       },
       "redis": {
         "evidence": [
-          "docker-compose variant using a Redis/Valkey image (redis:alpine) in docker-compose.yaml",
           "docker-compose service using a Redis/Valkey image (redis:alpine) in docker-compose.production.yaml",
+          "docker-compose variant using a Redis/Valkey image (redis:alpine) in docker-compose.yaml",
           "REDIS_URL referenced in .env.example",
           "REDIS_PASSWORD referenced in .env.example",
           "sidekiq gem in Gemfile",
@@ -2103,7 +2103,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": true,
-      "vendorOverrides": [],
+      "workerNeedsProcess": true,
       "workerPatterns": [
         "sidekiq",
         "queue worker command",

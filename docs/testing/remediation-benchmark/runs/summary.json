@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-10-13T14:40:44.624Z",
+  "generatedAt": "2026-10-13T23:02:13.082Z",
   "mode": "deterministic",
   "cases": 38,
   "passed": 38,
   "classification": {
-    "correct": 120,
-    "total": 120
+    "correct": 94,
+    "total": 94
   },
   "truthAgreement": {
     "correct": 51,
@@ -30,21 +30,9 @@
       ],
       "classes": [
         {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
           "actual": "ALREADY_SUPPORTED",
-          "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
           "correct": true
         }
       ],
@@ -52,7 +40,7 @@
         {
           "findingId": "health-check",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
@@ -64,7 +52,7 @@
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         }
       ],
@@ -74,8 +62,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5761,
-      "promptChars": 4184,
+      "documentChars": 2686,
+      "promptChars": 1986,
       "pass": true
     },
     {
@@ -104,8 +92,8 @@
         },
         {
           "findingId": "database-migrations",
-          "expected": "CONFIGURATION_FIX",
-          "actual": "CONFIGURATION_FIX",
+          "expected": "ALREADY_SUPPORTED",
+          "actual": "ALREADY_SUPPORTED",
           "correct": true
         },
         {
@@ -131,7 +119,7 @@
         {
           "findingId": "database-migrations",
           "expected": "NEEDS_INPUT",
-          "actual": "CONFIGURATION_FIX",
+          "actual": "ALREADY_SUPPORTED",
           "correct": false
         },
         {
@@ -147,8 +135,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 8519,
-      "promptChars": 6535,
+      "documentChars": 7684,
+      "promptChars": 5975,
       "pass": true
     },
     {
@@ -219,12 +207,6 @@
       ],
       "classes": [
         {
-          "findingId": "localhost-binding",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
           "actual": "ALREADY_SUPPORTED",
@@ -235,7 +217,7 @@
         {
           "findingId": "localhost-binding",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
@@ -251,8 +233,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 3846,
-      "promptChars": 2722,
+      "documentChars": 2690,
+      "promptChars": 1951,
       "pass": true
     },
     {
@@ -400,12 +382,6 @@
           "expected": "CONFIGURATION_FIX",
           "actual": "CONFIGURATION_FIX",
           "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
-          "correct": true
         }
       ],
       "truth": [
@@ -424,7 +400,7 @@
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         }
       ],
@@ -434,8 +410,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5623,
-      "promptChars": 4281,
+      "documentChars": 4105,
+      "promptChars": 3081,
       "pass": true
     },
     {
@@ -516,8 +492,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 9513,
-      "promptChars": 7087,
+      "documentChars": 9884,
+      "promptChars": 7496,
       "pass": true
     },
     {
@@ -527,20 +503,7 @@
         "real",
         "startup"
       ],
-      "classes": [
-        {
-          "findingId": "port-unresolved",
-          "expected": "CONFIGURATION_FIX",
-          "actual": "CONFIGURATION_FIX",
-          "correct": true
-        },
-        {
-          "findingId": "start-command-missing",
-          "expected": "CONFIGURATION_FIX",
-          "actual": "CONFIGURATION_FIX",
-          "correct": true
-        }
-      ],
+      "classes": [],
       "truth": [],
       "unsafe": [],
       "structureProblems": [],
@@ -548,8 +511,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 4043,
-      "promptChars": 2870,
+      "documentChars": 4333,
+      "promptChars": 3293,
       "pass": true
     },
     {
@@ -654,21 +617,9 @@
       ],
       "classes": [
         {
-          "findingId": "unsupported-architecture",
-          "expected": "UNSUPPORTED",
-          "actual": "UNSUPPORTED",
-          "correct": true
-        },
-        {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
-          "expected": "CONFIGURATION_FIX",
-          "actual": "CONFIGURATION_FIX",
+          "expected": "ALREADY_SUPPORTED",
+          "actual": "ALREADY_SUPPORTED",
           "correct": true
         }
       ],
@@ -676,20 +627,20 @@
         {
           "findingId": "unsupported-architecture",
           "expected": "UNSUPPORTED",
-          "actual": "UNSUPPORTED",
-          "correct": true
+          "actual": null,
+          "correct": false
         },
         {
           "findingId": "health-check",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "CONFIGURATION_FIX",
-          "correct": false
+          "actual": "ALREADY_SUPPORTED",
+          "correct": true
         }
       ],
       "unsafe": [],
@@ -698,8 +649,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7016,
-      "promptChars": 5009,
+      "documentChars": 2670,
+      "promptChars": 1962,
       "pass": true
     },
     {
@@ -717,24 +668,6 @@
           "expected": "DEPLOYZ_LIMITATION",
           "actual": "DEPLOYZ_LIMITATION",
           "correct": true
-        },
-        {
-          "findingId": "unsupported-gpu",
-          "expected": "DEPLOYZ_LIMITATION",
-          "actual": "DEPLOYZ_LIMITATION",
-          "correct": true
-        },
-        {
-          "findingId": "database-migrations",
-          "expected": "ALREADY_SUPPORTED",
-          "actual": "ALREADY_SUPPORTED",
-          "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
-          "correct": true
         }
       ],
       "truth": [
@@ -747,19 +680,19 @@
         {
           "findingId": "unsupported-gpu",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "DEPLOYZ_LIMITATION",
+          "actual": null,
           "correct": false
         },
         {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "ALREADY_SUPPORTED",
-          "correct": true
+          "actual": null,
+          "correct": false
         },
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         }
       ],
@@ -769,8 +702,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 6286,
-      "promptChars": 4956,
+      "documentChars": 7952,
+      "promptChars": 5892,
       "pass": true
     },
     {
@@ -867,8 +800,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7208,
-      "promptChars": 5474,
+      "documentChars": 7216,
+      "promptChars": 5482,
       "pass": true
     },
     {
@@ -939,12 +872,6 @@
           "expected": "CONFIGURATION_FIX",
           "actual": "CONFIGURATION_FIX",
           "correct": true
-        },
-        {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
         }
       ],
       "truth": [
@@ -963,7 +890,7 @@
         {
           "findingId": "health-check",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         }
       ],
@@ -973,8 +900,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7254,
-      "promptChars": 5612,
+      "documentChars": 5696,
+      "promptChars": 4593,
       "pass": true
     },
     {
@@ -987,8 +914,8 @@
       "classes": [
         {
           "findingId": "unsupported-persistent-volume",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
+          "expected": "CONFIGURATION_FIX",
+          "actual": "CONFIGURATION_FIX",
           "correct": true
         }
       ],
@@ -996,8 +923,8 @@
         {
           "findingId": "unsupported-persistent-volume",
           "expected": "CONFIGURATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": false
+          "actual": "CONFIGURATION_FIX",
+          "correct": true
         }
       ],
       "unsafe": [],
@@ -1006,8 +933,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 4186,
-      "promptChars": 3350,
+      "documentChars": 4385,
+      "promptChars": 3556,
       "pass": true
     },
     {
@@ -1019,12 +946,6 @@
         "multiple"
       ],
       "classes": [
-        {
-          "findingId": "unsupported-multi-service",
-          "expected": "CONFIGURATION_FIX",
-          "actual": "CONFIGURATION_FIX",
-          "correct": true
-        },
         {
           "findingId": "health-check",
           "expected": "APPLICATION_FIX",
@@ -1045,8 +966,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5549,
-      "promptChars": 3943,
+      "documentChars": 5971,
+      "promptChars": 4120,
       "pass": true
     },
     {
@@ -1077,12 +998,6 @@
           "correct": true
         },
         {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
-          "correct": true
-        },
-        {
           "findingId": "async-question-queue-unnamed-packages-app-clipper-content-scripts-ind",
           "expected": "NEEDS_INPUT",
           "actual": "NEEDS_INPUT",
@@ -1096,8 +1011,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7353,
-      "promptChars": 5324,
+      "documentChars": 6827,
+      "promptChars": 4799,
       "pass": true
     },
     {
@@ -1174,8 +1089,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 6081,
-      "promptChars": 4417,
+      "documentChars": 5956,
+      "promptChars": 4394,
       "pass": true
     },
     {
@@ -1238,15 +1153,9 @@
       ],
       "classes": [
         {
-          "findingId": "localhost-binding",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
-          "expected": "CONFIGURATION_FIX",
-          "actual": "CONFIGURATION_FIX",
+          "expected": "ALREADY_SUPPORTED",
+          "actual": "ALREADY_SUPPORTED",
           "correct": true
         }
       ],
@@ -1254,14 +1163,14 @@
         {
           "findingId": "localhost-binding",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "CONFIGURATION_FIX",
-          "correct": false
+          "actual": "ALREADY_SUPPORTED",
+          "correct": true
         }
       ],
       "unsafe": [],
@@ -1270,8 +1179,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5183,
-      "promptChars": 3725,
+      "documentChars": 2755,
+      "promptChars": 1961,
       "pass": true
     },
     {
@@ -1322,21 +1231,9 @@
       ],
       "classes": [
         {
-          "findingId": "health-check",
-          "expected": "ALREADY_SUPPORTED",
-          "actual": "ALREADY_SUPPORTED",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
           "actual": "ALREADY_SUPPORTED",
-          "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
           "correct": true
         }
       ],
@@ -1344,8 +1241,8 @@
         {
           "findingId": "health-check",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "ALREADY_SUPPORTED",
-          "correct": true
+          "actual": null,
+          "correct": false
         },
         {
           "findingId": "database-migrations",
@@ -1356,7 +1253,7 @@
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         }
       ],
@@ -1366,8 +1263,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 4313,
-      "promptChars": 3178,
+      "documentChars": 2686,
+      "promptChars": 1986,
       "pass": true
     },
     {
@@ -1380,18 +1277,6 @@
       ],
       "classes": [
         {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "CONFIGURATION_FIX",
           "actual": "CONFIGURATION_FIX",
@@ -1402,13 +1287,13 @@
         {
           "findingId": "health-check",
           "expected": "CONFIGURATION_FIX",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         },
         {
@@ -1424,8 +1309,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7030,
-      "promptChars": 5163,
+      "documentChars": 3980,
+      "promptChars": 2970,
       "pass": true
     },
     {
@@ -1438,12 +1323,6 @@
       ],
       "classes": [
         {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
           "actual": "ALREADY_SUPPORTED",
@@ -1460,7 +1339,7 @@
         {
           "findingId": "health-check",
           "expected": "CONFIGURATION_FIX",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
@@ -1482,8 +1361,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 4467,
-      "promptChars": 3036,
+      "documentChars": 2902,
+      "promptChars": 2030,
       "pass": true
     },
     {
@@ -1509,8 +1388,8 @@
         },
         {
           "findingId": "database-migrations",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
+          "expected": "ALREADY_SUPPORTED",
+          "actual": "ALREADY_SUPPORTED",
           "correct": true
         },
         {
@@ -1542,7 +1421,7 @@
         {
           "findingId": "database-migrations",
           "expected": "CONFIGURATION_FIX",
-          "actual": "NEEDS_INPUT",
+          "actual": "ALREADY_SUPPORTED",
           "correct": false
         },
         {
@@ -1564,8 +1443,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 8782,
-      "promptChars": 6874,
+      "documentChars": 8888,
+      "promptChars": 6777,
       "pass": true
     },
     {
@@ -1579,21 +1458,9 @@
       ],
       "classes": [
         {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
           "actual": "ALREADY_SUPPORTED",
-          "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
           "correct": true
         },
         {
@@ -1607,7 +1474,7 @@
         {
           "findingId": "health-check",
           "expected": "CONFIGURATION_FIX",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
@@ -1619,7 +1486,7 @@
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         },
         {
@@ -1635,8 +1502,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 6975,
-      "promptChars": 5181,
+      "documentChars": 3879,
+      "promptChars": 2983,
       "pass": true
     },
     {
@@ -1719,21 +1586,9 @@
       ],
       "classes": [
         {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
           "actual": "ALREADY_SUPPORTED",
-          "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
           "correct": true
         },
         {
@@ -1747,7 +1602,7 @@
         {
           "findingId": "health-check",
           "expected": "CONFIGURATION_FIX",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
@@ -1759,7 +1614,7 @@
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         },
         {
@@ -1775,8 +1630,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7132,
-      "promptChars": 5334,
+      "documentChars": 4220,
+      "promptChars": 3320,
       "pass": true
     },
     {
@@ -1929,21 +1784,9 @@
       ],
       "classes": [
         {
-          "findingId": "health-check",
-          "expected": "APPLICATION_FIX",
-          "actual": "APPLICATION_FIX",
-          "correct": true
-        },
-        {
           "findingId": "database-migrations",
           "expected": "ALREADY_SUPPORTED",
           "actual": "ALREADY_SUPPORTED",
-          "correct": true
-        },
-        {
-          "findingId": "worker-command",
-          "expected": "NEEDS_INPUT",
-          "actual": "NEEDS_INPUT",
           "correct": true
         },
         {
@@ -1957,7 +1800,7 @@
         {
           "findingId": "health-check",
           "expected": "CONFIGURATION_FIX",
-          "actual": "APPLICATION_FIX",
+          "actual": null,
           "correct": false
         },
         {
@@ -1969,7 +1812,7 @@
         {
           "findingId": "worker-command",
           "expected": "ALREADY_SUPPORTED",
-          "actual": "NEEDS_INPUT",
+          "actual": null,
           "correct": false
         },
         {
@@ -1985,8 +1828,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7228,
-      "promptChars": 5396,
+      "documentChars": 4132,
+      "promptChars": 3198,
       "pass": true
     },
     {

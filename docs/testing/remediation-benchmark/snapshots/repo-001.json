@@ -2,7 +2,7 @@
   "id": "repo-001",
   "repository": "umami-software/umami",
   "commit": "ca661c7057984aa98ed4f7083d84dae2f65bfcb0",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "umami-software/umami",
     "containerPort": 3000,
@@ -26,7 +26,7 @@
         }
       ],
       "analysisCommitSha": "ca661c7057984aa98ed4f7083d84dae2f65bfcb0",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -122,10 +122,10 @@
             "read in src/app/api/2fa/status/route.ts",
             "read in src/app/api/2fa/verify/route.ts",
             "read in src/app/api/auth/login/route.ts",
-            "read in src/app/api/2fa/setup/confirm/route.ts",
             "read in src/app/api/2fa/setup/cancel/route.ts",
-            "read in src/app/api/admin/2fa/global/route.ts",
+            "read in src/app/api/2fa/setup/confirm/route.ts",
             "read in src/app/api/2fa/setup/initiate/route.ts",
+            "read in src/app/api/admin/2fa/global/route.ts",
             "read in src/app/api/admin/teams/[teamId]/2fa/route.ts",
             "read in src/app/api/admin/users/[userId]/2fa/route.ts",
             "read in src/lib/detect.ts",
@@ -726,7 +726,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": false,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }

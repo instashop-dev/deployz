@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d8ec16e23cb572d28d923058849e24d588ace731",
+  "analysisVersion": 54,
   "tree": {
     "files": 204,
     "entries": 3272,
@@ -55,7 +55,10 @@
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "SHA",
+      "TAG"
+    ],
     "unsupported": [
       "local-filesystem"
     ],
@@ -65,6 +68,7 @@
     ],
     "gateFindings": [
       "unsupported",
+      "required-env-vars-missing",
       "database-connection-unverified",
       "migration-command-missing"
     ],

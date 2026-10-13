@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 5,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d8ec16e23cb572d28d923058849e24d588ace731",
+  "analysisVersion": 54,
   "tree": {
     "files": 205,
     "entries": 13615,
@@ -34,22 +34,22 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": "scripts/Dockerfile",
     "port": 7080,
     "startCommand": "ENTRYPOINT: [ \"/opt/coder\", \"server\" ]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/healthz",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
     "redisDetected": false,
     "redisConfidence": "low",
-    "storage": true,
+    "storage": false,
     "worker": false,
     "workerCommand": null,
     "migration": false,
@@ -57,21 +57,19 @@
     "externalServices": [
       "openai"
     ],
-    "requiredEnvVars": [],
-    "unsupported": [
-      "terraform"
+    "requiredEnvVars": [
+      "BASE_IMAGE"
     ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-architecture",
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
       "dockerfile-missing-sources",
-      "health-path-required",
+      "required-env-vars-missing",
       "database-connection-unverified",
-      "migration-command-missing"
+      "migration-command-missing",
+      "deployment-files-ignored"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
@@ -82,9 +80,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -107,9 +104,8 @@
     {
       "fact": "storage",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "migration",
@@ -139,41 +135,17 @@
     {
       "fact": "healthPath",
       "expected": "/healthz",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/healthz",
+      "match": true
     },
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "terraform"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "storage",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-012",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -182,28 +154,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/healthz",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "terraform"
-      ],
-      "finding": {
-        "id": "COMP-040",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d8ec16e23cb572d28d923058849e24d588ace731",
+  "analysisVersion": 54,
   "tree": {
     "files": 201,
     "entries": 4074,
@@ -41,12 +41,12 @@
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
-    "appRoot": "machine-learning",
-    "dockerfilePath": "machine-learning/Dockerfile",
+    "appRoot": "server",
+    "dockerfilePath": "server/Dockerfile",
     "port": 2283,
-    "startCommand": "CMD: [\"python\", \"-m\", \"immich_ml\"]",
-    "healthDetected": true,
-    "healthPath": "/ping",
+    "startCommand": "CMD: [\"start.sh\"]",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": true,
@@ -55,31 +55,29 @@
     "storage": false,
     "worker": true,
     "workerCommand": null,
-    "migration": false,
-    "migrationCommand": null,
+    "migration": true,
+    "migrationCommand": "sql-tools -u ${DB_URL:-postgres://postgres:postgres@localhost:5432/immich} migrations run",
     "externalServices": [
       "smtp"
     ],
     "requiredEnvVars": [
-      "DEVICE",
       "WORKER_TIMEOUT"
     ],
     "unsupported": [
       "docker-compose-multi-service",
-      "gpu"
+      "local-filesystem"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
-      "unsupported-gpu",
-      "database-migrations",
-      "worker-command"
+      "local-file-storage",
+      "health-check"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
+      "health-path-required",
       "required-env-vars-missing",
-      "database-connection-unverified",
-      "migration-command-missing"
+      "database-connection-unverified"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
@@ -120,23 +118,20 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "appRoot",
       "expected": "server",
-      "actual": "machine-learning",
-      "match": false,
-      "kind": "fact"
+      "actual": "server",
+      "match": true
     },
     {
       "fact": "dockerfilePath",
       "expected": "server/Dockerfile",
-      "actual": "machine-learning/Dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "server/Dockerfile",
+      "match": true
     },
     {
       "fact": "port",
@@ -147,7 +142,7 @@
     {
       "fact": "healthPath",
       "expected": "/api/server/ping",
-      "actual": "/ping",
+      "actual": null,
       "match": false,
       "kind": "fact"
     },
@@ -159,64 +154,20 @@
       ],
       "actual": [
         "docker-compose-multi-service",
-        "gpu"
+        "local-filesystem"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
   "mismatches": [
     {
-      "fact": "migration",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": null
-    },
-    {
-      "fact": "appRoot",
-      "kind": "fact",
-      "expected": "server",
-      "actual": "machine-learning",
-      "finding": {
-        "id": "COMP-007",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "dockerfilePath",
-      "kind": "fact",
-      "expected": "server/Dockerfile",
-      "actual": "machine-learning/Dockerfile",
-      "finding": {
-        "id": "COMP-007",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/server/ping",
-      "actual": "/ping",
+      "actual": null,
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "docker-compose-multi-service",
-        "local-filesystem"
-      ],
-      "actual": [
-        "docker-compose-multi-service",
-        "gpu"
-      ],
-      "finding": {
-        "id": "COMP-007",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

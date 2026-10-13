@@ -2,11 +2,11 @@
   "id": "repo-066",
   "repository": "karakeep-app/karakeep",
   "commit": "5a2f009e2f6d266087f2f3f527e6e384cefd6de4",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "karakeep-app/karakeep",
     "containerPort": 3000,
-    "healthPath": null,
+    "healthPath": "/api/health",
     "migrationCommand": null,
     "redisRequired": false,
     "workerCommand": null,
@@ -40,16 +40,12 @@
           "detail": "Redis usage was detected at medium confidence; whether the cache is required is unresolved."
         },
         {
-          "kind": "HEALTH_PATH",
-          "detail": "No health check route or container health check was found; a default /health path would be assumed."
-        },
-        {
           "kind": "STORAGE_BINDING",
           "detail": "Object storage usage was detected but no bucket environment variable is declared or read."
         }
       ],
       "analysisCommitSha": "5a2f009e2f6d266087f2f3f527e6e384cefd6de4",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -57,17 +53,17 @@
       "bindsLocalhost": false,
       "buildCommands": [
         "turbo --no-daemon build",
-        "vite build && chmod +x dist/index.mjs",
-        "vite build && shx chmod +x dist/index.js",
-        "tsdown",
-        "astro build",
         "tsc && vite build",
+        "vite build && chmod +x dist/index.mjs",
+        "astro build",
+        "vite build && shx chmod +x dist/index.js",
         "next build --experimental-build-mode compile",
+        "tsdown",
         "vite build"
       ],
       "copiesGitDirectory": false,
       "databaseNamesMentioned": [],
-      "databaseState": "postgres",
+      "databaseState": "unsupported",
       "dockerfileBuildContext": ".",
       "dockerfileMissingSources": [],
       "dockerfilePath": "docker/Dockerfile",
@@ -894,39 +890,6 @@
             "read in packages/shared/config.ts"
           ],
           "purpose": "internal_secret",
-          "required": false,
-          "confidence": "medium",
-          "classification": "optional"
-        },
-        {
-          "key": "KARAKEEP_API_ADDR",
-          "secret": false,
-          "source": [
-            "read in apps/mcp/src/shared.ts"
-          ],
-          "purpose": "optional_configuration",
-          "required": false,
-          "confidence": "medium",
-          "classification": "optional"
-        },
-        {
-          "key": "KARAKEEP_API_KEY",
-          "secret": true,
-          "source": [
-            "read in apps/mcp/src/shared.ts"
-          ],
-          "purpose": "external_credential",
-          "required": true,
-          "confidence": "high",
-          "classification": "customer_required"
-        },
-        {
-          "key": "KARAKEEP_CUSTOM_HEADERS",
-          "secret": false,
-          "source": [
-            "read in apps/mcp/src/shared.ts"
-          ],
-          "purpose": "optional_configuration",
           "required": false,
           "confidence": "medium",
           "classification": "optional"
@@ -1809,9 +1772,6 @@
       ],
       "envVars": [
         "DATA_DIR",
-        "KARAKEEP_API_ADDR",
-        "KARAKEEP_API_KEY",
-        "KARAKEEP_CUSTOM_HEADERS",
         "NEXTAUTH_SECRET",
         "NEXT_RUNTIME",
         "NODE_ENV",
@@ -1847,12 +1807,15 @@
       "hasDockerfile": true,
       "hasEnvVars": true,
       "hasExternalServices": true,
-      "hasHealthEndpoint": false,
+      "hasHealthEndpoint": true,
       "hasMigrationCommand": true,
       "hasStartupCommand": true,
       "hasWorkerProcesses": false,
-      "healthMode": "vendor_required",
-      "healthPath": null,
+      "healthEndpointSources": [
+        "HEALTHCHECK (Dockerfile)"
+      ],
+      "healthMode": "explicit",
+      "healthPath": "/api/health",
       "ignoredDeploymentFiles": [
         "kubernetes/kustomization.yaml"
       ],
@@ -1931,6 +1894,10 @@
             "label": "Application port detected"
           },
           {
+            "id": "health-endpoint",
+            "label": "Health check found"
+          },
+          {
             "id": "env-vars",
             "label": "Environment variables detected"
           },
@@ -1986,7 +1953,7 @@
             "confidence": "confirmed",
             "whyItMatters": "Deployz provisions, connects, and backs up the database for every customer deployment, and it can only do that for PostgreSQL or MySQL.",
             "suggestedOutcome": "Move the data layer to PostgreSQL or MySQL, or set the app to use one of them if it supports both.",
-            "technicalEvidence": "Unsupported database: SQLite driver better-sqlite3. Deployz hosts PostgreSQL only; an embedded file database does not survive in the container model.",
+            "technicalEvidence": "Unsupported database: SQLite driver better-sqlite3. Deployz hosts PostgreSQL and MySQL only; an embedded file database does not survive in the container model.",
             "plainEnglishExplanation": "This app uses SQLite, a database stored in a file on the app server. Deployz cannot host it because app disks are wiped on every deploy."
           },
           {
@@ -2000,21 +1967,9 @@
             "suggestedOutcome": "Build an image that runs only the web process, and declare each other process as a worker.",
             "technicalEvidence": "Unsupported container setup: docker/Dockerfile runs s6-overlay with 3 long-running services (init-db-migration, svc-web, svc-workers) in one container. Deployz runs one web process and declared workers as separate services.",
             "plainEnglishExplanation": "This app's image starts several long-running processes (web, API, worker) under a supervisor, but Deployz runs one process per container."
-          },
-          {
-            "id": "health-check",
-            "title": "Give Deployz a way to check your app",
-            "blocking": false,
-            "category": "health",
-            "severity": "required",
-            "confidence": "likely",
-            "whyItMatters": "During every deployment, Deployz waits for your app to report healthy before sending traffic to it. Without a health signal, a broken deploy cannot be detected or rolled back.",
-            "suggestedOutcome": "Expose a lightweight route (for example /health) that returns success once the app is ready, and reference it from the container health check.",
-            "technicalEvidence": "No health endpoint or container health check was found (no /health-style route, no HEALTHCHECK instruction).",
-            "plainEnglishExplanation": "Deployz needs a reliable way to know when your app is running and ready."
           }
         ],
-        "requiredCount": 3,
+        "requiredCount": 2,
         "recommendedCount": 0
       },
       "redis": {
@@ -2043,7 +1998,7 @@
         "ENTRYPOINT: [\"/init\"]"
       ],
       "unsupportedReasons": [
-        "Unsupported database: SQLite driver better-sqlite3. Deployz hosts PostgreSQL only; an embedded file database does not survive in the container model.",
+        "Unsupported database: SQLite driver better-sqlite3. Deployz hosts PostgreSQL and MySQL only; an embedded file database does not survive in the container model.",
         "Unsupported container setup: docker/Dockerfile runs s6-overlay with 3 long-running services (init-db-migration, svc-web, svc-workers) in one container. Deployz runs one web process and declared workers as separate services."
       ],
       "usesLocalFilesystem": false,
@@ -2051,7 +2006,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": true,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }

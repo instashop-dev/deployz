@@ -2,7 +2,7 @@
   "id": "repo-036",
   "repository": "django-helpdesk/django-helpdesk",
   "commit": "1cc677655358b0b1be9dcad7846c0b4543361826",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "django-helpdesk/django-helpdesk",
     "containerPort": null,
@@ -43,11 +43,11 @@
         }
       ],
       "analysisCommitSha": "1cc677655358b0b1be9dcad7846c0b4543361826",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
-      "bindAddress": null,
+      "bindAddress": "all-interfaces",
       "bindsLocalhost": false,
       "copiesGitDirectory": false,
       "databaseNamesMentioned": [],
@@ -620,7 +620,7 @@
       "usesPostgresql": true,
       "usesRedis": false,
       "usesS3": false,
-      "vendorOverrides": [],
+      "workerNeedsProcess": true,
       "workerPatterns": [
         "celery"
       ]

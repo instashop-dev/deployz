@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d8ec16e23cb572d28d923058849e24d588ace731",
+  "analysisVersion": 54,
   "tree": {
     "files": 201,
     "entries": 1216,
@@ -32,14 +32,14 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
-    "runtime": "go",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "python",
     "appRoot": ".",
-    "dockerfilePath": "container/builder.dockerfile",
-    "port": 5000,
-    "startCommand": null,
+    "dockerfilePath": "container/dist.dockerfile",
+    "port": 8080,
+    "startCommand": "ENTRYPOINT: [\"/usr/local/searxng/entrypoint.sh\"]",
     "healthDetected": true,
     "healthPath": "/healthz",
     "postgres": false,
@@ -57,18 +57,19 @@
       "GITHUB_REF_NAME",
       "GITHUB_REPOSITORY"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "local-filesystem"
+    ],
     "readinessFindings": [
-      "port-unresolved",
-      "start-command-missing"
+      "local-file-storage"
     ],
     "gateFindings": [
-      "start-command-missing",
+      "unsupported",
+      "dockerfile-missing-sources",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "start-command-unknown",
       "redis-requirement-unclear"
     ]
   },
@@ -76,8 +77,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
     },
     {
       "fact": "postgres",
@@ -118,37 +120,40 @@
     {
       "fact": "dockerfilePath",
       "expected": "container/dist.dockerfile",
-      "actual": "container/builder.dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "container/dist.dockerfile",
+      "match": true
     },
     {
       "fact": "port",
       "expected": 8080,
-      "actual": 5000,
-      "match": false,
-      "kind": "fact"
+      "actual": 8080,
+      "match": true
     },
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [],
-      "match": true
+      "actual": [
+        "local-filesystem"
+      ],
+      "match": false,
+      "kind": "fact"
     }
   ],
   "mismatches": [
     {
-      "fact": "dockerfilePath",
-      "kind": "fact",
-      "expected": "container/dist.dockerfile",
-      "actual": "container/builder.dockerfile",
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
       "finding": null
     },
     {
-      "fact": "port",
+      "fact": "unsupported",
       "kind": "fact",
-      "expected": 8080,
-      "actual": 5000,
+      "expected": [],
+      "actual": [
+        "local-filesystem"
+      ],
       "finding": null
     }
   ],

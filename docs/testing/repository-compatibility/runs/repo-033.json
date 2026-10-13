@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d8ec16e23cb572d28d923058849e24d588ace731",
+  "analysisVersion": 54,
   "tree": {
-    "files": 190,
+    "files": 194,
     "entries": 1850,
     "truncated": false
   },
@@ -39,7 +39,7 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "node",
+    "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 8000,
@@ -59,10 +59,7 @@
     "externalServices": [
       "openai"
     ],
-    "requiredEnvVars": [
-      "PAPERLESS_PROXY_SSL_HEADER",
-      "PAPERLESS_SECRET_KEY"
-    ],
+    "requiredEnvVars": [],
     "unsupported": [
       "local-filesystem",
       "multi-process-image"
@@ -76,7 +73,7 @@
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "required-env-vars-missing",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [

@@ -2,7 +2,7 @@
   "id": "repo-301",
   "repository": "Klarline/retail-inventory-platform",
   "commit": "3a2b8a3004991d50dfb475200164906d511536e6",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "Klarline/retail-inventory-platform",
     "containerPort": 8080,
@@ -18,7 +18,7 @@
         }
       ],
       "analysisCommitSha": "3a2b8a3004991d50dfb475200164906d511536e6",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [
         {
           "id": "queue-sqs-queue-url",
@@ -116,9 +116,9 @@
           "secret": true,
           "source": [
             "read in api/helpers/authHelpers.js",
+            "read in api/helpers/customerAuthHelpers.js",
             "read in api/middleware/requireAuth.js",
-            "read in api/middleware/requireCustomerAuth.js",
-            "read in api/helpers/customerAuthHelpers.js"
+            "read in api/middleware/requireCustomerAuth.js"
           ],
           "purpose": "internal_secret",
           "required": true,
@@ -352,7 +352,7 @@
       "usesPostgresql": true,
       "usesRedis": false,
       "usesS3": false,
-      "vendorOverrides": [],
+      "workerNeedsProcess": true,
       "workerPatterns": [
         "declared worker process (api/docker-compose.yml worker)"
       ]

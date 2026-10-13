@@ -2,11 +2,11 @@
   "id": "repo-057",
   "repository": "gitroomhq/postiz-app",
   "commit": "36d5fc7b3ac3f17178b1589cf7a7337523017a41",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "gitroomhq/postiz-app",
-    "containerPort": 3000,
-    "healthPath": "/status",
+    "containerPort": 5000,
+    "healthPath": "/health/status",
     "migrationCommand": null,
     "redisRequired": true,
     "workerCommand": null,
@@ -26,7 +26,7 @@
         }
       ],
       "analysisCommitSha": "36d5fc7b3ac3f17178b1589cf7a7337523017a41",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -34,10 +34,10 @@
       "bindsLocalhost": false,
       "buildCommands": [
         "pnpm -r --workspace-concurrency=1 --filter ./apps/frontend --filter ./apps/backend --filter ./apps/orchestrator run build",
+        "cross-env NODE_ENV=production nest build",
+        "cross-env NODE_ENV=production nest build",
         "rm -rf dist && vite build && cp manifest.json dist/manifest.json && cd dist && zip -r ../extension.zip .",
         "next build",
-        "cross-env NODE_ENV=production nest build",
-        "cross-env NODE_ENV=production nest build",
         "cross-env NODE_ENV=production nest build"
       ],
       "copiesGitDirectory": false,
@@ -249,8 +249,8 @@
           "source": [
             ".env.example declares CLOUDFLARE_BUCKET_URL",
             "read in apps/backend/src/api/routes/media.controller.ts",
-            "read in libraries/nestjs-libraries/src/upload/upload.factory.ts",
-            "read in libraries/nestjs-libraries/src/upload/r2.uploader.ts"
+            "read in libraries/nestjs-libraries/src/upload/r2.uploader.ts",
+            "read in libraries/nestjs-libraries/src/upload/upload.factory.ts"
           ],
           "purpose": "external_credential",
           "required": true,
@@ -543,8 +543,8 @@
           "secret": false,
           "source": [
             ".env.example declares FRONTEND_URL",
-            "read in apps/backend/src/api/routes/auth.controller.ts",
             "read in apps/backend/src/main.ts",
+            "read in apps/backend/src/api/routes/auth.controller.ts",
             "read in apps/backend/src/api/routes/public.controller.ts",
             "read in apps/backend/src/api/routes/users.controller.ts",
             "read in apps/frontend/src/proxy.ts",
@@ -891,8 +891,8 @@
           "key": "NODE_ENV",
           "secret": false,
           "source": [
-            "read in apps/extension/vite.config.chrome.ts",
             "read in apps/extension/vite.config.base.ts",
+            "read in apps/extension/vite.config.chrome.ts",
             "read in libraries/helpers/src/utils/is.dev.ts",
             "read in libraries/nestjs-libraries/src/sentry/initialize.sentry.ts"
           ],
@@ -905,8 +905,8 @@
           "key": "NOT_SECURED",
           "secret": false,
           "source": [
-            "read in apps/backend/src/api/routes/auth.controller.ts",
             "read in apps/backend/src/main.ts",
+            "read in apps/backend/src/api/routes/auth.controller.ts",
             "read in apps/backend/src/api/routes/public.controller.ts",
             "read in apps/backend/src/api/routes/users.controller.ts",
             "read in apps/frontend/src/proxy.ts"
@@ -1238,7 +1238,7 @@
           "key": "STORAGE_PROVIDER",
           "secret": false,
           "source": [
-            "storage selector: default \"local\" stores files on the container disk — set an S3 value to use the managed S3 bucket",
+            "storage selector: default \"local\" stores files on the container disk — set a value that stores files outside the container",
             ".env.example declares STORAGE_PROVIDER",
             "read in libraries/nestjs-libraries/src/upload/upload.factory.ts"
           ],
@@ -1351,8 +1351,8 @@
           "secret": false,
           "source": [
             "read in apps/orchestrator/src/health.controller.ts",
-            "read in libraries/nestjs-libraries/src/temporal/temporal.register.ts",
-            "read in libraries/nestjs-libraries/src/temporal/temporal.module.ts"
+            "read in libraries/nestjs-libraries/src/temporal/temporal.module.ts",
+            "read in libraries/nestjs-libraries/src/temporal/temporal.register.ts"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -1364,8 +1364,8 @@
           "secret": false,
           "source": [
             "read in apps/orchestrator/src/health.controller.ts",
-            "read in libraries/nestjs-libraries/src/temporal/temporal.register.ts",
-            "read in libraries/nestjs-libraries/src/temporal/temporal.module.ts"
+            "read in libraries/nestjs-libraries/src/temporal/temporal.module.ts",
+            "read in libraries/nestjs-libraries/src/temporal/temporal.register.ts"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -1722,7 +1722,7 @@
         "sentry",
         "openai"
       ],
-      "framework": "next",
+      "framework": "@nestjs/core",
       "hasBuildCommand": true,
       "hasDockerfile": true,
       "hasEnvVars": true,
@@ -1732,10 +1732,11 @@
       "hasStartupCommand": true,
       "hasWorkerProcesses": true,
       "healthEndpointSources": [
+        "NestJS health controller (apps/orchestrator/src/health.controller.ts)",
         "/health route (apps/orchestrator/src/health.controller.ts)"
       ],
       "healthMode": "explicit",
-      "healthPath": "/status",
+      "healthPath": "/health/status",
       "ignoredDeploymentFiles": [],
       "infrastructureBindings": [
         {
@@ -1816,15 +1817,15 @@
         "required": false
       },
       "packageManager": "pnpm",
-      "port": "3000",
+      "port": "5000",
       "portConfidence": "high",
-      "portSource": "runtime-literal",
+      "portSource": "compose",
       "postgres": {
         "evidence": [
           "@prisma/client dependency in package.json",
           "provider = \"postgresql\" in libraries/nestjs-libraries/src/database/prisma/schema.prisma",
-          "DATABASE_URL referenced in docker-compose.yaml",
           "DATABASE_URL referenced in .env.example",
+          "DATABASE_URL referenced in docker-compose.yaml",
           "process.env.DATABASE_URL referenced in libraries/nestjs-libraries/src/chat/mastra.store.ts",
           "POSTGRES_DB referenced in docker-compose.yaml",
           "docker-compose service using a PostgreSQL/PostGIS image (postgres:17-alpine) in docker-compose.yaml",
@@ -1971,7 +1972,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": true,
-      "vendorOverrides": [],
+      "workerNeedsProcess": true,
       "workerPatterns": [
         "@temporalio/worker"
       ]

@@ -1,25 +1,25 @@
 # Repository compatibility audit — run summary
 
-Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 52
+Deployz commit: `d8ec16e23cb572d28d923058849e24d588ace731` · analysis version: 54
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 123 |
 | Analysed | 123 |
 | Failed to analyse | 0 |
-| Verdict matches | 93 / 123 (75.6%) |
+| Verdict matches | 95 / 123 (77.2%) |
 | All facts match | 5 |
 | False acceptances | 7 |
 | False rejections | 11 |
-| Configuration-detection mismatches | 12 |
-| Unexplained mismatches | 112 |
+| Configuration-detection mismatches | 10 |
+| Unexplained mismatches | 110 |
 
 ## Mismatches by finding type
 
 | Type | Mismatches |
 | --- | --- |
-| ANALYSIS_BUG | 75 |
-| ANALYSIS_MISSING_SIGNAL | 163 |
+| ANALYSIS_BUG | 67 |
+| ANALYSIS_MISSING_SIGNAL | 158 |
 | MVP_CAPABILITY_GAP | 0 |
 | CORRECTLY_UNSUPPORTED | 0 |
 | REPO_INVALID | 0 |
@@ -28,17 +28,17 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 
 | Set | Repositories | Analysed | Verdict matches | All facts match |
 | --- | --- | --- | --- | --- |
-| improvement | 83 | 83 | 62 | 3 |
-| unseen | 20 | 20 | 15 | 2 |
-| unseen2 | 20 | 20 | 16 | 0 |
+| improvement | 83 | 83 | 64 | 3 |
+| unseen | 20 | 20 | 16 | 2 |
+| unseen2 | 20 | 20 | 15 | 0 |
 
 ## By cohort
 
 | Cohort | Repositories | Analysed | Verdict matches | All facts match |
 | --- | --- | --- | --- | --- |
 | boundary | 24 | 24 | 21 | 2 |
-| messy | 27 | 27 | 23 | 1 |
-| realistic | 72 | 72 | 49 | 2 |
+| messy | 27 | 27 | 24 | 1 |
+| realistic | 72 | 72 | 50 | 2 |
 
 ## Repositories
 
@@ -46,7 +46,7 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | --- | --- | --- | --- | --- | --- |
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | READY | migration (expected true, actual false) → UNEXPLAINED |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION | compatibility (expected "READY", actual "NEEDS_CONFIGURATION") → COMP-023 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED |
-| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → UNEXPLAINED<br>healthPath (expected "/api/health", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
+| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → UNEXPLAINED |
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → COMP-014 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health/liveness", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → UNEXPLAINED<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected "apps/remix", actual ".") → COMP-020 ANALYSIS_BUG |
@@ -55,10 +55,10 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | match |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual "/api/health") → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-011 | healthchecks/healthchecks@69dbd2a | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
-| repo-012 | diced/zipline@a2ac5f2 | messy | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED |
+| repo-012 | diced/zipline@a2ac5f2 | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → UNEXPLAINED |
 | repo-013 | louislam/uptime-kuma@5df2a3c | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → UNEXPLAINED<br>port (expected 3001, actual 3000) → UNEXPLAINED<br>unsupported (expected ["sqlite"], actual ["local-filesystem"]) → COMP-002 ANALYSIS_BUG |
 | repo-014 | automatisch/automatisch@41f3c56 | boundary | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-024 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED<br>unsupported (expected ["background-worker","docker-compose-multi-service"], actual ["background-worker"]) → COMP-024 ANALYSIS_BUG |
-| repo-015 | immich-app/immich@6d85f20 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected "server", actual "machine-learning") → COMP-007 ANALYSIS_BUG<br>dockerfilePath (expected "server/Dockerfile", actual "machine-learning/Dockerfile") → COMP-007 ANALYSIS_BUG<br>healthPath (expected "/api/server/ping", actual "/ping") → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["docker-compose-multi-service","local-filesystem"], actual ["docker-compose-multi-service","gpu"]) → COMP-007 ANALYSIS_BUG |
+| repo-015 | immich-app/immich@6d85f20 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | healthPath (expected "/api/server/ping", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → COMP-017 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED<br>unsupported (expected [], actual ["background-worker"]) → UNEXPLAINED |
 | repo-017 | lukevella/rallly@d374ed4 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected ".", actual "apps/web") → COMP-020 ANALYSIS_BUG |
 | repo-018 | docmost/docmost@5b85464 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → UNEXPLAINED |
@@ -66,9 +66,9 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-020 | papermark/papermark@ed19717 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED |
 | repo-021 | directus/directus@ea25ba6 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/server/health", actual "/server/ping") → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-022 | ToolJet/ToolJet@e216f7c | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-026 ANALYSIS_BUG<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-049 ANALYSIS_BUG<br>port (expected 3000, actual 8082) → COMP-028 ANALYSIS_BUG<br>healthPath (expected "/api/health", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["docker-compose-multi-service"]) → COMP-026 ANALYSIS_BUG |
-| repo-023 | requarks/wiki@8a97969 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-024 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["local-filesystem","no-buildable-dockerfile"]) → COMP-024 ANALYSIS_BUG |
+| repo-023 | requarks/wiki@8a97969 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-024 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["local-filesystem"]) → COMP-024 ANALYSIS_BUG |
 | repo-024 | calcom/cal.diy@e70486c | realistic | READY | READY | redis (expected false, actual true) → COMP-011 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED |
-| repo-025 | lobehub/lobehub@5590527 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED<br>unsupported (expected [], actual ["docker-compose-multi-service"]) → COMP-026 ANALYSIS_BUG |
+| repo-025 | lobehub/lobehub@5590527 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED<br>unsupported (expected [], actual ["other-database"]) → COMP-026 ANALYSIS_BUG |
 | repo-026 | amruthpillai/reactive-resume@0a092ee | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → UNEXPLAINED |
 | repo-027 | plankanban/planka@de4d768 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → UNEXPLAINED<br>healthPath (expected "/", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-028 | Infisical/infisical@496d992 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED |
@@ -84,7 +84,7 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-038 | apache/answer@3b9f137 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-040 | authelia/authelia@fd4b742 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-017 ANALYSIS_MISSING_SIGNAL<br>dockerfilePath (expected "Dockerfile.dev", actual "Dockerfile") → COMP-027 ANALYSIS_BUG<br>unsupported (expected [], actual ["local-filesystem"]) → COMP-027 ANALYSIS_BUG |
-| repo-041 | coder/coder@07f9018 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-017 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/healthz", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["terraform"]) → COMP-040 ANALYSIS_BUG |
+| repo-041 | coder/coder@07f9018 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-042 | grafana/grafana@0ecd582 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/api/health", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-043 | huginn/huginn@fc1f557 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>dockerfilePath (expected "docker/multi-process/Dockerfile", actual "docker/single-process/Dockerfile") → UNEXPLAINED<br>unsupported (expected [], actual ["background-worker"]) → COMP-010 ANALYSIS_MISSING_SIGNAL |
 | repo-044 | firefly-iii/firefly-iii@9e9d6f4 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual "/up") → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["local-filesystem","no-buildable-dockerfile"], actual ["no-buildable-dockerfile"]) → COMP-025 ANALYSIS_MISSING_SIGNAL |
@@ -100,7 +100,7 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-054 | hoppscotch/hoppscotch@ac145e7 | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual null) → UNEXPLAINED |
 | repo-055 | nocodb/nocodb@28c50ff | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | redis (expected false, actual true) → COMP-011 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>appRoot (expected "packages/nocodb", actual ".") → COMP-020 ANALYSIS_BUG |
 | repo-056 | gristlabs/grist-core@a914d9f | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected true, actual false) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>worker (expected false, actual true) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/status", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["sqlite"], actual ["local-filesystem"]) → COMP-002 ANALYSIS_BUG |
-| repo-057 | gitroomhq/postiz-app@36d5fc7 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>port (expected 5000, actual 3000) → COMP-028 ANALYSIS_BUG<br>unsupported (expected ["docker-compose-multi-service"], actual ["temporal"]) → COMP-031 ANALYSIS_MISSING_SIGNAL |
+| repo-057 | gitroomhq/postiz-app@36d5fc7 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["docker-compose-multi-service"], actual ["temporal"]) → COMP-031 ANALYSIS_MISSING_SIGNAL |
 | repo-058 | go-gitea/gitea@231ee19 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["persistent-volume"], actual ["local-filesystem"]) → COMP-024 ANALYSIS_BUG |
 | repo-059 | go-vikunja/vikunja@c82715c | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-060 | wallabag/wallabag@7b8a6e0 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>dockerfilePath (expected "docker/php/Dockerfile", actual null) → UNEXPLAINED<br>port (expected 8000, actual null) → COMP-030 ANALYSIS_MISSING_SIGNAL |
@@ -109,7 +109,7 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-063 | keycloak/keycloak@0aa156e | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-064 | casdoor/casdoor@92a601c | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-065 | ory/kratos@b86338d | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health/alive", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
-| repo-066 | karakeep-app/karakeep@5a2f009 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED<br>healthPath (expected "/api/health", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
+| repo-066 | karakeep-app/karakeep@5a2f009 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED |
 | repo-067 | formbricks/formbricks@8c3b9ec | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected ".", actual "apps/web") → COMP-020 ANALYSIS_BUG<br>healthPath (expected "/health", actual "/api/v2/health") → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-068 | baptisteArno/typebot.io@4bc37a4 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → UNEXPLAINED<br>healthPath (expected "/api/healthz", actual "/healthz") → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-069 | twentyhq/twenty@c10ba0c | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → UNEXPLAINED<br>unsupported (expected ["background-worker","docker-compose-multi-service","multi-process-image"], actual ["background-worker","multi-process-image"]) → COMP-015 ANALYSIS_MISSING_SIGNAL |
@@ -128,7 +128,7 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-082 | mattermost/mattermost@240b9be | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>appRoot (expected "server/build", actual ".") → COMP-038 ANALYSIS_BUG<br>healthPath (expected "/api/v4/system/ping", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-083 | windmill-labs/windmill@0d6bce4 | realistic | READY | NOT_COMPATIBLE | compatibility (expected "READY", actual "NOT_COMPATIBLE") → COMP-010 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/api/health/status", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["docker-compose-multi-service"]) → COMP-010 ANALYSIS_MISSING_SIGNAL |
 | repo-084 | NangoHQ/nango@f9667ac | realistic | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-015 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED<br>dockerfilePath (expected "Dockerfile.self_hosted", actual "Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 3003, actual 8080) → COMP-027 ANALYSIS_BUG<br>unsupported (expected ["background-worker"], actual []) → COMP-015 ANALYSIS_MISSING_SIGNAL |
-| repo-085 | teableio/teable@5ef2238 | realistic | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → COMP-030 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED |
+| repo-085 | teableio/teable@5ef2238 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | migration (expected true, actual false) → UNEXPLAINED |
 | repo-086 | wger-project/wger@65a1d40 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-087 | TandoorRecipes/recipes@e160cee | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-088 | netbox-community/netbox@2d519ec | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["background-worker","no-buildable-dockerfile"], actual ["no-buildable-dockerfile"]) → COMP-015 ANALYSIS_MISSING_SIGNAL |
@@ -138,7 +138,7 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-092 | Lissy93/dashy@1d78e14 | messy | READY | READY | match |
 | repo-093 | thelounge/thelounge@9727b2e | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-094 | homarr-labs/homarr@cb0fec0 | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → UNEXPLAINED<br>healthPath (expected "/api/health/ready", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
-| repo-095 | openstatusHQ/openstatus@7828cf5 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected false, actual true) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected ".", actual "apps/checker") → COMP-020 ANALYSIS_BUG<br>dockerfilePath (expected "apps/dashboard/Dockerfile", actual "apps/checker/Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 3000, actual 8080) → COMP-027 ANALYSIS_BUG<br>unsupported (expected ["sqlite","docker-compose-multi-service","background-worker"], actual ["docker-compose-multi-service","sqlite"]) → COMP-015 ANALYSIS_MISSING_SIGNAL |
+| repo-095 | openstatusHQ/openstatus@7828cf5 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected false, actual true) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected ".", actual "apps/dashboard") → COMP-020 ANALYSIS_BUG<br>unsupported (expected ["sqlite","docker-compose-multi-service","background-worker"], actual ["docker-compose-multi-service","sqlite"]) → COMP-015 ANALYSIS_MISSING_SIGNAL |
 | repo-096 | mastodon/mastodon@6f341d4 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-097 | plausible/analytics@543b301 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
 | repo-098 | wekan/wekan@0f41341 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | match |
@@ -152,7 +152,7 @@ Deployz commit: `87daaaf36b256c5b1dd8190c8a6c4b81b8392b25` · analysis version: 
 | repo-206 | nocobase/nocobase@4901246 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected false, actual true) → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>healthPath (expected "/api/__health_check", actual null) → UNEXPLAINED |
 | repo-207 | khoj-ai/khoj@ae229ca | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>dockerfilePath (expected "Dockerfile", actual "prod.Dockerfile") → UNEXPLAINED<br>port (expected 42110, actual 5900) → UNEXPLAINED<br>healthPath (expected "/api/health", actual "/health") → UNEXPLAINED<br>unsupported (expected [], actual ["docker-compose-multi-service","local-filesystem"]) → UNEXPLAINED |
 | repo-208 | baserow/baserow@c8f7827 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected false, actual true) → UNEXPLAINED<br>worker (expected false, actual true) → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>dockerfilePath (expected "backend/Dockerfile", actual "heroku.Dockerfile") → UNEXPLAINED<br>healthPath (expected "/api/_health/", actual null) → UNEXPLAINED<br>unsupported (expected ["local-filesystem"], actual ["background-worker","docker-compose-multi-service"]) → UNEXPLAINED |
-| repo-209 | searxng/searxng@23e7e4d | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | dockerfilePath (expected "container/dist.dockerfile", actual "container/builder.dockerfile") → UNEXPLAINED<br>port (expected 8080, actual 5000) → UNEXPLAINED |
+| repo-209 | searxng/searxng@23e7e4d | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → UNEXPLAINED<br>unsupported (expected [], actual ["local-filesystem"]) → UNEXPLAINED |
 | repo-210 | FreshRSS/FreshRSS@e5f9906 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected false, actual true) → UNEXPLAINED |
 | repo-211 | toeverything/AFFiNE@2365c36 | messy | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → UNEXPLAINED<br>redis (expected true, actual false) → UNEXPLAINED<br>worker (expected false, actual true) → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected ".", actual ".render") → UNEXPLAINED<br>dockerfilePath (expected ".github/deployment/node/Dockerfile", actual ".render/Dockerfile") → UNEXPLAINED<br>unsupported (expected [], actual ["local-filesystem"]) → UNEXPLAINED |
 | repo-212 | NodeBB/NodeBB@7457d23 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | unsupported (expected ["local-filesystem"], actual ["local-filesystem","mongodb"]) → UNEXPLAINED |

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d8ec16e23cb572d28d923058849e24d588ace731",
+  "analysisVersion": 54,
   "tree": {
     "files": 70,
     "entries": 258,
@@ -34,15 +34,15 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 3000,
     "startCommand": "CMD: npm run migrate && npm start",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/api/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -63,12 +63,9 @@
     ],
     "unsupported": [],
     "readinessFindings": [
-      "health-check",
-      "database-migrations",
-      "worker-command"
+      "database-migrations"
     ],
     "gateFindings": [
-      "health-path-required",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
@@ -136,9 +133,8 @@
     {
       "fact": "healthPath",
       "expected": "/api/health",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/api/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -154,16 +150,6 @@
       "expected": true,
       "actual": false,
       "finding": null
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/api/health",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
     }
   ],
   "match": false

@@ -2,7 +2,7 @@
   "id": "repo-016",
   "repository": "outline/outline",
   "commit": "012188635b0a0fabbd446d4a9aad12eba588c630",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "outline/outline",
     "containerPort": 3000,
@@ -30,7 +30,7 @@
         }
       ],
       "analysisCommitSha": "012188635b0a0fabbd446d4a9aad12eba588c630",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -258,8 +258,8 @@
           "key": "COLLABORATION_URL",
           "secret": false,
           "source": [
-            ".env.test declares COLLABORATION_URL",
-            ".env.sample declares COLLABORATION_URL"
+            ".env.sample declares COLLABORATION_URL",
+            ".env.test declares COLLABORATION_URL"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -336,9 +336,9 @@
           "key": "DATABASE_URL",
           "secret": false,
           "source": [
-            ".env.test declares DATABASE_URL",
-            ".env.development declares DATABASE_URL",
             ".env.sample declares DATABASE_URL",
+            ".env.development declares DATABASE_URL",
+            ".env.test declares DATABASE_URL",
             "read in server/config/database.js"
           ],
           "purpose": "infrastructure_binding",
@@ -395,8 +395,8 @@
           "key": "DEBUG",
           "secret": false,
           "source": [
-            ".env.test declares DEBUG",
             ".env.sample declares DEBUG",
+            ".env.test declares DEBUG",
             "read in server/main.ts",
             "read in server/logging/Logger.ts"
           ],
@@ -505,9 +505,9 @@
             "read in server/onerror.ts",
             "read in app/stores/index.ts",
             "read in server/logging/Metrics.ts",
+            "read in server/logging/sentry.ts",
             "read in server/logging/tracer.ts",
-            "read in server/logging/tracing.ts",
-            "read in server/logging/sentry.ts"
+            "read in server/logging/tracing.ts"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -518,8 +518,8 @@
           "key": "FIGMA_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares FIGMA_CLIENT_ID",
-            ".env.sample declares FIGMA_CLIENT_ID"
+            ".env.sample declares FIGMA_CLIENT_ID",
+            ".env.test declares FIGMA_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -530,8 +530,8 @@
           "key": "FIGMA_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares FIGMA_CLIENT_SECRET",
-            ".env.sample declares FIGMA_CLIENT_SECRET"
+            ".env.sample declares FIGMA_CLIENT_SECRET",
+            ".env.test declares FIGMA_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -542,8 +542,9 @@
           "key": "FILE_STORAGE",
           "secret": false,
           "source": [
-            ".env.test declares FILE_STORAGE",
-            ".env.sample declares FILE_STORAGE"
+            "storage selector: default \"local\" stores files on the container disk — set a value that stores files outside the container",
+            ".env.sample declares FILE_STORAGE",
+            ".env.test declares FILE_STORAGE"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -565,8 +566,8 @@
           "key": "FILE_STORAGE_LOCAL_ROOT_DIR",
           "secret": false,
           "source": [
-            ".env.test declares FILE_STORAGE_LOCAL_ROOT_DIR",
             ".env.sample declares FILE_STORAGE_LOCAL_ROOT_DIR",
+            ".env.test declares FILE_STORAGE_LOCAL_ROOT_DIR",
             "sample value is a path"
           ],
           "purpose": "optional_configuration",
@@ -611,8 +612,8 @@
           "key": "GITHUB_APP_ID",
           "secret": false,
           "source": [
-            ".env.test declares GITHUB_APP_ID",
-            ".env.sample declares GITHUB_APP_ID"
+            ".env.sample declares GITHUB_APP_ID",
+            ".env.test declares GITHUB_APP_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -623,8 +624,8 @@
           "key": "GITHUB_APP_NAME",
           "secret": false,
           "source": [
-            ".env.test declares GITHUB_APP_NAME",
-            ".env.sample declares GITHUB_APP_NAME"
+            ".env.sample declares GITHUB_APP_NAME",
+            ".env.test declares GITHUB_APP_NAME"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -635,8 +636,8 @@
           "key": "GITHUB_APP_PRIVATE_KEY",
           "secret": true,
           "source": [
-            ".env.test declares GITHUB_APP_PRIVATE_KEY",
-            ".env.sample declares GITHUB_APP_PRIVATE_KEY"
+            ".env.sample declares GITHUB_APP_PRIVATE_KEY",
+            ".env.test declares GITHUB_APP_PRIVATE_KEY"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -647,8 +648,8 @@
           "key": "GITHUB_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares GITHUB_CLIENT_ID",
-            ".env.sample declares GITHUB_CLIENT_ID"
+            ".env.sample declares GITHUB_CLIENT_ID",
+            ".env.test declares GITHUB_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -659,8 +660,8 @@
           "key": "GITHUB_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares GITHUB_CLIENT_SECRET",
-            ".env.sample declares GITHUB_CLIENT_SECRET"
+            ".env.sample declares GITHUB_CLIENT_SECRET",
+            ".env.test declares GITHUB_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -682,8 +683,8 @@
           "key": "GITLAB_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares GITLAB_CLIENT_ID",
-            ".env.sample declares GITLAB_CLIENT_ID"
+            ".env.sample declares GITLAB_CLIENT_ID",
+            ".env.test declares GITLAB_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -694,8 +695,8 @@
           "key": "GITLAB_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares GITLAB_CLIENT_SECRET",
-            ".env.sample declares GITLAB_CLIENT_SECRET"
+            ".env.sample declares GITLAB_CLIENT_SECRET",
+            ".env.test declares GITLAB_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -718,8 +719,8 @@
           "key": "GOOGLE_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares GOOGLE_CLIENT_ID",
-            ".env.sample declares GOOGLE_CLIENT_ID"
+            ".env.sample declares GOOGLE_CLIENT_ID",
+            ".env.test declares GOOGLE_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -730,8 +731,8 @@
           "key": "GOOGLE_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares GOOGLE_CLIENT_SECRET",
-            ".env.sample declares GOOGLE_CLIENT_SECRET"
+            ".env.sample declares GOOGLE_CLIENT_SECRET",
+            ".env.test declares GOOGLE_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -753,8 +754,8 @@
           "key": "IFRAMELY_API_KEY",
           "secret": true,
           "source": [
-            ".env.test declares IFRAMELY_API_KEY",
-            ".env.sample declares IFRAMELY_API_KEY"
+            ".env.sample declares IFRAMELY_API_KEY",
+            ".env.test declares IFRAMELY_API_KEY"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -787,8 +788,8 @@
           "key": "LINEAR_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares LINEAR_CLIENT_ID",
-            ".env.sample declares LINEAR_CLIENT_ID"
+            ".env.sample declares LINEAR_CLIENT_ID",
+            ".env.test declares LINEAR_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -799,8 +800,8 @@
           "key": "LINEAR_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares LINEAR_CLIENT_SECRET",
-            ".env.sample declares LINEAR_CLIENT_SECRET"
+            ".env.sample declares LINEAR_CLIENT_SECRET",
+            ".env.test declares LINEAR_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -811,9 +812,9 @@
           "key": "LOG_LEVEL",
           "secret": false,
           "source": [
-            ".env.test declares LOG_LEVEL",
-            ".env.development declares LOG_LEVEL",
             ".env.sample declares LOG_LEVEL",
+            ".env.development declares LOG_LEVEL",
+            ".env.test declares LOG_LEVEL",
             "read in server/logging/Logger.ts"
           ],
           "purpose": "optional_configuration",
@@ -825,8 +826,8 @@
           "key": "NODE_ENV",
           "secret": false,
           "source": [
-            ".env.test declares NODE_ENV",
             ".env.sample declares NODE_ENV",
+            ".env.test declares NODE_ENV",
             "read in server/utils/environment.ts"
           ],
           "purpose": "optional_configuration",
@@ -838,8 +839,8 @@
           "key": "NOTION_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares NOTION_CLIENT_ID",
-            ".env.sample declares NOTION_CLIENT_ID"
+            ".env.sample declares NOTION_CLIENT_ID",
+            ".env.test declares NOTION_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -850,8 +851,8 @@
           "key": "NOTION_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares NOTION_CLIENT_SECRET",
-            ".env.sample declares NOTION_CLIENT_SECRET"
+            ".env.sample declares NOTION_CLIENT_SECRET",
+            ".env.test declares NOTION_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -862,8 +863,8 @@
           "key": "OIDC_AUTH_URI",
           "secret": false,
           "source": [
-            ".env.test declares OIDC_AUTH_URI",
-            ".env.sample declares OIDC_AUTH_URI"
+            ".env.sample declares OIDC_AUTH_URI",
+            ".env.test declares OIDC_AUTH_URI"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -874,8 +875,8 @@
           "key": "OIDC_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares OIDC_CLIENT_ID",
-            ".env.sample declares OIDC_CLIENT_ID"
+            ".env.sample declares OIDC_CLIENT_ID",
+            ".env.test declares OIDC_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -886,8 +887,8 @@
           "key": "OIDC_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares OIDC_CLIENT_SECRET",
-            ".env.sample declares OIDC_CLIENT_SECRET"
+            ".env.sample declares OIDC_CLIENT_SECRET",
+            ".env.test declares OIDC_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -909,8 +910,8 @@
           "key": "OIDC_LOGOUT_URI",
           "secret": false,
           "source": [
-            ".env.test declares OIDC_LOGOUT_URI",
-            ".env.sample declares OIDC_LOGOUT_URI"
+            ".env.sample declares OIDC_LOGOUT_URI",
+            ".env.test declares OIDC_LOGOUT_URI"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -932,8 +933,8 @@
           "key": "OIDC_TOKEN_URI",
           "secret": false,
           "source": [
-            ".env.test declares OIDC_TOKEN_URI",
-            ".env.sample declares OIDC_TOKEN_URI"
+            ".env.sample declares OIDC_TOKEN_URI",
+            ".env.test declares OIDC_TOKEN_URI"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -944,8 +945,8 @@
           "key": "OIDC_USERINFO_URI",
           "secret": false,
           "source": [
-            ".env.test declares OIDC_USERINFO_URI",
-            ".env.sample declares OIDC_USERINFO_URI"
+            ".env.sample declares OIDC_USERINFO_URI",
+            ".env.test declares OIDC_USERINFO_URI"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -991,8 +992,8 @@
           "key": "RATE_LIMITER_ENABLED",
           "secret": false,
           "source": [
-            ".env.test declares RATE_LIMITER_ENABLED",
             ".env.sample declares RATE_LIMITER_ENABLED",
+            ".env.test declares RATE_LIMITER_ENABLED",
             "read in server/middlewares/rateLimiter.ts"
           ],
           "purpose": "optional_configuration",
@@ -1040,9 +1041,9 @@
           "key": "REDIS_URL",
           "secret": false,
           "source": [
-            ".env.test declares REDIS_URL",
+            ".env.sample declares REDIS_URL",
             ".env.development declares REDIS_URL",
-            ".env.sample declares REDIS_URL"
+            ".env.test declares REDIS_URL"
           ],
           "purpose": "infrastructure_binding",
           "required": false,
@@ -1086,8 +1087,8 @@
           "key": "SECRET_KEY",
           "secret": true,
           "source": [
-            ".env.test declares SECRET_KEY",
             ".env.sample declares SECRET_KEY",
+            ".env.test declares SECRET_KEY",
             "read in server/middlewares/csrf.ts"
           ],
           "purpose": "internal_secret",
@@ -1125,8 +1126,8 @@
           "key": "SERVICES",
           "secret": false,
           "source": [
-            "read in server/main.ts",
-            "read in server/index.ts"
+            "read in server/index.ts",
+            "read in server/main.ts"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -1148,8 +1149,8 @@
           "key": "SLACK_CLIENT_ID",
           "secret": false,
           "source": [
-            ".env.test declares SLACK_CLIENT_ID",
-            ".env.sample declares SLACK_CLIENT_ID"
+            ".env.sample declares SLACK_CLIENT_ID",
+            ".env.test declares SLACK_CLIENT_ID"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -1160,8 +1161,8 @@
           "key": "SLACK_CLIENT_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares SLACK_CLIENT_SECRET",
-            ".env.sample declares SLACK_CLIENT_SECRET"
+            ".env.sample declares SLACK_CLIENT_SECRET",
+            ".env.test declares SLACK_CLIENT_SECRET"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -1183,8 +1184,8 @@
           "key": "SLACK_VERIFICATION_TOKEN",
           "secret": true,
           "source": [
-            ".env.test declares SLACK_VERIFICATION_TOKEN",
-            ".env.sample declares SLACK_VERIFICATION_TOKEN"
+            ".env.sample declares SLACK_VERIFICATION_TOKEN",
+            ".env.test declares SLACK_VERIFICATION_TOKEN"
           ],
           "purpose": "external_credential",
           "required": false,
@@ -1206,9 +1207,9 @@
           "key": "SMTP_FROM_EMAIL",
           "secret": false,
           "source": [
-            ".env.test declares SMTP_FROM_EMAIL",
-            ".env.development declares SMTP_FROM_EMAIL",
             ".env.sample declares SMTP_FROM_EMAIL",
+            ".env.development declares SMTP_FROM_EMAIL",
+            ".env.test declares SMTP_FROM_EMAIL",
             "read in server/emails/mailer.tsx"
           ],
           "purpose": "optional_configuration",
@@ -1313,8 +1314,8 @@
           "key": "SMTP_USERNAME",
           "secret": false,
           "source": [
-            ".env.test declares SMTP_USERNAME",
             ".env.sample declares SMTP_USERNAME",
+            ".env.test declares SMTP_USERNAME",
             "read in server/emails/mailer.tsx"
           ],
           "purpose": "external_credential",
@@ -1359,9 +1360,9 @@
           "key": "URL",
           "secret": false,
           "source": [
-            ".env.test declares URL",
-            ".env.development declares URL",
             ".env.sample declares URL",
+            ".env.development declares URL",
+            ".env.test declares URL",
             "read in server/main.ts",
             "read in app/utils/urls.ts",
             "read in server/commands/userInviter.ts",
@@ -1377,8 +1378,8 @@
           "key": "UTILS_SECRET",
           "secret": true,
           "source": [
-            ".env.test declares UTILS_SECRET",
-            ".env.sample declares UTILS_SECRET"
+            ".env.sample declares UTILS_SECRET",
+            ".env.test declares UTILS_SECRET"
           ],
           "purpose": "internal_secret",
           "required": false,
@@ -1670,9 +1671,9 @@
       "postgres": {
         "evidence": [
           "pg dependency in package.json",
-          "DATABASE_URL referenced in .env.test",
-          "DATABASE_URL referenced in .env.development",
           "DATABASE_URL referenced in .env.sample",
+          "DATABASE_URL referenced in .env.development",
+          "DATABASE_URL referenced in .env.test",
           "process.env.DATABASE_URL referenced in server/config/database.js",
           "POSTGRES_DB referenced in docker-compose.yml",
           "docker-compose service using a PostgreSQL/PostGIS image (postgres) in docker-compose.yml"
@@ -1813,7 +1814,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": true,
-      "vendorOverrides": [],
+      "workerNeedsProcess": true,
       "workerPatterns": [
         "bull",
         "declared worker process (Procfile)"

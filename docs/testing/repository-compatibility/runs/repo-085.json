@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d8ec16e23cb572d28d923058849e24d588ace731",
+  "analysisVersion": 54,
   "tree": {
     "files": 201,
     "entries": 9590,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "NEEDS_ATTENTION",
     "readinessState": "ALMOST_READY",
     "runtime": "node",
@@ -58,15 +58,16 @@
       "smtp"
     ],
     "requiredEnvVars": [
+      "BACKEND_STORAGE_PROVIDER",
       "PRISMA_DATABASE_URL"
     ],
     "unsupported": [],
     "readinessFindings": [
       "port-unresolved",
-      "database-migrations",
-      "worker-command"
+      "database-migrations"
     ],
     "gateFindings": [
+      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -78,9 +79,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -145,16 +145,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-030",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
