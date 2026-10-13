@@ -23,7 +23,7 @@ import type { EnvVariableClassification, ManifestEnvVariable } from '@deployz/co
 
 import { isDerivedS3EnvVariable, postgresSemantic } from './bindings.js';
 import { isDerivedUrlEnvVariable } from './derived-url.js';
-import { EXTERNAL_SERVICE_CATALOG } from './detectors.js';
+import { EXTERNAL_SERVICE_CATALOG, S3_PRESENCE_EVIDENCE } from './detectors.js';
 
 export interface EnvClassificationContext {
   postgresRequired: boolean;
@@ -93,7 +93,11 @@ function classifyOne(
   serviceKeys: Set<string>,
 ): EnvVariableClassification {
   if (managed.has(variable.key)) return 'deployz_managed';
-  const generatable = variable.secret && !serviceKeys.has(variable.key) && isGeneratableSecretName(variable.key);
+  const generatable =
+    variable.secret &&
+    !serviceKeys.has(variable.key) &&
+    !variable.source.includes(S3_PRESENCE_EVIDENCE) &&
+    isGeneratableSecretName(variable.key);
   // An optional internal secret usually falls back to a development default;
   // a generated value replaces it (kutt's envalid `devDefault`, DEPLOY-013).
   if (generatable && (variable.required || variable.purpose === 'internal_secret')) return 'deployz_generated';
