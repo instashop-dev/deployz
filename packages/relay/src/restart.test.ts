@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EcsDeployClient, EcsDeployDeps } from './deploy.js';
-import { memoryPendingStore } from './pending.js';
+import { memoryPendingStore, type PendingStore } from './pending.js';
 import { createRestartExecutor, createRestartResumer } from './restart.js';
 import type { CloudFormationReader, StackResource } from './verify.js';
 
@@ -112,6 +112,118 @@ function setup(services: Record<string, FakeService>, options: { unreadableStack
   return { deps, updates, services };
 }
 
+function unreadableStore(store: PendingStore): PendingStore {
+  return {
+    ...store,
+    read: async () => null,
+    inspect: async () => ({ state: 'unreadable', errorCode: 'AccessDeniedException' }),
+  };
+}
+
+describe('a restart whose result report is lost', () => {
+  it('re-reports the settled result from the marker and forces nothing again', async () => {
+    const { deps, updates } = setup({ [WEB_ARN]: service(1, 'COMPLETED') });
+    expect((await createRestartExecutor(deps)(command)).deferred).toBe(true);
+    const [first] = await createRestartResumer(deps)();
+    expect(first).toMatchObject({ success: true });
+
+    // The POST failed: nothing clears the marker, so the next poll repeats it.
+    expect(await createRestartResumer(deps)()).toEqual([first]);
+    // The control plane re-offers the same command: same answer, no second deployment.
+    expect(await createRestartExecutor(deps)(command)).toEqual(first);
+    expect(updates).toHaveLength(1);
+    expect(await deps.pending.read()).toMatchObject({ phase: 'settled' });
+
+    // Only an accepted report clears it, and only for this command.
+    expect(await deps.pending.compareAndSet('job-restart', null)).toBe(true);
+    expect(await deps.pending.read()).toBeNull();
+  });
+
+  it('keeps a failed rollout failed after a lost report', async () => {
+    const { deps, services, updates } = setup({ [WEB_ARN]: service(1, 'IN_PROGRESS') });
+    await createRestartExecutor(deps)(command);
+    services[WEB_ARN]!.failed = services[WEB_ARN]!.deploymentId;
+    services[WEB_ARN]!.deploymentId = 'ecs-svc/9';
+    services[WEB_ARN]!.rolloutState = 'COMPLETED';
+    const [failed] = await createRestartResumer(deps)();
+    expect(failed?.success).toBe(false);
+
+    expect(await createRestartExecutor(deps)(command)).toEqual(failed);
+    expect(updates).toHaveLength(1);
+  });
+
+  it('survives a new process: a fresh executor over the same store never forces a second deployment', async () => {
+    const { deps, updates } = setup({ [WEB_ARN]: service(0) });
+    const first = await createRestartExecutor(deps)(command);
+    const second = await createRestartExecutor({ ...deps })(command);
+    expect(second).toEqual(first);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('writes nothing over a newer command marker when this command settles', async () => {
+    const { deps } = setup({ [WEB_ARN]: service(1, 'COMPLETED') });
+    await createRestartExecutor(deps)(command);
+    const newer = {
+      commandId: 'job-newer',
+      idempotencyKey: 'dep-1:CONFIG_UPDATE',
+      type: 'CONFIG_UPDATE',
+      stackName: 'deployz-app',
+      startedAt: '2026-10-13T00:00:00.000Z',
+      payload: {},
+    };
+    const store = deps.pending;
+    let first = true;
+    const racing: PendingStore = {
+      ...store,
+      inspect: async () => {
+        const seen = await store.inspect();
+        if (first) {
+          first = false;
+          await store.write(newer);
+        }
+        return seen;
+      },
+    };
+    expect(await createRestartResumer({ ...deps, pending: racing })()).toEqual([]);
+    expect(await store.read()).toMatchObject({ commandId: 'job-newer', type: 'CONFIG_UPDATE' });
+  });
+});
+
+describe('an unreadable pending marker', () => {
+  it('defers the executor and the resumer without touching the service', async () => {
+    const { deps, updates } = setup({ [WEB_ARN]: service() });
+    const blind = { ...deps, pending: unreadableStore(deps.pending) };
+    expect(await createRestartExecutor(blind)(command)).toMatchObject({ success: false, deferred: true });
+    expect(await createRestartResumer(blind)()).toEqual([]);
+    expect(updates).toHaveLength(0);
+    expect(await deps.pending.read()).toBeNull();
+  });
+});
+
+describe('restart authority', () => {
+  it('forces nothing for a command the control plane no longer owns', async () => {
+    const { deps, updates } = setup({ [WEB_ARN]: service() });
+    const result = await createRestartExecutor({ ...deps, checkAuthority: async () => false })(command);
+    expect(result).toMatchObject({ success: false });
+    expect(result.deferred).toBeUndefined();
+    expect(updates).toHaveLength(0);
+    expect(await deps.pending.read()).toBeNull();
+  });
+
+  it('defers when the authority answer is unknown', async () => {
+    const { deps, updates } = setup({ [WEB_ARN]: service() });
+    const result = await createRestartExecutor({ ...deps, checkAuthority: async () => null })(command);
+    expect(result).toMatchObject({ success: false, deferred: true });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('forces the restart for an active command', async () => {
+    const { deps, updates } = setup({ [WEB_ARN]: service() });
+    await createRestartExecutor({ ...deps, checkAuthority: async () => true })(command);
+    expect(updates).toHaveLength(1);
+  });
+});
+
 describe('createRestartExecutor', () => {
   it('defers while the forced rollout runs and records its deployment on the marker', async () => {
     const { deps, updates } = setup({ [WEB_ARN]: service(1, 'IN_PROGRESS') });
@@ -135,7 +247,7 @@ describe('createRestartExecutor', () => {
     services[WEB_ARN]!.rolloutState = 'COMPLETED';
     const [result] = await createRestartResumer(deps)();
     expect(result).toMatchObject({ commandId: 'job-restart', success: true, output: { executed: true, type: 'RESTART' } });
-    expect(await deps.pending.read()).toBeNull();
+    expect(await deps.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('waits while an ALB target is not healthy yet', async () => {
@@ -155,7 +267,7 @@ describe('createRestartExecutor', () => {
     expect(result?.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
     expect(result?.error).toContain('the restart never became healthy');
     expect(result?.error).not.toContain('Secret');
-    expect(await deps.pending.read()).toBeNull();
+    expect(await deps.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('a replayed command waits on its own marker and never forces a second deployment', async () => {
@@ -168,7 +280,7 @@ describe('createRestartExecutor', () => {
     const replayed = await createRestartExecutor(deps)(command);
     expect(replayed).toMatchObject({ success: true, output: { executed: true, type: 'RESTART' } });
     expect(updates).toHaveLength(1);
-    expect(await deps.pending.read()).toBeNull();
+    expect(await deps.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('restarts EVERY app service and waits for all of them', async () => {
@@ -189,7 +301,7 @@ describe('createRestartExecutor', () => {
     const result = await createRestartExecutor(deps)(command);
     expect(result.success).toBe(true);
     expect(updates).toHaveLength(0);
-    expect(await deps.pending.read()).toBeNull();
+    expect(await deps.pending.read()).toMatchObject({ phase: 'settled' });
   });
 
   it('does not fail a restart whose stack resources cannot be read', async () => {
