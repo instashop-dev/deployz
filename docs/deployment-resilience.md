@@ -104,8 +104,12 @@ watchdog, and the stack-event progress route's settlement backstop):
   revision already carries the effective configuration
   (`unappliedConfigurationKeys`, `packages/relay/src/config-update.ts`). If
   not, it changes nothing, keeps zero tasks, and stays in progress until a
-  CONFIG_UPDATE attaches the configured revision. The scale-up then sets
-  that revision and the task count in one `UpdateService`.
+  CONFIG_UPDATE attaches the configured revision. Attaching it is an ECS
+  rollout, and while the template's deployment is still `ACTIVE` beside it,
+  ECS can start a new task in that older deployment. So the deploy also
+  waits until the configured revision is the service's only deployment.
+  The scale-up then sets that revision and the task count in one
+  `UpdateService`.
   Such an install counts as a running workload only once a deploy has
   started it (`hasStartedInstall`), so a failed first deploy marks the
   deployment `FAILED` like a failed install would; the relay scales the
