@@ -251,6 +251,13 @@ async function main(): Promise<void> {
     schemaValid = 0;
     results = [];
     for (const entry of selected) {
+      // A plan with only already-supported items never calls the model, so
+      // it has no answer to grade.
+      const context = caseContext(entry);
+      if (!context || planRemediation(context).every((item) => item.classification === 'ALREADY_SUPPORTED')) {
+        results.push(runCase(entry));
+        continue;
+      }
       let answer: FixInstructionsAiOutput | null = null;
       try {
         answer = fixInstructionsAiSchema.parse(JSON.parse(readFileSync(join(values.replay, `${entry.id}.json`), 'utf8')));

@@ -1,3 +1,0 @@
-{"items": [
-{"id": "worker-command", "guidance": "Search the server source for where Bull queues are created and where their process handlers are registered, and check whether the file that npm start runs imports them. Report whether a separate worker file exists and the exact node command that starts it. Also report the Redis connection settings that Bull reads, because the facts list no Redis that Deployz provides."}
-]}

@@ -1,5 +1,0 @@
-{"items": [
-{"id": "build-context-git-metadata", "guidance": "Check the Dockerfile and any Makefile target it calls for git commands (for example git rev-parse or git describe) that feed Go -ldflags -X values. Replace those inputs with build arguments such as GIT_SHA and a version argument with safe defaults, and pass them to the same -ldflags variables so the binary still embeds the version."},
-{"id": "health-check", "guidance": "Check the Go router setup for an existing route, such as an API info or version endpoint, that returns 200 without a database connection, and report it if found. If none exists, register a /health handler on the same router ahead of any basic-auth middleware. If the app supports a URL prefix setting, the probe path must include that prefix."},
-{"id": "database-migrations", "guidance": "pgweb connects to a database that the user selects, so check whether it creates any tables of its own. If it has no migration files and no startup code that creates a schema, report that no migration mechanism exists and that the app needs none."}
-]}

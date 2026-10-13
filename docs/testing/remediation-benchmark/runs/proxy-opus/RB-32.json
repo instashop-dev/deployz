@@ -1,4 +1,0 @@
-{"items": [
-{"id": "localhost-binding", "guidance": "The bind address comes from the --host flag in the Dockerfile CMD, so change only that flag value to 0.0.0.0 and leave the port as it is. If server.js also reads a HOST variable, check that its default does not override the flag."},
-{"id": "database-migrations", "guidance": "Search the source for a migrations folder, .sql files, or startup code that runs CREATE TABLE statements through pg (for example an init function called before the server listens, or one in the worker entry). If startup applies the schema, report that file. If a standalone migrate script exists, report its exact node command from the build output, and add a package script only if that command needs one."}
-]}

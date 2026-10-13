@@ -34,10 +34,9 @@ over real repositories. The generator itself is described in
    It records each answer and document under `runs/live/` and reports the
    served model, latency, tokens and cost. Do not run it in CI.
 
-`runs/summary.md` and `runs/replay/summary.md` are written by the runner; do
-not edit them by hand. `runs/proxy-opus/` holds answers that Claude Opus 5.5
-gave to the exact production prompts outside OpenRouter (a proxy, recorded
-before an OpenRouter key existed). Replace them with `--live` answers.
+`runs/summary.md` and `runs/live/summary.md` are written by the runner; do not
+edit them by hand. `runs/live/<case>.json` are the recorded model answers of
+the last live run; grade them again with `--replay runs/live`.
 
 ## Coding-agent execution
 

@@ -1,5 +1,0 @@
-{"items": [
-{"id": "health-check", "guidance": "Check the Express route files for an existing health or status route. If you add one, register the GET /health handler early in the app setup, before the routers, auth middleware, and any custom-domain redirect, and do not call Redis or the database from it."},
-{"id": "unsupported-redis-setup", "guidance": "Open server/redis.js and check whether the Cluster client is always created or only when a setting (for example a cluster flag or a list of cluster nodes) is present, and whether a single-node ioredis client path exists. Report the setting and value that select a single-node client. If the Cluster client is unconditional, report the file and the modules that import it."},
-{"id": "worker-command", "guidance": "Find the Bull queues and their process handlers, and check whether they use the client from server/redis.js. Report whether the file that npm start runs registers the processors or a separate file does, with its exact command. Also report the Redis variable names that Bull reads, so the vendor can map them to REDIS_URL."}
-]}

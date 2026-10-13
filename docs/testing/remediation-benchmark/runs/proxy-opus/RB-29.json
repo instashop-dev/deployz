@@ -1,3 +1,0 @@
-{"items": [
-{"id": "health-check", "guidance": "Check the Express routes in the server source for an existing health or status route before adding one. If you add one, put the GET /health handler in the web server app setup ahead of passport or other auth middleware and any custom-domain redirect, not in server/worker.js, which runs as a worker without a URL. Make sure it answers on port 3000."}
-]}

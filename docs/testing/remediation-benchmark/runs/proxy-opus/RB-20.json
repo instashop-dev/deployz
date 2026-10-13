@@ -1,4 +1,0 @@
-{"items": [
-{"id": "unsupported-multi-service", "guidance": "Check that the postgresql service in docker-compose/deploy/docker-compose.yml uses a stock PostgreSQL image with no custom build, entrypoint, or mounted application code. Then read the environment block of the lobe service and report each database variable it passes (for example DATABASE_URL or separate host, user, and password names), so the vendor can map them to the Deployz-managed PostgreSQL."},
-{"id": "health-check", "guidance": "In this Next app, first look under app/api or pages/api for an existing route such as a health, ping, or status handler. If none exists, an App Router route handler (for example app/api/health/route.ts) is the smallest addition. If the app has a middleware.ts that handles locale, auth, or redirects, add the health path to its matcher exclusions so the probe on port 3210 gets a direct 200."}
-]}

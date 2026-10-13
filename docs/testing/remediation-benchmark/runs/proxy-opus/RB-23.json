@@ -1,4 +1,0 @@
-{"items": [
-{"id": "local-file-storage", "guidance": "List what the app writes under /app/data (for example an embedded database file, uploaded images, backups, or logs) and classify each item. If the app has a database type setting that can point to the managed PostgreSQL, the database file needs no S3 change; report that setting. For uploads that must persist, first check for an existing S3 option, and otherwise use the AWS SDK for JavaScript v3 S3 client."},
-{"id": "database-migrations", "guidance": "Search the server source for a knex or other migrations directory and for startup code that creates or patches tables (for example a database init or upgrade step called when the server starts). Report the file and function if the server applies the schema at start, and report whether that path supports PostgreSQL or only another database. If a separate non-interactive command exists, report it exactly."}
-]}
