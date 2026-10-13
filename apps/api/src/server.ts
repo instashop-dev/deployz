@@ -108,6 +108,7 @@ import { createFixtureAiGateway } from './ai-fixture.js';
 import {
   ANALYSIS_VERSION,
   createAnalysisRunner,
+  legacySavedFields,
   readVendorOverrides,
   type AnalysisRunner,
   type AttentionCheck,
@@ -488,10 +489,6 @@ const CONTRACT_FIELDS = [
   'storageRequired',
   'redisRequired',
 ] as const;
-
-// The saved columns analysis.ts treats as vendor-owned on a row that predates
-// `vendorOverrides` (its non-null values stay; analysis only fills the empty ones).
-const LEGACY_OWNED_FIELDS = ['containerPort', 'healthPath', 'migrationCommand', 'workerCommand'] as const;
 
 /**
  * The manifest-only vendor overrides (Phase 2) — no applications column backs
@@ -3920,14 +3917,14 @@ export async function buildServer({
       if (claimed.length > 0 || released.length > 0 || manifestOnlyChanged) {
         if (claimed.length > 0 || released.length > 0) {
           // A row analysed before the list existed treats its non-null saved
-        // columns as the vendor's (analysis.ts); recording one claim must not
-        // make the others look auto-detected.
-        const overrides = new Set([
-          ...(Array.isArray(existing.detectedMetadata?.['vendorOverrides'])
-            ? readVendorOverrides(existing.detectedMetadata)
-            : LEGACY_OWNED_FIELDS.filter((field) => existing[field] !== null)),
-          ...claimed,
-        ]);
+          // columns as the vendor's (analysis.ts); recording one claim must not
+          // make the others look auto-detected.
+          const overrides = new Set([
+            ...(Array.isArray(existing.detectedMetadata?.['vendorOverrides'])
+              ? readVendorOverrides(existing.detectedMetadata)
+              : legacySavedFields(existing)),
+            ...claimed,
+          ]);
           for (const field of released) {
             overrides.delete(field);
           }
