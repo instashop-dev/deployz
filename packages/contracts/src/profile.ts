@@ -45,7 +45,7 @@ export const SMALL_PROFILE: InfrastructureSizeProfile = {
   version: 1,
   label: 'Small',
   description:
-    'A single web container (0.25 vCPU / 512 MiB), a db.t4g.micro PostgreSQL 16 instance (20 GB, gp2), and a single-node Valkey cache when the application needs one.',
+    'A single web container (0.25 vCPU / 512 MiB), a db.t4g.micro PostgreSQL 16 or MySQL 8.0 instance (20 GB, gp2), and a single-node Valkey cache when the application needs one.',
   workload: {
     cpuUnits: 256,
     memoryMiB: 512,
@@ -68,7 +68,7 @@ export const SMALL_V2_PROFILE: InfrastructureSizeProfile = {
   version: 2,
   label: 'Small',
   description:
-    'A single web container (0.25 vCPU / 512 MiB), a db.t3.micro PostgreSQL 16 instance (20 GB, gp3), and a single-node Valkey cache when the application needs one.',
+    'A single web container (0.25 vCPU / 512 MiB), a db.t3.micro PostgreSQL 16 or MySQL 8.0 instance (20 GB, gp3), and a single-node Valkey cache when the application needs one.',
   workload: {
     cpuUnits: 256,
     memoryMiB: 512,

@@ -28,10 +28,10 @@ export function buildRequirementsQuestions(): Record<string, JevQuestion> {
   return {
     postgres: {
       type: 'noul',
-      instructions: `${JUDGE_FROM_EVIDENCE} Does the application need a PostgreSQL database to start or work?`,
+      instructions: `${JUDGE_FROM_EVIDENCE} Does the application need a relational database (PostgreSQL or MySQL) to start or work?`,
       criteria: {
-        true: 'The application needs a PostgreSQL database to start or work.',
-        false: 'The application works without a PostgreSQL database.',
+        true: 'The application needs a relational database (PostgreSQL or MySQL) to start or work.',
+        false: 'The application works without a relational database.',
       },
     },
     redis: {

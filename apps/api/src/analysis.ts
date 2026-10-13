@@ -339,7 +339,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // node_modules. Anything else becomes the blocking "Needs input" question
 // `migration-command-needs-input`. Stored v51 rows may carry an `npx …` command
 // the image cannot run and must re-run.
-export const ANALYSIS_VERSION = 52;
+// Version 53 (reliability): a Go PostgreSQL driver in go.mod counts only when
+// runtime Go source imports it, and a dev/ Dockerfile that starts a server is a
+// production candidate. Stored v52 rows may require PostgreSQL from an unused
+// driver or reject a usable dev/ Dockerfile.
+export const ANALYSIS_VERSION = 53;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

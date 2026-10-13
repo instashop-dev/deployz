@@ -614,7 +614,7 @@ const PRODUCTION_DOCKERFILE_REGEX = /(?:^|[/._-])prod(?:uction)?(?:[/._-]|$)/i;
 // A runtime that is evidently a development server: a Dockerfile that runs
 // one is never the production image.
 const DEV_RUNTIME_REGEX =
-  /--env[= ]dev\b|\bAPP_ENV=dev(?:elopment)?\b|\bNODE_ENV=development\b|\b(?:npm|yarn|pnpm|bun)(?: run)? (?:dev|start:dev)\b|\bnodemon\b/i;
+  /--env[= ]dev\b|\bAPP_ENV=dev(?:elopment)?\b|\bNODE_ENV=development\b|\b(?:npm|yarn|pnpm|bun)(?: run)? (?:dev|start:dev)\b|\bnodemon\b|\bnext dev\b|--reload\b|\bsleep\W+infinity\b/i;
 
 /** A stage name that marks tooling, never the production runtime image. */
 const NON_RUNTIME_STAGE_NAME_REGEX =
@@ -711,6 +711,10 @@ export function detectNoDefaultServerCommand(content: string): string | null {
 const NON_APP_DOCKERFILE_DIR_REGEX =
   /(?:^|\/)(?:\.devcontainer|\.cursor|\.github|\.vscode|\.idea|\.gitpod|[\w-]*tests?(?:ing)?|e2e|ci|cypress|examples?|samples?|docs?|benchmarks?|playwright)(?:\/|$)/i;
 
+// A `dev/` build directory can hold the production Dockerfile; it counts only
+// when the image starts something (a tooling image has no CMD, ENTRYPOINT or EXPOSE).
+const DEV_DOCKERFILE_DIR_REGEX = /(?:^|\/)(?:dev|development)\//i;
+
 // A template (mustache or jinja block tag, or a templated FROM) is not a Dockerfile Docker can build.
 const DOCKERFILE_TEMPLATE_REGEX = /^\s*(?:\{\{[#^/>!]|\{%)|^\s*FROM\s[^\n]*\{\{/im;
 
@@ -726,8 +730,9 @@ function isUnusableDockerfile(path: string, content: string): boolean {
   if (DOCKERFILE_TEMPLATE_REGEX.test(content)) return true;
   const runtime = productionStageText(content);
   const lines = runtime.split('\n');
-  if (lines.some((line) => /^\s*(?:CMD|ENTRYPOINT)\b/i.test(line) && DEV_RUNTIME_REGEX.test(line))) return true;
+  if (lines.some((line) => /^\s*(?:CMD|ENTRYPOINT)\b/i.test(line) && DEV_RUNTIME_REGEX.test(line.replace(/["',[\]\s]+/g, ' ')))) return true;
   const startsSomething = lines.some((line) => /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/i.test(line));
+  if (DEV_DOCKERFILE_DIR_REGEX.test(path) && !startsSomething) return true;
   const copiesApp = lines.some((line) => /^\s*(?:COPY|ADD)\b/i.test(line));
   const installsSystemPackages = lines.some((line) => /^\s*RUN\b.*\b(?:apt-get|apt|apk|yum|dnf|microdnf)\b/i.test(line));
   return installsSystemPackages && !startsSomething && !copiesApp;
@@ -1883,6 +1888,14 @@ function detectLanguagePostgres(tree: FileTree): string[] {
   return detected;
 }
 
+/** True when non-test, non-vendored Go source imports the module: a `go.mod` requirement alone can be unused. */
+function goModuleImportedByRuntimeSource(tree: FileTree, module: string): boolean {
+  const importPattern = new RegExp(`"${tokenPattern(module)}(?:/[^"]*)?"`);
+  return Object.entries(tree).some(
+    ([path, content]) => GO_SOURCE.test(path) && !/(?:^|\/)vendor\//.test(path) && isRuntimeSourcePath(path) && importPattern.test(content),
+  );
+}
+
 /**
  * True when a language-level driver signal comes from a manifest the
  * deployed app is built from (not a tool, test or docs manifest) and, for
@@ -1896,7 +1909,7 @@ function languageDriverDeclaredAtRuntime(tree: FileTree, signal: string): boolea
     if (!isDependencyManifest(path) || !isRuntimeSourcePath(path)) return false;
     if (!GO_DEPENDENCY_FILES.test(path)) return true;
     const line = new RegExp(`^[^\\n]*${tokenPattern(token)}[^\\n]*$`, 'm').exec(tree[path] ?? '')?.[0] ?? '';
-    return !/\/\/\s*indirect/.test(line);
+    return !/\/\/\s*indirect/.test(line) && goModuleImportedByRuntimeSource(tree, token);
   });
 }
 
@@ -5235,7 +5248,7 @@ export function detectDockerfileMissingCopySources(tree: FileTree): string[] {
 const GENERATED_DIRECTORY_REGEX = /^(?:dist|build|out|target|bin|obj|\.next|\.output|node_modules|vendor|public|static|assets|generated|coverage)$/i;
 // A Dockerfile that exists only for development or tests (never the production image).
 const DEV_ONLY_DOCKERFILE_REGEX =
-  /(?:^|\/)(?:\.devcontainer|dev|development|\.gitpod)\/|(?:^|\/)dockerfile(?:[.-]\w+)*[.-](?:dev|development|test|e2e|ci|gitpod)(?:[.-]\w+)*$|(?:^|\/)[\w-]*(?:dev|test|ci)[\w-]*\.dockerfile$/i;
+  /(?:^|\/)(?:\.devcontainer|\.gitpod)\/|(?:^|\/)dockerfile(?:[.-]\w+)*[.-](?:dev|development|test|e2e|ci|gitpod)(?:[.-]\w+)*$|(?:^|\/)[\w-]*(?:dev|test|ci)[\w-]*\.dockerfile$/i;
 
 /**
  * Why the repository has no Dockerfile that builds a production image, or
