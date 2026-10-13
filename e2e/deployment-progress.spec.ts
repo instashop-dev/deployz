@@ -321,9 +321,42 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
 
   // ── 5. Relay heartbeat reports the app healthy. Still VERIFYING — the app
   // is only reachable over HTTP so far — but now with the domain-setup nudge.
+  // Healthy now means evidence: every workload of the frozen spec runs one
+  // digest at full capacity, the web targets are healthy, and a fresh probe
+  // succeeded.
+  const commandsResponse = await page.request.get(
+    `${API_URL}/api/relay/commands?installationId=${installationId}`,
+    { headers: relayAuth },
+  );
+  expect(commandsResponse.ok()).toBeTruthy();
+  const { deployment: deploymentMeta } = (await commandsResponse.json()) as {
+    deployment: { workloads: { id: string; serviceLogicalId: string }[] };
+  };
+  const checkedAt = new Date().toISOString();
   const healthResponse = await page.request.post(`${API_URL}/api/relay/health`, {
     headers: relayAuth,
-    data: { installationId, healthStatus: 'HEALTHY' },
+    data: {
+      installationId,
+      healthStatus: 'HEALTHY',
+      observedState: {
+        releaseEvidence: {
+          version: 1,
+          observedAt: checkedAt,
+          services: deploymentMeta.workloads.map((workload) => ({
+            workloadId: workload.id,
+            serviceLogicalId: workload.serviceLogicalId,
+            observed: true,
+            desiredCount: 1,
+            runningCount: 1,
+            rolloutState: 'COMPLETED',
+            runningDigests: ['sha256:progress'],
+            targets:
+              workload.id === 'web' ? { healthy: 1, unhealthy: 0, pending: 0, unknown: 0 } : null,
+          })),
+          httpProbe: { ok: true, status: 200, checkedAt },
+        },
+      },
+    },
   });
   expect(healthResponse.ok()).toBeTruthy();
 

@@ -60,7 +60,7 @@ import {
 import { createRestartExecutor, createRestartResumer } from '@deployz/relay/restart';
 import { createDestroyExecutor, createDestroyResumer, type DestroyDeps } from '@deployz/relay/destroy';
 import { observeRuntimeHealth } from '@deployz/relay/ecs-health';
-import { observeRunningImageDigest } from '@deployz/relay/ecs-observe';
+import { observeRunningImageDigest, observeServiceDigests } from '@deployz/relay/ecs-observe';
 import { installApplicationStack } from '@deployz/relay/install';
 import { memoryPendingStore, type PendingCommand, type PendingStore } from '@deployz/relay/pending';
 import { pollOnce, reportCommandProgress, type PollDependencies } from '@deployz/relay/poll';
@@ -783,6 +783,11 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     // with what that deploy just did (identity consistency).
     observeImage: () =>
       observeRunningImageDigest(
+        { cfn: account.cloudFormationReader(), ecs: account.ecsTaskReader(), installationId },
+        stackNameOrDefault(),
+      ),
+    observeServiceDigests: () =>
+      observeServiceDigests(
         { cfn: account.cloudFormationReader(), ecs: account.ecsTaskReader(), installationId },
         stackNameOrDefault(),
       ),
