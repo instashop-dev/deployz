@@ -117,7 +117,10 @@ customer types secret (invitation confirm or config save)
 → auto-deploy of the newest READY release scales the service up
 ```
 
-**Cleanup:** bound rows are deleted on CONFIG_UPDATE success, PURGE
+**Cleanup:** a CONFIG_UPDATE success deletes only the bound rows for the
+keys that job carried (`changedKeys`, `removedKeys`, `secrets[].key`); a secret
+bound after the job was created waits for the CONFIG_UPDATE its own write
+queues. Bound rows are also deleted on PURGE
 success, a never-installed disconnect, and force-complete; the watchdog
 deletes expired rows with pure SQL. A normal relay DESTROY success does not
 delete them; they expire by TTL. Lost acknowledgements are safe: rows

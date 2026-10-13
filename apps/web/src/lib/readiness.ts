@@ -61,7 +61,9 @@ export interface PassedCheck {
 
 /** One infrastructure requirement difference reported for an existing deployment. */
 export type DeploymentRequirementDriftEntry = {
-  kind: 'database' | 'cache' | 'storage';
+  kind: 'database' | 'cache' | 'storage' | 'engine' | 'workload' | 'queue' | 'schedule';
+  /** The named component for engine (the desired engine), workload, queue and schedule entries. */
+  name?: string | undefined;
   deployed: boolean;
   desired: boolean;
 };

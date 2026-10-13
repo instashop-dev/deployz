@@ -1297,7 +1297,7 @@ function DeployUpdateDialog({
                 <AlertDescription>
                   <ul className="list-disc pl-5">
                     {requirementDrift.map((entry) => (
-                      <li key={entry.kind}>{requirementDriftLine(entry)}</li>
+                      <li key={`${entry.kind}:${entry.name ?? ''}`}>{requirementDriftLine(entry)}</li>
                     ))}
                   </ul>
                   A new deployment is needed to change infrastructure.

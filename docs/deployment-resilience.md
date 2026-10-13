@@ -104,6 +104,23 @@ watchdog, and the stack-event progress route's settlement backstop):
   revision back on that one (`packages/relay/src/deploy.ts`).
 - A failed **first install** or **destroy** marks the deployment `FAILED` —
   there, the operation's failure IS the environment's.
+- **Install follow-ups are durable.** A successful INSTALL needs two
+  follow-up jobs: the first `CONFIG_UPDATE` (only when there is
+  configuration to apply) and the auto-deploy of the newest READY release.
+  Both use keys tied to the install job
+  (`<id>:CONFIG_UPDATE:install:<installJobId>`,
+  `<id>:DEPLOY_RELEASE:install:<installJobId>`). The config job is created
+  first; the deploy is never created when the config job could not be. The
+  result route, a replayed INSTALL result, and the relay heartbeat all run
+  the same idempotent `ensureInstallFollowUps` (`apps/api/src/server.ts`),
+  so a control-plane crash after the settlement transaction is repaired by
+  the next heartbeat, not by the watchdog. The decision is stored on the
+  install job (`result.followUps.autoDeploy`: `queued`, `no_ready_release`,
+  `migration_workload_missing`, `topology_changed`, or `superseded` when a
+  later DEPLOY_RELEASE, ROLLBACK or DESTROY exists). A stored decision ends
+  the repair; so does a DELETING or DELETED deployment. A failure stores
+  nothing, so the repair retries. The heartbeat repairs only installs that
+  finished in the last 24 hours.
 - A **configured first start** (DEPLOY-009): when a vendor value or a
   Deployz-generated secret must reach the task before it can boot
   (`configPrecedesFirstStart`, `apps/api/src/install-config.ts`) and a READY

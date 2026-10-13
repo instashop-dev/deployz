@@ -578,6 +578,97 @@ describe('deploy contract, busy gate and restart', () => {
     expect(jobs).toEqual([]);
   });
 
+  describe('topology the frozen stack cannot apply', () => {
+    const queue = {
+      id: 'jobs',
+      envBindings: [{ name: 'JOBS_QUEUE_URL', kind: 'url' }],
+      producers: ['web'],
+      consumers: ['web'],
+      source: 'src/queue.ts',
+    };
+    const schedule = {
+      id: 'nightly',
+      command: 'node job.js',
+      schedule: { type: 'cron', cron: '0 3 * * *' },
+      timezone: null,
+      source: 'deploy.yml',
+    };
+
+    /** An application that needs the database the frozen (PostgreSQL) stack has, plus the given analysis facts. */
+    async function seedApplication(
+      detectedMetadata: Record<string, unknown>,
+      overrides: Partial<typeof schema.applications.$inferInsert> = {},
+    ) {
+      const [row] = await db
+        .insert(schema.applications)
+        .values({
+          organizationId,
+          name: 'Topology App',
+          repoFullName: `acme/dc-topology-${crypto.randomUUID().slice(0, 8)}`,
+          repoUrl: 'https://github.com/acme/dc-topology',
+          defaultBranch: 'main',
+          databaseRequired: true,
+          detectedMetadata,
+          ...overrides,
+        })
+        .returning();
+      const [release] = await db
+        .insert(schema.releases)
+        .values({
+          applicationId: row!.id,
+          version: 'v1.0.0',
+          gitSha: 'abc123',
+          imageDigest: digestFor(`topology-${row!.id}`),
+          buildStatus: 'SUCCEEDED',
+          releaseStatus: 'READY',
+        })
+        .returning();
+      const deployment = await seedDeployment({
+        applicationId: row!.id,
+        specV2: migratingSpec() as unknown as Record<string, unknown>,
+        desiredState: { manifest: MIGRATING_MANIFEST },
+      });
+      return { applicationId: row!.id, releaseId: release!.id, deployment };
+    }
+
+    it.each([
+      ['database engine', { mysql: { required: true } }],
+      ['worker', { resolvedWorkerCommands: [{ id: 'email-worker', command: 'node worker.js', source: 'Procfile' }] }],
+      ['queue', { asyncQueues: [queue] }],
+      ['schedule', { asyncScheduledJobs: [schedule] }],
+    ])('refuses a changed %s with INFRASTRUCTURE_CHANGE_REQUIRED, skips it in bulk and reports it in the plan', async (_name, metadata) => {
+      const { applicationId, releaseId, deployment } = await seedApplication(metadata);
+
+      const single = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(single.statusCode, single.body).toBe(409);
+      expect(single.json()).toMatchObject({ error: { code: 'INFRASTRUCTURE_CHANGE_REQUIRED' } });
+
+      const bulk = await post(`/api/applications/${applicationId}/deploy-bulk`, { releaseId });
+      expect((bulk.json() as { results: unknown[] }).results).toEqual([
+        expect.objectContaining({ deploymentId: deployment.id, status: 'SKIPPED' }),
+      ]);
+
+      const plan = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deployment.id}/plan?action=update`,
+        headers: { cookie },
+      });
+      expect(plan.statusCode, plan.body).toBe(200);
+      const body = plan.json() as { requirementDrift: unknown[]; infrastructureChange: unknown };
+      expect(body.requirementDrift.length).toBeGreaterThan(0);
+      expect(body.infrastructureChange).toEqual({ status: 'unsupported', reason: 'topology_changed' });
+
+      expect(await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id))).toEqual([]);
+    });
+
+    it('still deploys a changed port and health path', async () => {
+      const { releaseId, deployment } = await seedApplication({}, { containerPort: 8080, healthPath: '/ready' });
+
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode, response.body).toBe(202);
+    });
+  });
+
   it('still deploys when the application dropped a database the frozen stack has', async () => {
     const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
     const releaseId = await seedRelease('v9.6.0');

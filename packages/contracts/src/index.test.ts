@@ -777,11 +777,27 @@ describe('vendorDeploymentStatusSchema', () => {
           http: null,
           relay: 'UNKNOWN' as const,
         },
+        notStarted: false,
       },
+      servingRelease: {
+        releaseId: '3f1c2d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f',
+        confirmedAt: '2026-08-31T11:58:00.000Z',
+        confirmed: true,
+      },
+      connector: { upgradeRequired: false, reason: null },
       url: null,
       failure: null,
     };
     expect(vendorDeploymentStatusSchema.parse(vendor)).toStrictEqual(vendor);
+
+    const unconfirmed = {
+      ...vendor,
+      health: { ...vendor.health, notStarted: true },
+      servingRelease: { releaseId: null, confirmedAt: null, confirmed: false },
+      connector: { upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' as const },
+    };
+    expect(vendorDeploymentStatusSchema.parse(unconfirmed)).toStrictEqual(unconfirmed);
+    expect(() => vendorDeploymentStatusSchema.parse({ ...vendor, connector: { upgradeRequired: true, reason: 'OTHER' } })).toThrow(ZodError);
 
     // The additive specComponents field (phase 3) round-trips when present;
     // the parse above already proves its absence parses.
