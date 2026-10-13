@@ -343,7 +343,14 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // runtime Go source imports it, and a dev/ Dockerfile that starts a server is a
 // production candidate. Stored v52 rows may require PostgreSQL from an unused
 // driver or reject a usable dev/ Dockerfile.
-export const ANALYSIS_VERSION = 53;
+// Version 54 (MVP analysis fixes): evidence is scoped to the selected
+// production image (Dockerfile tie-break, FROM lineage runtime, image-path
+// migration suggestion, required base-image ARG); health routes, listener
+// overrides and startup migrations are read from the real start path; Node job
+// libraries raise no worker question; storage and engine selectors whose
+// default is local disk or SQLite must be set. Stored v53 rows can carry a
+// wrong image, a false loopback or worker question, or accept local storage.
+export const ANALYSIS_VERSION = 54;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
