@@ -10,11 +10,13 @@ import {
   DEPLOYMENT_STEP_ORDER,
   INFRASTRUCTURE_COMPONENTS,
   TYPICAL_STEP_DURATION_SECONDS,
+  workloadServicesFromSpec,
   type ComponentProgress,
   type ComponentProgressStatus,
   type CustomDomainStatus,
   type CustomerDeploymentStatus,
   type DeploymentStage,
+  type DeploymentSpecV2,
   type DeploymentState,
   type DeploymentStep,
   type HealthStatus,
@@ -612,6 +614,19 @@ export function endpointHttpsState(
     default:
       return 'SETTING_UP';
   }
+}
+
+/**
+ * CloudFormation logical ids of the ECS services that receive public
+ * ingress, from the frozen spec. Empty when there is no compiled spec or no
+ * public workload — nothing is then required of the inventory.
+ */
+export function primaryServiceLogicalIds(spec: DeploymentSpecV2 | null): string[] {
+  if (spec === null || !spec.ir.ingress.public) return [];
+  const publicIds = new Set(spec.ir.ingress.targetWorkloadIds);
+  return (workloadServicesFromSpec(spec) ?? [])
+    .filter((workload) => publicIds.has(workload.id))
+    .map((workload) => workload.serviceLogicalId);
 }
 
 /** The closed component-status vocabulary an HTTPS state maps onto. */

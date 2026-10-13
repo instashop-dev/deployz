@@ -24,6 +24,7 @@ import * as schema from '@deployz/db/schema';
 import { ANALYSIS_VERSION } from './analysis.js';
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
+import { primaryServiceLogicalIds } from './deployment-status.js';
 import { readStoredDeploymentSpec, readStoredManifest } from './manifest.js';
 import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
@@ -143,6 +144,14 @@ async function insertRelease(
     .returning();
   return row!;
 }
+
+/** The compiled web service's logical id — the primary service the inventory must carry. */
+const WEB_SERVICE_ID = primaryServiceLogicalIds(
+  compileDeploymentIntent({
+    manifest: READY_MANIFEST as unknown as Parameters<typeof compileDeploymentIntent>[0]['manifest'],
+    region: 'us-east-1',
+  }).spec,
+)[0]!;
 
 /** A READY release with an image: deployment creation and every INSTALL refuse without one. */
 async function insertDeployableRelease(
@@ -5632,6 +5641,39 @@ describe('server — infrastructure inventory (§59)', () => {
     expect(register.statusCode, register.body).toBe(200);
   }
 
+  it('primary service — a task definition, roles and a worker service never make the application ready', async () => {
+    const deployment = await newDeployment({
+      state: 'HEALTHY',
+      relayStatus: 'CONNECTED',
+      lastHealthAt: new Date(),
+    });
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'TaskDef', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE' },
+        { logicalId: 'TaskRole', type: 'AWS::IAM::Role', status: 'CREATE_COMPLETE' },
+        { logicalId: 'WorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      ],
+      new Date().toISOString(),
+    );
+    const missing = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(missing.components.find((c) => c.kind === 'application')!.status).toBe('unknown');
+    expect(missing.summary.status).toBe('unknown');
+    expect(missing.expectations?.missing).toContain('application');
+
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'TaskDef', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      ],
+      new Date().toISOString(),
+    );
+    const present = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(present.components.find((c) => c.kind === 'application')!.status).toBe('ready');
+    expect(present.expectations?.missing ?? []).not.toContain('application');
+  });
+
   it('authorization — 401 without a session, 404 for another organization', async () => {
     const deployment = await newDeployment();
     const url = `/api/deployments/${deployment.id}/infrastructure`;
@@ -5654,7 +5696,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
         { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
       ],
@@ -5692,7 +5734,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_IN_PROGRESS' },
       ],
       new Date().toISOString(),
@@ -5708,7 +5750,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_FAILED', statusReason: 'No space left on device' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_FAILED', statusReason: 'No space left on device' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
       ],
       new Date().toISOString(),
@@ -5731,7 +5773,7 @@ describe('server — infrastructure inventory (§59)', () => {
     // staleness window.
     await persistRows(
       deployment.id,
-      [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+      [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
       new Date(Date.now() - 60 * 60 * 1000).toISOString(),
     );
     await db
@@ -5753,7 +5795,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
         { logicalId: 'BackupBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
       ],
@@ -5791,7 +5833,7 @@ describe('server — infrastructure inventory (§59)', () => {
               stackId: STACK_ID,
               observedAt,
               resources: [
-                { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+                { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
                 { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
               ],
             },
@@ -5826,7 +5868,7 @@ describe('server — infrastructure inventory (§59)', () => {
     // never disturb.
     await persistRows(
       deployment.id,
-      [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+      [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
       new Date().toISOString(),
     );
 
@@ -5861,7 +5903,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
         ],
@@ -5886,7 +5928,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
         ],
@@ -5907,7 +5949,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
@@ -5931,7 +5973,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       // resources; a deployment past DELETED reports nothing outstanding).
       await persistRows(
         deployment.id,
-        [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+        [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
         new Date().toISOString(),
       );
 
@@ -5954,7 +5996,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
@@ -5972,7 +6014,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       const deployment = await newDeployment({ state: 'HEALTHY', desiredState: {} });
       await persistRows(
         deployment.id,
-        [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+        [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
         new Date().toISOString(),
       );
 
@@ -6892,7 +6934,7 @@ describe('server — P0 hardening', () => {
         deploymentId: deployment.id,
         stackId: STACK_ID,
         resources: [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'Listener', type: 'AWS::ElasticLoadBalancingV2::Listener', status: 'CREATE_COMPLETE' },
         ],

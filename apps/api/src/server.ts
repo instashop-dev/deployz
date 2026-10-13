@@ -280,6 +280,7 @@ import {
   endpointHttpsState,
   endpointStatusForHttpsState,
   mergeComponentState,
+  primaryServiceLogicalIds,
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
   type DerivedDeploymentStatus,
@@ -7070,11 +7071,32 @@ export async function buildServer({
       // A configured first start (DEPLOY-009) creates the service with zero
       // tasks: its CloudFormation rows complete before any task has run, so
       // the application is not "ready" until a deploy has started it.
+      const deploymentSpec = readStoredDeploymentSpec(deployment.specV2);
+      // The task definition and roles complete before the services do, so the
+      // application is only ready once the public service the spec expects is
+      // in the inventory — a worker service alone never stands in for it.
+      const primaryServiceMissing =
+        deployment.state !== 'DELETED' &&
+        primaryServiceLogicalIds(deploymentSpec).some(
+          (logicalId) =>
+            !resources.some(
+              (row) =>
+                row.logicalResourceId === logicalId &&
+                row.resourceType === 'AWS::ECS::Service' &&
+                row.resourceStatus !== 'removed',
+            ),
+        );
       const applicationNeverStarted =
         deployment.currentReleaseId === null &&
         aggregate.components.some((c) => c.kind === 'application' && c.status === 'ready') &&
         (await awaitsFirstStart(db, id));
       const components = aggregate.components.map((component) => {
+        if (primaryServiceMissing && component.kind === 'application' && component.status === 'ready') {
+          return {
+            ...component,
+            status: deployment.state === 'INSTALLING' ? ('provisioning' as const) : ('unknown' as const),
+          };
+        }
         if (applicationNeverStarted && component.kind === 'application') {
           return { ...component, status: 'pending' as const };
         }
@@ -7099,7 +7121,6 @@ export async function buildServer({
       // manifest's requirement booleans stand in; with neither, there is
       // nothing to compare against.
       const storedManifest = readStoredManifest(deployment.desiredState);
-      const deploymentSpec = readStoredDeploymentSpec(deployment.specV2);
       const expectations = (() => {
         const expectedKinds = deploymentSpec?.verificationContract
           ? [...new Set(deploymentSpec.verificationContract.checks.map((check) => check.componentKind))]
@@ -7110,7 +7131,10 @@ export async function buildServer({
               }).map((definition) => definition.kind)
             : null;
         if (expectedKinds === null) return null;
-        const comparison = compareInfrastructureExpectations(expectedKinds, components);
+        const comparison = compareInfrastructureExpectations(
+          expectedKinds,
+          primaryServiceMissing ? components.filter((c) => c.kind !== 'application') : components,
+        );
         // A removed component is never "missing" after destroy — once
         // the deployment is DELETED, the simplest honest rule is that
         // nothing is missing.
