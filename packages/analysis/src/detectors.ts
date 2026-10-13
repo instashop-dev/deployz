@@ -10,6 +10,8 @@ import { posix as posixPath } from 'node:path';
 
 import type { ManifestEnvVariable } from '@deployz/contracts';
 
+import { s3Semantic } from './bindings.js';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 /** A file tree: path → file contents (strings only; directories are implicit via path keys). */
@@ -2270,6 +2272,15 @@ function offersObjectStorageOption(tree: FileTree): boolean {
   return hasSdk && sourceFiles.some(([, content]) => OBJECT_STORAGE_SELECTOR_REGEX.test(content));
 }
 
+/** The compose file's own comment above a volume entry says the volume is not required in production. */
+function volumeCalledOptional(composeContent: string, volume: string): boolean {
+  const lines = composeContent.split(/\r?\n/);
+  const at = lines.findIndex((line) => /^\s*-\s/.test(line) && line.includes(volume));
+  const comments: string[] = [];
+  for (let i = at - 1; at > 0 && i >= 0 && /^\s*#/.test(lines[i]!); i--) comments.push(lines[i]!);
+  return /\bnot (?:required|needed) in (?:a |the )?production\b/i.test(comments.join(' '));
+}
+
 /** Every value under `volume` is a SQLite/DB file path: the volume only holds the embedded database. */
 function holdsOnlyEmbeddedDatabase(volume: string, texts: string[]): boolean {
   const escaped = volume.replace(/\/$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2282,8 +2293,9 @@ function holdsOnlyEmbeddedDatabase(volume: string, texts: string[]): boolean {
 // a log line are all lost harmlessly (the same boundary the write-call rule
 // draws above). Named volumes whose container path is `/tmp/…`, `…/logs`,
 // `…/cache`, `…/.cache` or a search/index dir are not durable app state.
+// An `/etc/<name>` directory holds configuration the operator provides.
 const EPHEMERAL_CONTAINER_PATH_REGEX =
-  /^\/(?:tmp|var\/tmp)\b|\/(?:logs?|log|cache|\.cache|search|indexes?|sessions?|run|var\/run)(?:\/|$)/i;
+  /^\/(?:tmp|var\/tmp|etc\/[\w.-]+)\b|\/(?:logs?|log|cache|\.cache|search|indexes?|sessions?|run|var\/run)(?:\/|$)/i;
 
 /**
  * Detect durable local-disk state the image declares (Dockerfile VOLUME, a
@@ -2300,7 +2312,12 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
   for (const match of dockerfile?.content.matchAll(DOCKERFILE_VOLUME_REGEX) ?? []) {
     const raw = match[1]?.trim() ?? '';
     const paths = raw.startsWith('[') ? raw.match(/"([^"]+)"/g)?.map((p) => p.slice(1, -1)) ?? [] : raw.split(/\s+/);
-    for (const volume of paths) {
+    for (const declared of paths) {
+      // `VOLUME $DATA_PATH` is the path the same Dockerfile sets with `ENV`.
+      const variable = /^\$(?:\{(\w+)\}|(\w+))$/.exec(declared);
+      const volume =
+        (variable && dockerfileEnvValues(dockerfile?.content ?? '').find(([name]) => name === (variable[1] ?? variable[2]))?.[1]) ||
+        declared;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
       if (hasPostgresDriver && holdsOnlyEmbeddedDatabase(volume, [dockerfile?.content ?? ''])) continue;
       if (UPLOAD_VOLUME_REGEX.test(volume) && hasObjectStorageOption()) continue;
@@ -2319,6 +2336,7 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
     if (built && dockerfile && built !== dockerfile.path) continue;
     for (const volume of service.volumes) {
       if (NON_STATE_MOUNT_REGEX.test(volume)) continue;
+      if (compose && volumeCalledOptional(tree[compose.file] ?? '', volume)) continue;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
       // A bind mount of a directory the repository ships (`./custom:/app/custom`)
       // carries project files, not state written at runtime.
@@ -3977,8 +3995,11 @@ export interface ProvisionedResources {
 // The database NAME of a known engine (POSTGRES_DB) is not a selector.
 const DB_SELECTOR_NAME_REGEX =
   /^(?!(?:POSTGRES|POSTGRESQL|MYSQL|MARIADB|PG)_)(?:(?:[A-Z0-9]+_)*(?:DB|DATABASE)(?:_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|CONNECTION|ADAPTER|VENDOR|PROVIDER))?|[A-Z0-9_]*_DBENGINE|[A-Z0-9]+_DRIVER)$/;
+// `FILES_TYPE` is plural on purpose: `FILE_TYPE` and `ALLOWED_FILE_TYPES` name MIME types.
 const STORAGE_SELECTOR_NAME_REGEX =
-  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE|LOCATIONS?))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
+  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE|LOCATIONS?))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$|(?:^|_)(?:FILES|UPLOADS?|ATTACHMENTS?)_(?:TYPE|DRIVER|PROVIDER|BACKEND)$|(?:^|_)DATASOURCE_TYPE$/;
+// A database selector name that picks the engine; `REDIS_DB` and `DB_CONNECTION` do not.
+const DB_ENGINE_SELECTOR_NAME_REGEX = /(?:^|_)(?:DB|DATABASE)_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|ADAPTER|VENDOR|PROVIDER)$|DBENGINE$/;
 
 const EMBEDDED_ENGINE_REGEX = /^(?:sqlite3?|better-sqlite3|libsql|h2|bolt|django\.db\.backends\.sqlite3)(?:$|[:/])/i;
 const ENGINE_VALUE_REGEX = {
@@ -3988,6 +4009,11 @@ const ENGINE_VALUE_REGEX = {
 const ENGINE_LABEL = { postgres: 'PostgreSQL', mysql: 'MySQL' };
 const LOCAL_STORAGE_VALUE_REGEX = /^(?:local|disk|fs|file|filesystem|local[_-]?disk)$/i;
 const S3_STORAGE_VALUE_REGEX = /^(?:s3|aws|amazon|amazons3|aws[-_]?s3|s_3)$/i;
+/** `process.env.A && process.env.B ? new S3(` — the S3 client exists only when every variable of the chain is set. */
+const S3_PRESENCE_CHAIN_REGEX = /((?:process\.env\.[A-Z][A-Z0-9_]*\s*&&\s*)+process\.env\.[A-Z][A-Z0-9_]*)\s*\?\s*new\s+S3(?:Client)?\(/g;
+export const S3_PRESENCE_EVIDENCE = 'S3 is used only when all of these are set; otherwise files go to the container disk';
+/** A Go string literal that is itself a database selector name: `EnvDatabaseDialect = "GOTIFY_DATABASE_DIALECT"`. */
+const GO_SELECTOR_LITERAL_REGEX = /"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)"/g;
 
 /** Files whose env reads and defaults can name a selector. */
 const SELECTOR_SOURCE_REGEX = /\.(?:[cm]?[jt]sx?|py|rb|go|php|java|kt|kts|scala)$/i;
@@ -4163,6 +4189,8 @@ function unresolvedSelectors(
   const sampleValues = new Map<string, Value[]>();
   const compared = new Map<string, Value[]>();
   const imageDefaults = new Map<string, Value[]>();
+  const literalReads = new Map<string, string>();
+  const presenceChain: { name: string; file: string }[] = [];
   const add = (map: Map<string, Value[]>, name: string, value: string, file: string): void => {
     if (!DB_SELECTOR_NAME_REGEX.test(name) && !STORAGE_SELECTOR_NAME_REGEX.test(name)) return;
     map.set(name, [...(map.get(name) ?? []), { value, file }]);
@@ -4175,21 +4203,51 @@ function unresolvedSelectors(
       if (value !== null) add(codeDefaults, name, value, path);
     }
     for (const [name, value] of scanComparedEnvReads(content)) add(compared, name, value, path);
-    if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
+    if (GO_SOURCE.test(path)) {
+      for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
+      for (const [, name] of content.matchAll(GO_SELECTOR_LITERAL_REGEX)) {
+        if (DB_ENGINE_SELECTOR_NAME_REGEX.test(name!)) literalReads.set(name!, path);
+      }
+    }
+    if (JS_SOURCE.test(path)) {
+      // A config table that pairs a config path with its env name: `env('datasource.type', 'DATASOURCE_TYPE', 'string')`.
+      for (const [, name] of content.matchAll(/\benv\(\s*["'][\w.-]+["']\s*,\s*["']([A-Z][A-Z0-9_]*)["']/g)) {
+        if (STORAGE_SELECTOR_NAME_REGEX.test(name!)) literalReads.set(name!, path);
+      }
+    }
+    if (provisioned.storage && JS_SOURCE.test(path)) {
+      for (const [, chain] of content.matchAll(S3_PRESENCE_CHAIN_REGEX)) {
+        for (const [, name] of chain!.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+          if (s3Semantic(name!) === null) presenceChain.push({ name: name!, file: path });
+        }
+      }
+    }
     if (JS_SOURCE.test(path) && ENV_DEFAULTS_FILE_REGEX.test(path)) {
       for (const [name, value] of scanDefaultsMapEnvValues(content)) add(codeDefaults, name, value, path);
     }
   }
   const dockerfile = selectedDockerfile(tree);
   if (dockerfile) for (const [name, value] of dockerfileEnvValues(dockerfile.content)) add(imageDefaults, name, value, dockerfile.path);
-  for (const path of [...appEnvSampleFiles(tree, isSiblingApp), ...listProductionComposeFiles(tree)]) {
-    for (const [name, value] of envLineValues(tree[path] ?? '')) add(sampleValues, name, value, path);
+  const runtimeSamples = new Set(appEnvSampleFiles(tree, isSiblingApp));
+  const runtimeSampleNames = new Set<string>();
+  for (const path of [...runtimeSamples, ...listProductionComposeFiles(tree)]) {
+    for (const [name, value] of envLineValues(tree[path] ?? '')) {
+      add(sampleValues, name, value, path);
+      if (runtimeSamples.has(path)) runtimeSampleNames.add(name);
+    }
   }
 
   const result = new Map<string, { evidence: string; files: string[] }>();
   const engine = provisioned.database;
   const sampleNamesEngineSelector = [...sampleValues.keys()].some((name) => DB_SELECTOR_NAME_REGEX.test(name));
-  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys(), ...imageDefaults.keys()])) {
+  const names = new Set([
+    ...codeDefaults.keys(),
+    ...sampleValues.keys(),
+    ...compared.keys(),
+    ...imageDefaults.keys(),
+    ...literalReads.keys(),
+  ]);
+  for (const name of names) {
     const isStorage = provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
     const isDb = !isStorage && engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
     if (!isDb && !isStorage) continue;
@@ -4200,21 +4258,32 @@ function unresolvedSelectors(
     if (image && !(isDb && sampleNamesEngineSelector) && !reads.has(name) && !codeDefaults.has(name)) continue;
     const fromCode = image ?? codeDefaults.get(name) ?? [];
     const comparedHere = image ? [] : (compared.get(name) ?? []);
-    // A sample value is only a default for a variable the app actually reads.
-    const fromSamples = fromCode.length > 0 || reads.has(name) ? (sampleValues.get(name) ?? []) : [];
+    // A sample value is only a default for a variable the app actually reads — or for a variable the
+    // fetched tree never reads and gives no default (teable reads it in a file the bounded fetch missed).
+    const unread = !reads.has(name) && !literalReads.has(name) && fromCode.length === 0 && runtimeSampleNames.has(name);
+    const fromSamples = fromCode.length > 0 || reads.has(name) || literalReads.has(name) || unread ? (sampleValues.get(name) ?? []) : [];
     const wanted = isStorage ? S3_STORAGE_VALUE_REGEX : ENGINE_VALUE_REGEX[engine!];
     // A selector with no default that the code only compares with the
     // provisioned value (`os.getenv("DB") == "postgres"`) takes the other
     // branch when unset.
     const unsetFallback =
       fromCode.length === 0 && comparedHere.some(({ value }) => wanted.test(value)) ? { value: 'unset' } : undefined;
+    // A selector the app reads through a config table or a Go constant, with no default in the code, the
+    // image or a sample, is an undecided choice: those reads hide their defaults from the scanners.
+    const noDefaultFound =
+      literalReads.has(name) &&
+      fromCode.length === 0 &&
+      comparedHere.length === 0 &&
+      (sampleValues.get(name) ?? []).length === 0
+        ? { value: 'not found' }
+        : undefined;
     const bad =
       [...fromCode, ...fromSamples].find(({ value }) =>
         isStorage
           ? LOCAL_STORAGE_VALUE_REGEX.test(value)
           : EMBEDDED_ENGINE_REGEX.test(value) ||
             (['postgres', 'mysql'] as const).some((other) => other !== engine && ENGINE_VALUE_REGEX[other].test(value)),
-      ) ?? unsetFallback;
+      ) ?? unsetFallback ?? noDefaultFound;
     if (!bad) continue;
 
     const values: string[] = [];
@@ -4223,16 +4292,20 @@ function unresolvedSelectors(
     };
     for (const { value } of sampleValues.get(name) ?? []) note(value);
     const files = [
-      ...new Set([...fromCode, ...comparedHere].map((entry) => entry.file).concat(reads.get(name)?.files ?? [])),
+      ...new Set([...fromCode, ...comparedHere].map((entry) => entry.file).concat(reads.get(name)?.files ?? [], literalReads.get(name) ?? [])),
     ];
     for (const file of files) {
       for (const literal of (tree[file] ?? '').matchAll(/["'`]([^"'`\s]{1,60})["'`]/g)) note(literal[1]!);
     }
     const hint = values.length > 0 ? values.slice(0, 3).map((value) => `"${value}"`).join(' or ') : null;
+    const notFound = bad === noDefaultFound;
     const evidence = isStorage
-      ? `storage selector: default "${bad.value}" stores files on the container disk — set ${hint ?? 'an S3 value'} to use the managed S3 bucket`
-      : `engine selector: ${bad === unsetFallback ? 'when unset the app uses another engine' : `default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`}`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
+      ? `storage selector: ${notFound ? 'the default was not found' : `default "${bad.value}" stores files on the container disk`} — set ${hint === null ? 'a value that stores files outside the container' : `${hint} to use the managed S3 bucket`}`
+      : `engine selector: ${notFound ? 'the default was not found' : bad === unsetFallback ? 'when unset the app uses another engine' : `default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`}`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
     result.set(name, { evidence, files });
+  }
+  for (const { name, file } of presenceChain) {
+    if (!result.has(name)) result.set(name, { evidence: S3_PRESENCE_EVIDENCE, files: [file] });
   }
   return result;
 }
@@ -4615,6 +4688,7 @@ export function detectEnvVarModel(
     ...reads.keys(),
     ...composeBuildArgs.keys(),
     ...nestedSampleFiles.keys(),
+    ...selectors.keys(),
   ]);
   const entries: ManifestEnvVariable[] = [];
 
@@ -4661,7 +4735,10 @@ export function detectEnvVarModel(
     // Stage B phase 3: deterministic purpose/confidence for every variable —
     // infra binding name or alias, external-service credential, internal
     // secret, or plain configuration.
-    const classification = classifyEnvVarPurpose(key);
+    // A key that switches S3 on belongs to the vendor, even when its name looks like an internal secret.
+    const classification = source.includes(S3_PRESENCE_EVIDENCE)
+      ? { purpose: secret ? ('external_credential' as const) : classifyEnvVarPurpose(key).purpose, confidence: 'medium' as const }
+      : classifyEnvVarPurpose(key);
     // Stage B phase 4: application-INTERNAL required secrets Deployz can
     // generate (never external vendor credentials, never provisioned
     // bindings). `generatable` is set only when true — absence reads as "not
