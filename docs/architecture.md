@@ -210,7 +210,10 @@ declared worker runs its own private service — one task, its own log group
 and security group, no ALB target, no HTTP health check. Every workload
 gets a task definition with the same frozen image and its own frozen
 command; a migration command compiles into one additional one-shot task
-definition (no service). Each non-web workload now gets its own IAM task
+definition (no service). A worker command is an argument list (`sh -c
+<command>`) for the image ENTRYPOINT. A migration or scheduled-job command
+replaces the image ENTRYPOINT and runs through `sh -c`, so the image must
+contain `sh` (an image `FROM scratch` cannot run a one-shot command). Each non-web workload now gets its own IAM task
 role, scoped to its own queue edges (a worker never inherits another
 workload's `sqs:SendMessage`); the web task role stays the anchor for the
 shared execution role. Shared resources: the S3 bucket

@@ -1329,7 +1329,8 @@ describe('crash-loop detection — application exits only', () => {
 const INIT_EXIT_0 = { name: 'RdsCaBundle', exitCode: 0 };
 
 describe('migration correction — a new revision of the same family', () => {
-  const FROZEN = ['sh', '-c', 'npx prisma migrate deploy'];
+  const FROZEN = ['npx prisma migrate deploy'];
+  const ONE_SHOT_ENTRY_POINT = ['sh', '-c'];
   const CORRECTED = 'bunx prisma migrate deploy';
 
   /** A stack migration revision as the compiler emits it: frozen command, init container, secrets, entrypoint. */
@@ -1343,7 +1344,7 @@ describe('migration correction — a new revision of the same family', () => {
           name: 'app',
           image: `${REPO}@${DIGEST_V2}`,
           essential: true,
-          entryPoint: ['/usr/local/bin/docker-entrypoint.sh'],
+          entryPoint: ONE_SHOT_ENTRY_POINT,
           command: FROZEN,
           secrets: [{ name: 'DATABASE_URL', valueFrom: 'arn:aws:secretsmanager:us-east-1:151955775369:secret:db' }],
           dependsOn: [{ condition: 'SUCCESS', containerName: 'RdsCaBundle' }],
@@ -1382,12 +1383,26 @@ describe('migration correction — a new revision of the same family', () => {
     expect(registered.networkMode).toBe('awsvpc');
     expect(registered.volumes).toEqual([{ name: 'rds-ca' }]);
     expect(registered.containerDefinitions).toEqual([
-      { ...frozen.containerDefinitions[0], image: `${REPO}@${DIGEST_V3}`, command: ['sh', '-c', CORRECTED] },
+      { ...frozen.containerDefinitions[0], image: `${REPO}@${DIGEST_V3}`, entryPoint: ONE_SHOT_ENTRY_POINT, command: [CORRECTED] },
       frozen.containerDefinitions[1],
     ]);
     expect(state.runTasks[0]).toMatchObject({
       taskDefinition: `${MIGRATION_FAMILY_ARN_PREFIX}:1`,
       overrides: { containerOverrides: [] },
+    });
+  });
+
+  it('replaces the image ENTRYPOINT of a stack compiled before one-shot commands had one', async () => {
+    const state = correctionState();
+    const legacy = state.definitions.get(MIGRATION_DEF_ARN)!.containerDefinitions[0]!;
+    legacy['entryPoint'] = ['/usr/local/memos/entrypoint.sh', '/usr/local/memos/memos'];
+    legacy['command'] = ['sh', '-c', 'npx prisma migrate deploy'];
+
+    await run(createEcsDeployExecutor(deps(state)), migrationDeploy(CORRECTED));
+
+    expect((state.registered[0] as RegisterInput).containerDefinitions[0]).toMatchObject({
+      entryPoint: ONE_SHOT_ENTRY_POINT,
+      command: [CORRECTED],
     });
   });
 
@@ -1402,7 +1417,8 @@ describe('migration correction — a new revision of the same family', () => {
     expect(state.registered).toHaveLength(2);
     expect((state.registered[0] as RegisterInput).containerDefinitions[0]).toMatchObject({
       image: `${REPO}@${DIGEST_V3}`,
-      command: ['sh', '-c', CORRECTED],
+      entryPoint: ONE_SHOT_ENTRY_POINT,
+      command: [CORRECTED],
     });
   });
 
@@ -1428,7 +1444,7 @@ describe('migration correction — a new revision of the same family', () => {
 
     await run(relay, { ...migrationDeploy(), id: 'job-2' });
 
-    expect((state.registered[0] as RegisterInput).containerDefinitions[0]).toMatchObject({ command: FROZEN });
+    expect((state.registered[0] as RegisterInput).containerDefinitions[0]).toMatchObject({ entryPoint: ONE_SHOT_ENTRY_POINT, command: FROZEN });
   });
 
   it('refuses a family that is not part of the deployment stack and never runs a task', async () => {

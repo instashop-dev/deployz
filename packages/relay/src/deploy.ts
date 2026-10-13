@@ -27,7 +27,7 @@
  * on the same cluster/VPC/secrets as the app services. No load balancer, no
  * RunTask command override, polled until STOPPED. A vendor's migration
  * correction rides the seat and becomes a new revision of the same family
- * (only the application container's command and image change); the relay
+ * (only the application container's entrypoint, command and image change); the relay
  * then runs that exact revision. Exit code 0 continues the deploy; anything
  * else fails with MIGRATION_FAILED, names the migration task, and no
  * service is touched. ROLLBACK never runs migrations: schema changes are
@@ -53,7 +53,7 @@
  * must leave scheduled jobs on the previous image.
  */
 
-import { workloadContainerCommand, type FailureEvidence } from '@deployz/contracts';
+import { oneShotContainerCommand, type FailureEvidence } from '@deployz/contracts';
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
@@ -902,7 +902,7 @@ async function settleMigration(
         migrationTask.family,
         params.request,
         params.runtimeDefinition,
-        migrationTask.command === null ? undefined : workloadContainerCommand(migrationTask.command),
+        migrationTask.command === null ? undefined : oneShotContainerCommand(migrationTask.command),
       );
     } catch (err) {
       return {
@@ -1477,7 +1477,7 @@ async function registerReleaseImageIntoFamily(
   family: string,
   request: DeployRequest,
   runtime: EcsTaskDefinition | undefined,
-  applicationCommand?: readonly string[],
+  applicationCommand?: { entryPoint: readonly string[]; command: readonly string[] },
 ): Promise<string> {
   if (runtime?.family === undefined) {
     throw new Error(
@@ -1500,7 +1500,8 @@ async function registerReleaseImageIntoFamily(
     if (container === undefined) {
       throw new Error(`Task family "${family}" has no single application container to carry the command`);
     }
-    container['command'] = [...applicationCommand];
+    container['entryPoint'] = [...applicationCommand.entryPoint];
+    container['command'] = [...applicationCommand.command];
   }
   if (sameRegistration(source.definition, copy)) return source.arn;
   const { taskDefinition: latest } = await deps.ecs.describeTaskDefinition({ taskDefinition: family });

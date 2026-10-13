@@ -246,9 +246,13 @@ informational; the relay and the workload compiler read only the command.
 - **Revision preparation.** The relay copies the revision the stack
   created, overlays the effective application configuration (see "One-shot
   task families stay current" below), and changes only the application
-  container's command and image. The entrypoint, roles, secret references,
-  volumes, networking and the RDS CA init container stay as they are. The command uses the compiler's
-  own encoding (`workloadContainerCommand`). With no correction, the
+  container's entrypoint, command and image. The command replaces the image
+  ENTRYPOINT and runs through `sh -c` (`entryPoint: ['sh','-c']`,
+  `command: [<command>]`); a stack compiled before this encoding gets the
+  same override on a correction. The image must contain `sh`. Roles, secret
+  references, volumes, networking and the RDS CA init container stay as they
+  are. The command uses the compiler's own encoding
+  (`oneShotContainerCommand`). With no correction, the
   relay restores the frozen command from the revision the stack created,
   so removing a correction returns to the frozen command. The stack's
   revision or the family's latest revision is reused when it is already
@@ -289,7 +293,9 @@ the new release. `registerReleaseImageIntoFamily`
 (`packages/relay/src/deploy.ts`) is the one generic, bounded step that keeps
 a named family current. It copies the revision the deployment's own stack
 created (the `AWS::ECS::TaskDefinition` stack resource of that family),
-replacing only the release image, so no configuration is lost. It reuses
+replacing only the release image, so no configuration is lost. A migration
+or scheduled-job command replaces the image ENTRYPOINT and runs through
+`sh -c`; a worker command is an argument list for the image ENTRYPOINT. It reuses
 that revision, or the family's latest revision, only when it is exactly that
 copy (idempotent and retry-safe); otherwise it registers the copy. It
 returns the exact revision ARN.

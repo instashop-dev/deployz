@@ -63,7 +63,7 @@ Every failure carries one of 24 stable codes and a recoverability class
 | `IMAGE_HEALTH_CHECK_FAILED` | USER_ACTION | The health path does not answer 2xx on the container port; a wrong port surfaces here, not as `PORT_MISMATCH` |
 | `PORT_MISMATCH` | USER_ACTION | Rarely produced; Deployz has no log access to prove it |
 | `MISSING_SECRET` | USER_ACTION | A required secret was never provided |
-| `MIGRATION_FAILED` | USER_ACTION | The one-off migration task exited non-zero (runs as `sh -c <command>`) |
+| `MIGRATION_FAILED` | USER_ACTION | The one-off migration task exited non-zero (the command replaces the image ENTRYPOINT and runs as `sh -c <command>`; the image must contain `sh`) |
 | `ECS_DEPLOYMENT_FAILED` | USER_ACTION | The circuit breaker rolled the service back; the previous release keeps serving |
 | `RDS_AZ_CAPACITY` | USER_ACTION | RDS returned `InsufficientDBInstanceCapacity` for the requested instance class. Regional capacity, not a quota or permissions fault. The retry rediscovers AZs; wait for the rollback to finish first |
 | `DATABASE_CREATE_FAILED` / `DATABASE_CONNECTION_FAILED` / `RDS_UNAVAILABLE` | USER_ACTION / RECONCILE_FIRST | RDS provisioning or connectivity; the app must accept `sslmode=require` with the RDS CA bundle the template mounts |
