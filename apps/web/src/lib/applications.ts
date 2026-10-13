@@ -109,9 +109,9 @@ export interface UpdateApplicationInput {
   containerPort?: number | null;
   healthPath?: string | null;
   migrationCommand?: string | null;
-  databaseRequired?: boolean;
-  storageRequired?: boolean;
-  redisRequired?: boolean;
+  databaseRequired?: boolean | null;
+  storageRequired?: boolean | null;
+  redisRequired?: boolean | null;
 }
 
 export async function updateApplication(id: string, input: UpdateApplicationInput): Promise<Application> {

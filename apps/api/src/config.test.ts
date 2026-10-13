@@ -801,18 +801,73 @@ describe('config — secure storage against a real store', () => {
     expect(keys).not.toContain('LEGACY_SECRET');
   });
 
-  it('listProvidedConfigKeys still counts a legacy CUSTOMER-scope masked row', async () => {
-    await db.insert(schema.applicationConfigs).values({
-      applicationId,
-      customerId,
-      key: 'LEGACY_CUSTOMER_SECRET',
-      value: SECRET_MASK,
-      isSecret: true,
-      encryptedValue: null,
+  describe('customer-scope masked secret rows', () => {
+    const KEY = 'MONITOR_TOKEN';
+    let freshCustomerId: string;
+
+    beforeAll(async () => {
+      const [customer] = await db
+        .insert(schema.customers)
+        .values({ organizationId: 'org-config-crypto', name: 'Stale', email: 'stale@example.com' })
+        .returning();
+      freshCustomerId = customer!.id;
+      await deps.cipher.encrypt('vendor-token', { organizationId: 'org-config-crypto', applicationId, key: KEY, scope: 'vendor' }).then(
+        ({ ciphertext }) =>
+          db.insert(schema.applicationConfigs).values({
+            applicationId,
+            customerId: null,
+            key: KEY,
+            value: SECRET_MASK,
+            isSecret: true,
+            encryptedValue: ciphertext,
+          }),
+      );
+      await db
+        .insert(schema.applicationConfigs)
+        .values({ applicationId, customerId: freshCustomerId, key: KEY, value: SECRET_MASK, isSecret: true });
     });
 
-    const keys = await listProvidedConfigKeys(db, applicationId, customerId);
-    expect(keys).toContain('LEGACY_CUSTOMER_SECRET');
+    it('a stale row with no vault value and no configured deployment is not provided, even with a vendor value', async () => {
+      expect(await listProvidedConfigKeys(db, applicationId, freshCustomerId)).not.toContain(KEY);
+      expect(await listProvidedConfigKeys(db, applicationId, null)).toContain(KEY);
+    });
+
+    it('is provided again once the customer re-enters it (unexpired pending row)', async () => {
+      await createDrizzlePendingSecretStore(db, deps.cipher).upsertStaged({
+        organizationId: 'org-config-crypto',
+        applicationId,
+        customerId: freshCustomerId,
+        key: KEY,
+        ciphertext: 'enc:x',
+        encryptionContext: {},
+        expiresAt: new Date(Date.now() + 60_000),
+        createdBy: null,
+      });
+      expect(await listProvidedConfigKeys(db, applicationId, freshCustomerId)).toContain(KEY);
+    });
+
+    it('is unaffected for a customer whose live deployment already finished a configuration update', async () => {
+      const [other] = await db
+        .insert(schema.customers)
+        .values({ organizationId: 'org-config-crypto', name: 'Held', email: 'held@example.com' })
+        .returning();
+      await db
+        .insert(schema.applicationConfigs)
+        .values({ applicationId, customerId: other!.id, key: KEY, value: SECRET_MASK, isSecret: true });
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id)).not.toContain(KEY);
+      const [deployment] = await db
+        .insert(schema.deployments)
+        .values({ organizationId: 'org-config-crypto', applicationId, customerId: other!.id, region: 'us-east-1', state: 'HEALTHY', enrollmentCode: crypto.randomUUID() })
+        .returning();
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment!.id,
+        type: 'CONFIG_UPDATE',
+        state: 'SUCCEEDED',
+        idempotencyKey: `held-${deployment!.id}`,
+        payload: {},
+      });
+      expect(await listProvidedConfigKeys(db, applicationId, other!.id)).toContain(KEY);
+    });
   });
 
   it('listVendorValues skips a legacy secret with no ciphertext and returns plain values untouched', async () => {
