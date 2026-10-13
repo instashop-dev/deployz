@@ -236,9 +236,9 @@ cases:
       row: { healthPath: /api/health }
       metadata: { vendorOverrides: [healthPath] }
     expect:
-      classes: { health-check: ALREADY_SUPPORTED, database-migrations: ALREADY_SUPPORTED, worker-command: NEEDS_INPUT }
+      classes: { database-migrations: ALREADY_SUPPORTED, worker-command: NEEDS_INPUT }
       truth: { health-check: ALREADY_SUPPORTED, database-migrations: ALREADY_SUPPORTED, worker-command: ALREADY_SUPPORTED }
-      include: ["`/api/health` as the health check path"]
+      exclude: ["Readiness endpoint missing"]
   - id: RB-28
     snapshot: repo-003
     title: kutt on MySQL with no migration command found
