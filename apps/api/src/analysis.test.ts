@@ -357,6 +357,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
       repoFullName: 'deployz-demo/express-api',
       containerPort: 9999,
       migrationCommand: 'npm run old:migrate',
+      detectedMetadata: { vendorOverrides: [] },
     });
 
     await runApplicationAnalysis(deps, application.id);
@@ -548,6 +549,72 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.migrationCommand).toBeNull();
+  });
+
+  it('keeps a vendor override saved while the analysis was still fetching the repository', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/patched-mid-run',
+      defaultBranch: 'main',
+      containerPort: 3000,
+      detectedMetadata: { vendorOverrides: [] },
+    });
+    const files = {
+      'package.json': JSON.stringify({
+        name: 'patched-mid-run',
+        scripts: { start: 'node index.js', migrate: 'prisma migrate deploy' },
+        dependencies: { express: '^4.18.0' },
+      }),
+      Dockerfile: 'FROM node:20\nEXPOSE 4000\n',
+    };
+    const inner = buildTreeFetch(files);
+    let patched = false;
+    const patchingFetch: FetchFn = async (url, init) => {
+      if (url.includes('/trees/') && !patched) {
+        patched = true;
+        await db
+          .update(schema.applications)
+          .set({
+            containerPort: 8080,
+            migrationCommand: null,
+            detectedMetadata: { vendorOverrides: ['containerPort', 'migrationCommand'] },
+          })
+          .where(eq(schema.applications.id, application.id));
+      }
+      return inner(url, init);
+    };
+
+    await runApplicationAnalysis(makeDeps(patchingFetch), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.containerPort).toBe(8080);
+    expect(row.migrationCommand).toBeNull();
+    const metadata = row.detectedMetadata as { vendorOverrides?: string[] };
+    expect(metadata.vendorOverrides).toEqual(['containerPort', 'migrationCommand']);
+  });
+
+  it('keeps saved values on a legacy row that has no override list', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/legacy-row',
+      defaultBranch: 'main',
+      containerPort: 9999,
+    });
+    const files = {
+      'package.json': JSON.stringify({
+        name: 'legacy-row',
+        scripts: { start: 'node index.js' },
+        dependencies: { express: '^4.18.0' },
+      }),
+      Dockerfile: 'FROM node:20\nEXPOSE 4000\n',
+    };
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.containerPort).toBe(9999);
+    expect('vendorOverrides' in (row.detectedMetadata as Record<string, unknown>)).toBe(false);
   });
 
   it('resolves a deploy-shaped migration script whose key does not mention migrations (COMP-006)', async () => {
@@ -839,7 +906,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
       const row = await analyse(
         'runner-stale-npx',
         prismaApp(['FROM oven/bun:1', 'WORKDIR /app', 'COPY . .', 'RUN bun install', 'CMD ["bun", "index.js"]']),
-        { migrationCommand: 'npx prisma migrate deploy' },
+        { migrationCommand: 'npx prisma migrate deploy', detectedMetadata: { vendorOverrides: [] } },
       );
       expect(row.migrationCommand).toBeNull();
     });
@@ -890,6 +957,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
       repoFullName: 'acme/umami-shaped-stale-command',
       defaultBranch: 'main',
       migrationCommand: 'npx prisma migrate deploy',
+      detectedMetadata: { vendorOverrides: [] },
     });
 
     await runApplicationAnalysis(makeDeps(buildTreeFetch(umamiShapedFiles())), application.id);

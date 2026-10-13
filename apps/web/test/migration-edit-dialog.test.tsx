@@ -126,4 +126,18 @@ describe('migration EditDialog', () => {
     await renderDialog({ ...application }, { ...readiness });
     expect(document.querySelector<HTMLInputElement>('#edit-field-migrationCommand')?.value).toBe('node scripts/migrate.js');
   });
+
+  it('reopens with "No separate migration" on after the vendor saved it', async () => {
+    const skipped = { ...application, detectedMetadata: { vendorOverrides: ['migrationCommand'] } };
+    await act(async () => root.unmount());
+    root = createRoot(document.body.appendChild(document.createElement('div')));
+    await renderDialog(skipped, readiness);
+    expect(document.querySelector('#edit-no-migration')?.getAttribute('aria-checked')).toBe('true');
+    expect(document.querySelector<HTMLInputElement>('#edit-field-migrationCommand')?.disabled).toBe(true);
+    expect(saveButton()?.disabled).toBe(false);
+  });
+
+  it('reopens with the switch off when the migration command was never set by the vendor', () => {
+    expect(document.querySelector('#edit-no-migration')?.getAttribute('aria-checked')).toBe('false');
+  });
 });

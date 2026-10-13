@@ -446,15 +446,6 @@ export async function runApplicationAnalysis(
 
     const tree = await fetchTreeForApplication(deps, application, realModeToken);
     const analysis = analyseRepo(tree);
-    // The vendor-owned field list lives on detected_metadata, which this
-    // write replaces wholesale — carry it across or every re-analysis would
-    // forget which fields the vendor edited.
-    const vendorOverrides = readVendorOverrides(application.detectedMetadata);
-    // The manifest-only overrides (app root, Dockerfile path, build context and
-    // command, start command) have no column either; the build and the
-    // deployment gate read them from this record.
-    const manifestOverrides = application.detectedMetadata?.['manifestOverrides'];
-
     // §15 AI fallback: only runs when the deterministic scanner left a real
     // question unresolved, and can never fail the analysis — any AI error
     // degrades to the deterministic metadata plus a warning.
@@ -473,6 +464,20 @@ export async function runApplicationAnalysis(
           ),
         }
       : { ...analysis, metadata };
+    // Vendor intent lives on the application row and can change while this
+    // run is fetching and analysing (PATCH /api/applications/:id), so the
+    // outcome is derived from the row as it is when written, under its lock.
+    const buildOutcome = (app: typeof application) => {
+      // The vendor-owned field list lives on detected_metadata, which this
+      // write replaces wholesale — carry it across or every re-analysis would
+      // forget which fields the vendor edited. A row with no list at all
+      // predates it: its saved values stay, and the list stays absent.
+      const markerPresent = Array.isArray(app.detectedMetadata?.['vendorOverrides']);
+      const vendorOverrides = markerPresent ? readVendorOverrides(app.detectedMetadata) : legacySavedFields(app);
+      // The manifest-only overrides (app root, Dockerfile path, build context and
+      // command, start command) have no column either; the build and the
+      // deployment gate read them from this record.
+      const manifestOverrides = app.detectedMetadata?.['manifestOverrides'];
     const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, mergedAnalysis, aiResolved);
     // A migration script the runtime image is not shown to run is an open
     // vendor question until the vendor owns the field (a command, or no
@@ -512,7 +517,7 @@ export async function runApplicationAnalysis(
       readiness,
       application: applicationAnalysis,
       ...(migrationNeedsInput !== null ? { migrationNeedsInput } : {}),
-      vendorOverrides,
+      ...(markerPresent ? { vendorOverrides } : {}),
       ...(manifestOverrides !== undefined ? { manifestOverrides } : {}),
       analysisVersion: ANALYSIS_VERSION,
       ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
@@ -521,36 +526,31 @@ export async function runApplicationAnalysis(
     // report the way the page does — with the vendor's port and start
     // command applied — so the list badge and the readiness page agree.
     const outcomeReadiness = effectiveReadinessReport({
-      containerPort: contractFieldUpdates.containerPort ?? application.containerPort,
-      detectedMetadata: { ...application.detectedMetadata, readiness },
+      containerPort: contractFieldUpdates.containerPort ?? app.containerPort,
+      detectedMetadata: { ...app.detectedMetadata, readiness },
     }) ?? readiness;
     const outcomeVerdict = verdictFromReadiness(outcomeReadiness.state);
+      return { contractFieldUpdates, detectedMetadata, outcomeReadiness, outcomeVerdict };
+    };
     const durationMs = Date.now() - runStartedMs;
 
-    // Jev requirements/plan shadow (PR 2): fire-and-forget telemetry beside
-    // the persist step. The runner swallows its own errors; it can never
-    // touch the production state written below.
-    void deps.jevShadow
-      ?.run({
-        applicationId,
-        commitSha: headSha ?? 'unknown',
-        application,
-        contractFieldUpdates,
-        detectedMetadata,
-        analysis: mergedAnalysis,
-        tree,
-      })
-      .catch(() => {});
-
-    await deps.db.transaction(async (tx) => {
+    const persisted = await deps.db.transaction(async (tx) => {
+      const [fresh] = await tx
+        .select()
+        .from(schema.applications)
+        .where(eq(schema.applications.id, applicationId))
+        .limit(1)
+        .for('update');
+      if (!fresh) return undefined;
+      const outcome = buildOutcome(fresh);
       await tx
         .update(schema.applications)
         .set({
           analysisStatus: 'COMPLETE',
-          compatibilityStatus: outcomeVerdict,
-          compatibilityReason: outcomeReadiness.summary,
-          detectedMetadata,
-          ...contractFieldUpdates,
+          compatibilityStatus: outcome.outcomeVerdict,
+          compatibilityReason: outcome.outcomeReadiness.summary,
+          detectedMetadata: outcome.detectedMetadata,
+          ...outcome.contractFieldUpdates,
         })
         .where(eq(schema.applications.id, applicationId));
       await recordEvent(tx, {
@@ -563,11 +563,29 @@ export async function runApplicationAnalysis(
           analysisVersion: ANALYSIS_VERSION,
           durationMs,
           runtime: mergedAnalysis.metadata['runtime'],
-          readiness: outcomeReadiness,
-          compatibility: outcomeVerdict,
+          readiness: outcome.outcomeReadiness,
+          compatibility: outcome.outcomeVerdict,
         }),
       });
+      return { fresh, outcome };
     });
+
+    // Jev requirements/plan shadow (PR 2): fire-and-forget telemetry after
+    // the persist step. The runner swallows its own errors; it can never
+    // touch the production state written above.
+    if (persisted) {
+      void deps.jevShadow
+        ?.run({
+          applicationId,
+          commitSha: headSha ?? 'unknown',
+          application: persisted.fresh,
+          contractFieldUpdates: persisted.outcome.contractFieldUpdates,
+          detectedMetadata: persisted.outcome.detectedMetadata,
+          analysis: mergedAnalysis,
+          tree,
+        })
+        .catch(() => {});
+    }
   } catch (error) {
     await markFailed(deps.db, applicationId, organizationId, error, Date.now() - runStartedMs);
   }
@@ -1094,6 +1112,22 @@ export function readVendorOverrides(metadata: Record<string, unknown> | null): s
   const raw = metadata?.['vendorOverrides'];
   if (!Array.isArray(raw)) return [];
   return raw.filter((entry): entry is string => typeof entry === 'string');
+}
+
+/**
+ * A row analysed before `vendorOverrides` existed has no list to say which
+ * saved values the vendor chose. Its non-null saved columns stay as they are;
+ * analysis only fills the empty ones.
+ */
+function legacySavedFields(app: {
+  containerPort: number | null;
+  healthPath: string | null;
+  migrationCommand: string | null;
+  workerCommand: string | null;
+}): string[] {
+  return (['containerPort', 'healthPath', 'migrationCommand', 'workerCommand'] as const).filter(
+    (field) => app[field] !== null,
+  );
 }
 
 /**
