@@ -4225,6 +4225,7 @@ describe('server — organization settings, public install page, and bulk deploy
       // published, so there is no link to hand out. The enrollment code
       // travels inside that link, never as a field of its own.
       quickCreateUrl: null,
+      existingStackUpdate: null,
       // The install link already identifies exactly this deployment, so
       // handing back its own id/state/domain does not cross a tenant
       // boundary — it's the same scope the link already grants.
