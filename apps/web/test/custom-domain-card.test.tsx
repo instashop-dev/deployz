@@ -30,14 +30,18 @@ afterEach(() => {
   container = null;
 });
 
-async function renderCard(status: CustomDomainStatus, error: string | null = null): Promise<HTMLElement> {
+async function renderCard(
+  status: CustomDomainStatus,
+  error: string | null = null,
+  canManage = true,
+): Promise<HTMLElement> {
   const domain: CustomDomainView = { hostname: 'example.com', status, records: [], error, url: null };
-  domainMocks.fetchDomainAccess.mockResolvedValue({ canManage: true, domain });
+  domainMocks.fetchDomainAccess.mockResolvedValue({ canManage, domain });
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root!.render(<CustomDomainCard deploymentId="dep-1" installLinkId={null} initialDomain={null} />);
+    root!.render(<CustomDomainCard deploymentId="dep-1" installLinkId={null} initialDomain={canManage ? null : domain} />);
   });
   return container;
 }
@@ -45,6 +49,32 @@ async function renderCard(status: CustomDomainStatus, error: string | null = nul
 function removeButton(el: HTMLElement): HTMLButtonElement | undefined {
   return [...el.querySelectorAll('button')].find((b) => b.textContent === 'Remove domain');
 }
+
+function buttonLabels(el: HTMLElement): string[] {
+  return [...el.querySelectorAll('button')].map((b) => b.textContent ?? '');
+}
+
+describe('CustomDomainCard terminal error', () => {
+  it.each(['CERTIFICATE_FAILED', 'CONFIGURE_FAILED'])(
+    'offers no retry for %s, only removing the domain and adding it again',
+    async (error) => {
+      const el = await renderCard('error', error);
+      expect(buttonLabels(el)).toEqual(['Remove domain']);
+      expect(el.textContent).toContain('Remove this domain, then add it again to start over.');
+    },
+  );
+
+  it('points a viewer who cannot manage the domain to the application owner', async () => {
+    const el = await renderCard('error', 'CERTIFICATE_FAILED', false);
+    expect(buttonLabels(el)).toEqual([]);
+    expect(el.textContent).toContain('Ask the application owner to remove this domain and add it again.');
+  });
+
+  it('still lets a progressing domain be checked', async () => {
+    const el = await renderCard('waiting_for_dns');
+    expect(buttonLabels(el)).toContain('Check now');
+  });
+});
 
 describe('CustomDomainCard Remove availability', () => {
   it.each(['pending', 'waiting_for_dns', 'configuring', 'active', 'error'] as const)(

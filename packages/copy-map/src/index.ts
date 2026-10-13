@@ -556,6 +556,17 @@ export const APP_OWNED_STARTUP_FAILURE_CODES: ReadonlySet<FailureCode> = new Set
   'PORT_MISMATCH',
 ]);
 
+/**
+ * The §61 codes whose remediation sends the vendor to the Configuration
+ * screen. Other failures do not show a Configuration action: changing a
+ * value would not fix them. A test keeps this in step with the remediation
+ * copy.
+ */
+export const CONFIGURATION_FAILURE_CODES: ReadonlySet<FailureCode> = new Set([
+  'CONTAINER_START_FAILED',
+  'MISSING_SECRET',
+]);
+
 /** §29 what happened / why / how to fix, per failure code. */
 export interface FailureRemediation {
   /** What happened, in the vendor's terms. */
@@ -663,8 +674,8 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
   },
   CONTAINER_START_FAILED: {
     what: 'The application started and then stopped.',
-    why: 'It exited during startup — usually a missing setting or an error before it began serving.',
-    fix: 'Check the required values on the Configuration screen are all set, then deploy again.',
+    why: 'It exited during startup — often a wrong start command or port, a missing required value, or an error before it began serving.',
+    fix: "Check the start command, the port and the required values on the Configuration screen, then deploy again. The application's logs are in your customer's cloud account.",
   },
   MISSING_SECRET: {
     what: 'A required secret has no value for this customer.',

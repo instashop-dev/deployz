@@ -35,6 +35,8 @@ interface InfrastructureSectionProps {
   deploymentId: string;
   deploymentState?: string;
   purge?: PurgeProgress;
+  /** The deployment's custom domain is in its terminal error state. */
+  customDomainFailed?: boolean;
 }
 
 export function InfrastructureSection({
@@ -42,6 +44,7 @@ export function InfrastructureSection({
   deploymentId,
   deploymentState,
   purge = null,
+  customDomainFailed = false,
 }: InfrastructureSectionProps) {
   if (data === null) {
     return <InfrastructureSkeleton />;
@@ -104,6 +107,7 @@ export function InfrastructureSection({
                   deploymentId={deploymentId}
                   deploymentState={deploymentState ?? ''}
                   purge={purge}
+                  customDomainFailed={customDomainFailed}
                 />
               ))}
             </ul>
@@ -119,18 +123,24 @@ function ComponentRow({
   deploymentId,
   deploymentState,
   purge,
+  customDomainFailed,
 }: {
   component: InfrastructureComponent;
   deploymentId: string;
   deploymentState: string;
   purge: PurgeProgress;
+  customDomainFailed: boolean;
 }) {
   const status = operationalComponentStatus(component, deploymentState, purge);
   const resources = visibleResources(component.resources, deploymentState);
   const failingReason = firstFailingReason(component);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const needsHttpsRetry = component.kind === 'endpoint' && component.httpsState === 'FAILED';
+  // The API folds a custom domain's error into the endpoint's HTTPS state.
+  // Retrying the default HTTPS setup cannot repair that, so the action is
+  // offered only when the failure is not the custom domain's.
+  const needsHttpsRetry =
+    component.kind === 'endpoint' && component.httpsState === 'FAILED' && !customDomainFailed;
 
   async function onRetryHttps(): Promise<void> {
     setPending(true);
