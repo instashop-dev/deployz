@@ -88,7 +88,12 @@ export interface TemplateAsset {
 export interface SynthOutput {
   readonly template: JsonObject;
   readonly assets: TemplateAsset[];
+  /** Build identity baked into the relay; keys the immutable template copy. */
+  readonly buildId?: string;
 }
+
+/** A build id becomes part of an S3 key and a URL, so it stays plain. */
+const BUILD_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
 export interface SynthesizeOptions {
   /** Output directory for the cloud assembly (temp dir is fine). */
@@ -97,6 +102,8 @@ export interface SynthesizeOptions {
   readonly controlPlaneUrl?: string;
   /** CDK stack id. Defaults to `DeployzBootstrap`. */
   readonly stackId?: string;
+  /** Build identity the relay reports (source commit when publishing). */
+  readonly buildId?: string;
 }
 
 interface AssetManifestEntry {
@@ -156,10 +163,14 @@ export async function synthesizeBootstrapStack(
 ): Promise<SynthOutput> {
   const app = new App({ outdir: options.outdir });
   const stackId = options.stackId ?? 'DeployzBootstrap';
+  if (options.buildId !== undefined && !BUILD_ID_PATTERN.test(options.buildId)) {
+    throw new Error(`Invalid build id "${options.buildId}": use 1-64 of A-Z a-z 0-9 . _ -`);
+  }
   const stack = new BootstrapStack(app, stackId, {
     ...(options.controlPlaneUrl !== undefined
       ? { controlPlaneUrl: options.controlPlaneUrl }
       : {}),
+    ...(options.buildId !== undefined ? { buildId: options.buildId } : {}),
   });
 
   const assembly = app.synth();
@@ -168,6 +179,7 @@ export async function synthesizeBootstrapStack(
   return {
     template: artifact.template as JsonObject,
     assets: await readZipAssets(assembly.directory, stack.artifactId),
+    ...(options.buildId !== undefined ? { buildId: options.buildId } : {}),
   };
 }
 
@@ -356,6 +368,13 @@ export function createRealRegionVerifier(region: string): RegionVerifier {
 export interface RegionalPublishResult extends PublishResult {
   readonly region: string;
   readonly bucket: string;
+  /**
+   * Immutable copy of the template for this build
+   * (`<prefix>/versions/<buildId>/<template>`), set when the synth carries a
+   * build id. A stack update points CloudFormation at this URL.
+   */
+  readonly versionedTemplateKey?: string;
+  readonly versionedTemplateUrl?: string;
 }
 
 export interface PublishAllRegionsOptions {
@@ -457,6 +476,22 @@ export async function publishBootstrapToAllRegions(
     });
 
     const templateUrl = `https://${bucket}.s3.${region}.amazonaws.com/${templateKey}`;
+
+    let versioned: { versionedTemplateKey: string; versionedTemplateUrl: string } | undefined;
+    if (synth.buildId !== undefined) {
+      const versionedTemplateKey = `${keyPrefix}/versions/${synth.buildId}/${BOOTSTRAP_TEMPLATE_KEY}`;
+      await s3.putObject({
+        bucket,
+        key: versionedTemplateKey,
+        body: JSON.stringify(repacked, null, 2),
+        contentType: 'application/json',
+      });
+      versioned = {
+        versionedTemplateKey,
+        versionedTemplateUrl: `https://${bucket}.s3.${region}.amazonaws.com/${versionedTemplateKey}`,
+      };
+    }
+
     const quickCreateUrl = buildBootstrapQuickCreateUrl({
       region,
       templateUrl,
@@ -487,6 +522,7 @@ export async function publishBootstrapToAllRegions(
       assetKeys,
       templateBytes: limits.bytes,
       parameterCount: limits.parameterCount,
+      ...versioned,
     });
   }
 

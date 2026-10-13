@@ -17,7 +17,8 @@ import {
   getDefaultDeploymentUrl,
   isDefaultDeploymentHostname,
   isDefaultHttpsJob,
-  MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES,
+  DEFAULT_HTTPS_CONFIGURE_BUDGET_MS,
+  DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS,
   parseDefaultDeploymentId,
   parseDefaultHttps,
   reconcileOrphanedDefaultRecords,
@@ -152,6 +153,9 @@ describe('default-https service', () => {
     }
     listDefaultRecords = async () => [];
   }
+
+  /** A clock `n` attempt intervals ahead of now, for a later driver pass. */
+  const laterBy = (n: number) => () => Date.now() + n * 2 * DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS;
 
   function deps(overrides: Partial<DefaultHttpsDeps> = {}): DefaultHttpsDeps {
     return {
@@ -766,7 +770,7 @@ describe('default-https service', () => {
       expect(fake.listRecords()).toHaveLength(2);
 
       ops.length = 0;
-      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: laterBy(1) }));
       expect(ops.map((entry) => [entry.record, entry.op])).toEqual([
         ['validation', 'noop'],
         ['routing', 'noop'],
@@ -793,7 +797,7 @@ describe('default-https service', () => {
       expect(fake.listRecords()).toHaveLength(0);
 
       // The next driver pass reconciles both records and mints the fresh cycle.
-      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: laterBy(1) }));
       const recovered = await stateOf(deployment.id);
       expect(recovered?.status).toBe('WAITING_FOR_DNS');
       expect(recovered?.lastError).toBeNull();
@@ -815,7 +819,7 @@ describe('default-https service', () => {
         .where(eq(schema.deployments.id, deployment.id));
 
       ops.length = 0;
-      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: laterBy(1) }));
 
       expect(ops).toEqual([
         { record: 'validation', op: 'noop' },
@@ -827,8 +831,8 @@ describe('default-https service', () => {
     });
   });
 
-  // Phase 12 — bounded default-DNS reconciliation watchdog. No clock seam in
-  // the machine, so the cycle/attempt count IS the time base.
+  // Phase 12 — bounded default-DNS reconciliation watchdog. The budget is
+  // elapsed time on the injected clock.
   describe('watchdog — bounded default DNS reconciliation (Phase 12)', () => {
     async function seedWaitingForDns(configureAttempts = 0) {
       const deployment = await seedDeployment();
@@ -864,32 +868,84 @@ describe('default-https service', () => {
       return { client, fake };
     }
 
-    it('unavailable DNS failures consume the budget and time out to ERROR + DEFAULT_DNS_TIMEOUT', async () => {
+    /** A controllable clock; `advance` moves it forward. */
+    function makeClock(startMs = Date.now() - 2 * 60 * 60_000) {
+      let current = startMs;
+      return {
+        now: () => current,
+        advance: (ms: number) => {
+          current += ms;
+        },
+      };
+    }
+
+    const MINUTE = DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS;
+
+    it('unavailable DNS failures are counted and time out to ERROR + DEFAULT_DNS_TIMEOUT after the budget', async () => {
       const deployment = await seedWaitingForDns(0);
       const { client } = dnsThatFailsValidationWrite('CLOUDFLARE_UNAVAILABLE');
+      const clock = makeClock();
 
-      for (let i = 0; i < MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES - 1; i += 1) {
-        await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      let attempts = 0;
+      for (let elapsed = 0; elapsed < DEFAULT_HTTPS_CONFIGURE_BUDGET_MS; elapsed += MINUTE) {
+        await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
+        attempts += 1;
         const during = await stateOf(deployment.id);
         expect(during?.status).toBe('WAITING_FOR_DNS');
         expect(during?.lastError).toBe('DNS_WRITE_FAILED');
-        expect(during?.configureAttempts).toBe(i + 1);
+        expect(during?.configureAttempts).toBe(attempts);
+        clock.advance(MINUTE);
       }
 
-      // The attempt that fills the budget times the machine out.
-      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      // The next attempt finds the whole budget used and times the machine out.
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
       const timedOut = await stateOf(deployment.id);
       expect(timedOut?.status).toBe('ERROR');
       expect(timedOut?.lastError).toBe('DEFAULT_DNS_TIMEOUT');
-      expect(timedOut?.configureAttempts).toBe(MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES);
     });
 
-    it('rate-limited failures never consume the budget and stay retryable', async () => {
+    it('fast heartbeats do not consume the budget or multiply attempts', async () => {
+      const deployment = await seedWaitingForDns(0);
+      const { client } = dnsThatFailsValidationWrite('CLOUDFLARE_UNAVAILABLE');
+      const clock = makeClock();
+
+      // One attempt, then a heartbeat every 5 seconds for 50 seconds.
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
+      for (let i = 0; i < 10; i += 1) {
+        clock.advance(5_000);
+        await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
+      }
+      const early = await stateOf(deployment.id);
+      expect(early?.configureAttempts).toBe(1);
+      expect(early?.status).toBe('WAITING_FOR_DNS');
+
+      // The interval has passed: the next heartbeat is a second attempt.
+      clock.advance(MINUTE);
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
+      expect((await stateOf(deployment.id))?.configureAttempts).toBe(2);
+    });
+
+    it('does not time out before the budget has elapsed', async () => {
+      const deployment = await seedWaitingForDns(0);
+      const { client } = dnsThatFailsValidationWrite('CLOUDFLARE_UNAVAILABLE');
+      const clock = makeClock();
+
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
+      clock.advance(DEFAULT_HTTPS_CONFIGURE_BUDGET_MS - MINUTE);
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
+      const state = await stateOf(deployment.id);
+      expect(state?.status).toBe('WAITING_FOR_DNS');
+      expect(state?.configureAttempts).toBe(2);
+    });
+
+    it('rate-limited failures are not counted and stay retryable', async () => {
       const deployment = await seedWaitingForDns(0);
       const { client } = dnsThatFailsValidationWrite('CLOUDFLARE_RATE_LIMITED');
+      const clock = makeClock();
 
-      for (let i = 0; i < MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES + 2; i += 1) {
-        await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      for (let i = 0; i < 40; i += 1) {
+        await runDefaultHttpsCheck(db, deployment, deps({ dns: client, now: clock.now }));
+        clock.advance(MINUTE);
       }
       const state = await stateOf(deployment.id);
       expect(state?.status).toBe('WAITING_FOR_DNS');
@@ -900,8 +956,10 @@ describe('default-https service', () => {
     it('recovers to ACTIVE with a fresh budget after a DEFAULT_DNS_TIMEOUT', async () => {
       const deployment = await seedWaitingForDns(0);
       const failing = dnsThatFailsValidationWrite('CLOUDFLARE_UNAVAILABLE');
-      for (let i = 0; i < MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES; i += 1) {
-        await runDefaultHttpsCheck(db, deployment, deps({ dns: failing.client }));
+      const clock = makeClock();
+      for (let elapsed = 0; elapsed <= DEFAULT_HTTPS_CONFIGURE_BUDGET_MS; elapsed += MINUTE) {
+        await runDefaultHttpsCheck(db, deployment, deps({ dns: failing.client, now: clock.now }));
+        clock.advance(MINUTE);
       }
       expect((await stateOf(deployment.id))?.status).toBe('ERROR');
 
@@ -984,7 +1042,7 @@ describe('default-https service', () => {
       await goodDns.deleteDefaultDeploymentRecord(deployment.id);
       expect(goodDns.listRecords().some((record) => record.name === hostname)).toBe(false);
 
-      await runDefaultHttpsCheck(db, deployment, deps({ dns: goodDns }));
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: goodDns, now: laterBy(1) }));
       expect(goodDns.listRecords().some((record) => record.name === hostname)).toBe(true);
     });
   });

@@ -4,6 +4,8 @@ import {
   memoryPendingStore,
   toPendingStore,
   PENDING_MARKER_MAX_LENGTH,
+  settleMarker,
+  settledResultOf,
   type PendingCommand,
 } from './pending.js';
 
@@ -445,5 +447,145 @@ describe('toPendingStore', () => {
     const send = vi.fn().mockRejectedValue(new Error('AccessDeniedException'));
 
     await expect(toPendingStore({ send }, '/p').clear()).resolves.toBe(false);
+  });
+});
+
+describe('inspect', () => {
+  const failing = (name: string) =>
+    vi.fn(async () => {
+      const error = new Error(name);
+      error.name = name;
+      throw error;
+    });
+
+  it('reports a missing parameter as absent', async () => {
+    await expect(toPendingStore(makeSsmFake(), '/p').inspect()).resolves.toEqual({ state: 'absent' });
+  });
+
+  it('reports the stored marker as present', async () => {
+    await expect(toPendingStore(makeSsmFake(JSON.stringify(PENDING)), '/p').inspect()).resolves.toEqual({
+      state: 'present',
+      marker: PENDING,
+    });
+  });
+
+  it.each(['AccessDeniedException', 'ThrottlingException', 'TimeoutError'])(
+    'reports %s as unreadable, never as absent',
+    async (name) => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const store = toPendingStore({ send: failing(name) }, '/p');
+
+      await expect(store.inspect()).resolves.toEqual({ state: 'unreadable', errorCode: name });
+      await expect(store.read()).resolves.toBeNull();
+      errorSpy.mockRestore();
+    },
+  );
+
+  it('reports a marker that does not parse as unreadable', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(toPendingStore(makeSsmFake('{not json'), '/p').inspect()).resolves.toMatchObject({
+      state: 'unreadable',
+    });
+    errorSpy.mockRestore();
+  });
+
+  it('refuses a compare-and-set while the marker is unreadable, even a clear', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const send = failing('ThrottlingException');
+
+    await expect(toPendingStore({ send }, '/p').compareAndSet('cmd-1', null)).resolves.toBe(false);
+    await expect(toPendingStore({ send }, '/p').compareAndSet('cmd-1', PENDING)).resolves.toBe(false);
+    expect(send).toHaveBeenCalledTimes(2);
+    errorSpy.mockRestore();
+  });
+});
+
+describe('settleMarker', () => {
+  const META = {
+    commandId: 'cmd-1',
+    idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+    type: 'DEPLOY_RELEASE',
+    stackName: 'deployz-app',
+    startedAt: '2026-08-26T12:00:00.000Z',
+  };
+
+  it('replaces the command marker with its answer and keeps no payload', async () => {
+    const ssm = makeSsmFake(JSON.stringify({ ...PENDING, payload: { secret: 'hunter2' } }));
+    const store = toPendingStore(ssm, '/p');
+
+    const written = await settleMarker(
+      store,
+      META,
+      { commandId: 'cmd-1', idempotencyKey: META.idempotencyKey, success: true, output: { executed: true } },
+      false,
+    );
+
+    expect(written).toBe(true);
+    expect(ssm.read()).not.toContain('hunter2');
+    const marker = (await store.read())!;
+    expect(marker).toMatchObject({ phase: 'settled', result: { success: true, output: { executed: true } } });
+    expect(settledResultOf(marker)).toEqual({
+      commandId: 'cmd-1',
+      idempotencyKey: META.idempotencyKey,
+      success: true,
+      output: { executed: true },
+    });
+  });
+
+  it('creates the marker only when asked to, and never over another command', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = { commandId: 'cmd-1', idempotencyKey: META.idempotencyKey, success: true };
+
+    const empty = toPendingStore(makeSsmFake(), '/p');
+    await expect(settleMarker(empty, META, result, false)).resolves.toBe(false);
+    await expect(empty.read()).resolves.toBeNull();
+    await expect(settleMarker(empty, META, result, true)).resolves.toBe(true);
+
+    const other = toPendingStore(makeSsmFake(JSON.stringify({ ...PENDING, commandId: 'cmd-2' })), '/p');
+    await expect(settleMarker(other, META, result, true)).resolves.toBe(false);
+    await expect(other.read()).resolves.toMatchObject({ commandId: 'cmd-2' });
+    errorSpy.mockRestore();
+  });
+
+  it('does not write while the marker is unreadable', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const send = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    await expect(
+      settleMarker(toPendingStore({ send }, '/p'), META, { commandId: 'cmd-1', idempotencyKey: 'k', success: true }, true),
+    ).resolves.toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
+  it('truncates an oversized result deterministically so the write succeeds', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ssm = makeSsmFake(JSON.stringify(PENDING));
+    const store = toPendingStore(ssm, '/p');
+    const result = {
+      commandId: 'cmd-1',
+      idempotencyKey: META.idempotencyKey,
+      success: false,
+      error: 'x'.repeat(6000),
+      failureCode: 'MIGRATION_FAILED',
+      evidence: { stoppedTasks: 'y'.repeat(6000) } as never,
+      output: { executed: true, generatedKeys: ['A_KEY'], log: 'z'.repeat(6000), nested: { big: 'w'.repeat(500) } },
+    };
+
+    await expect(settleMarker(store, META, result, false)).resolves.toBe(true);
+
+    expect(ssm.read()!.length).toBeLessThanOrEqual(PENDING_MARKER_MAX_LENGTH);
+    const stored = settledResultOf((await store.read())!)!;
+    expect(stored).toMatchObject({ success: false, failureCode: 'MIGRATION_FAILED' });
+    expect(stored.error!.length).toBeLessThan(2000);
+    expect(stored.output).toMatchObject({ executed: true, generatedKeys: ['A_KEY'] });
+    expect(stored.output).not.toHaveProperty('nested');
+
+    // Same input, same stored answer.
+    const again = toPendingStore(makeSsmFake(JSON.stringify(PENDING)), '/p');
+    await settleMarker(again, META, result, false);
+    expect(settledResultOf((await again.read())!)).toEqual(stored);
+    errorSpy.mockRestore();
   });
 });

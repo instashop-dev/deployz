@@ -474,7 +474,7 @@ export function normalizeDeploymentManifest(
   // provision RDS to resolve the mismatch.
   if (overrides.migrationCommand && overrides.migrationCommand.length > 0 && !postgresRequired) {
     unsupported.push(
-      'This app is configured to run a database migration on deploy but the manifest does not require PostgreSQL — Deployz cannot run migrations without a provisioned database',
+      'This app is configured to run a database migration on deploy but the manifest does not require a database — Deployz cannot run migrations without a provisioned database',
     );
   }
   // Phase 4A — background workers are first-class workloads. Each DECLARED

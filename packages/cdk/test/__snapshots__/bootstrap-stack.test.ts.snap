@@ -170,6 +170,29 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
       },
       "Type": "AWS::Lambda::Function",
     },
+    "InstallIdFunctionLogRetentionF7881702": {
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/lambda/",
+              {
+                "Ref": "InstallIdFunctionE00E99D3",
+              },
+            ],
+          ],
+        },
+        "RetentionInDays": 7,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "Custom::LogRetention",
+    },
     "InstallIdFunctionServiceRole9CEC2041": {
       "Properties": {
         "AssumeRolePolicyDocument": {
@@ -267,6 +290,29 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         "Timeout": 900,
       },
       "Type": "AWS::Lambda::Function",
+    },
+    "InstallIdProviderframeworkonEventLogRetentionECA2520C": {
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/lambda/",
+              {
+                "Ref": "InstallIdProviderframeworkonEvent80868007",
+              },
+            ],
+          ],
+        },
+        "RetentionInDays": 7,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "Custom::LogRetention",
     },
     "InstallIdProviderframeworkonEventServiceRole99D4C1C6": {
       "Properties": {
@@ -1779,6 +1825,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             "DEPLOYZ_BOOTSTRAP_STACK_NAME": {
               "Ref": "AWS::StackName",
             },
+            "DEPLOYZ_BOOTSTRAP_VERSION": "dev",
             "DEPLOYZ_CONTROL_PLANE_URL": {
               "Ref": "ControlPlaneUrl",
             },
@@ -2017,8 +2064,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
     },
     "RelaySchedule27C29C24": {
       "Properties": {
-        "Description": "Polls the Deployz control plane every 5 minutes (egress-only).",
-        "ScheduleExpression": "rate(5 minutes)",
+        "Description": "Polls the Deployz control plane every minute (egress-only).",
+        "ScheduleExpression": "rate(1 minute)",
         "State": "ENABLED",
         "Tags": [
           {
@@ -2052,6 +2099,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               ],
             },
             "Id": "Target0",
+            "RetryPolicy": {
+              "MaximumEventAgeInSeconds": 60,
+              "MaximumRetryAttempts": 0,
+            },
           },
         ],
       },

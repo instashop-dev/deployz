@@ -914,16 +914,17 @@ function createApplicationOrganizationIdFinder(
  * so it can never actually reach a build or a deployment. Counting it as
  * "provided" is exactly the readiness-says-ready-but-nothing-arrives gap
  * this module closes. A customer-scope masked secret row is counted only
- * while its value can still reach a deployment: an unexpired pending-secret
- * row, or a live deployment of this customer whose secret store was already
- * written by a finished configuration update. Otherwise the customer enters
- * it again.
+ * while its value can still reach the deployment: with `deploymentId`, a
+ * pending row bound to it or a finished configuration update of it that named
+ * the key; without one (pre-creation), a reusable staged row. Otherwise the
+ * customer enters it again.
  */
 export async function listProvidedConfigKeys(
   db: RuntimeDb,
   applicationId: string,
   customerId: string | null,
   settings: readonly EnvironmentSetting[] | null = null,
+  deploymentId: string | null = null,
 ): Promise<string[]> {
   if (!UUID_PATTERN.test(applicationId) || (customerId !== null && !UUID_PATTERN.test(customerId))) return [];
   const rows = await db
@@ -947,7 +948,7 @@ export async function listProvidedConfigKeys(
   const reachable =
     customerId === null || customerSecretKeys.length === 0
       ? new Set<string>()
-      : await reachableCustomerSecretKeys(db, applicationId, customerId, customerSecretKeys);
+      : await reachableCustomerSecretKeys(db, applicationId, customerId, customerSecretKeys, deploymentId);
   // A customer row wins over the vendor row for its key, so an unreachable
   // customer secret leaves the key without a value even when the vendor has one.
   const unreachable = new Set(
@@ -964,59 +965,85 @@ export async function listProvidedConfigKeys(
 }
 
 /**
- * The customer secret keys whose value can still reach a deployment of this
- * customer: held in an unexpired pending-secret row (staged, or bound to one
- * of the customer's deployments), or already in the secret store of a live
- * deployment that finished a configuration update.
+ * The customer secret keys whose value can still reach one deployment.
+ *
+ * Without a deployment (pre-creation), only reusable staged rows count: they
+ * are materialized for the deployment when it is created. With a deployment,
+ * a key counts only when a bound pending row for that deployment is unexpired
+ * or a finished CONFIG_UPDATE job of that same deployment named the key (job
+ * payloads keep key names after the values are scrubbed). A deployment that
+ * is being deleted receives nothing.
  */
 async function reachableCustomerSecretKeys(
   db: RuntimeDb,
   applicationId: string,
   customerId: string,
   keys: readonly string[],
+  deploymentId: string | null,
 ): Promise<Set<string>> {
   const now = new Date();
-  const staged = await db
-    .select({ key: schema.pendingSecrets.key })
-    .from(schema.pendingSecrets)
+  if (deploymentId === null) {
+    const staged = await db
+      .select({ key: schema.pendingSecrets.key })
+      .from(schema.pendingSecrets)
+      .where(
+        and(
+          eq(schema.pendingSecrets.applicationId, applicationId),
+          eq(schema.pendingSecrets.customerId, customerId),
+          isNull(schema.pendingSecrets.deploymentId),
+          inArray(schema.pendingSecrets.key, [...keys]),
+          gt(schema.pendingSecrets.expiresAt, now),
+        ),
+      );
+    return new Set(staged.map((row) => row.key));
+  }
+  if (!UUID_PATTERN.test(deploymentId)) return new Set();
+  const [deployment] = await db
+    .select({ id: schema.deployments.id })
+    .from(schema.deployments)
     .where(
       and(
-        eq(schema.pendingSecrets.applicationId, applicationId),
-        eq(schema.pendingSecrets.customerId, customerId),
-        isNull(schema.pendingSecrets.deploymentId),
-        inArray(schema.pendingSecrets.key, [...keys]),
-        gt(schema.pendingSecrets.expiresAt, now),
-      ),
-    );
-  const bound = await db
-    .select({ key: schema.pendingSecrets.key })
-    .from(schema.pendingSecrets)
-    .innerJoin(schema.deployments, eq(schema.deployments.id, schema.pendingSecrets.deploymentId))
-    .where(
-      and(
-        eq(schema.deployments.applicationId, applicationId),
-        eq(schema.deployments.customerId, customerId),
-        inArray(schema.pendingSecrets.key, [...keys]),
-        gt(schema.pendingSecrets.expiresAt, now),
-      ),
-    );
-  const [configured] = await db
-    .select({ id: schema.deploymentJobs.id })
-    .from(schema.deploymentJobs)
-    .innerJoin(schema.deployments, eq(schema.deployments.id, schema.deploymentJobs.deploymentId))
-    .where(
-      and(
+        eq(schema.deployments.id, deploymentId),
         eq(schema.deployments.applicationId, applicationId),
         eq(schema.deployments.customerId, customerId),
         notInArray(schema.deployments.state, ['DELETING', 'DELETED']),
-        eq(schema.deploymentJobs.type, 'CONFIG_UPDATE'),
-        inArray(schema.deploymentJobs.state, ['SUCCEEDED', 'SUCCESS']),
       ),
     )
     .limit(1);
-  return configured !== undefined
-    ? new Set(keys)
-    : new Set([...staged, ...bound].map((row) => row.key));
+  if (deployment === undefined) return new Set();
+  const bound = await db
+    .select({ key: schema.pendingSecrets.key })
+    .from(schema.pendingSecrets)
+    .where(
+      and(
+        eq(schema.pendingSecrets.deploymentId, deploymentId),
+        inArray(schema.pendingSecrets.key, [...keys]),
+        gt(schema.pendingSecrets.expiresAt, now),
+      ),
+    );
+  const jobs = await db
+    .select({ payload: schema.deploymentJobs.payload })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        eq(schema.deploymentJobs.type, 'CONFIG_UPDATE'),
+        inArray(schema.deploymentJobs.state, ['SUCCEEDED', 'SUCCESS']),
+      ),
+    );
+  const delivered = new Set(bound.map((row) => row.key));
+  for (const { payload } of jobs) {
+    const names = [
+      ...stringList(payload?.['changedKeys']),
+      ...((Array.isArray(payload?.['secrets']) ? payload['secrets'] : []) as { key?: unknown }[]).map((entry) => entry?.key),
+    ];
+    for (const name of names) if (typeof name === 'string' && keys.includes(name)) delivered.add(name);
+  }
+  return delivered;
+}
+
+function stringList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 /**

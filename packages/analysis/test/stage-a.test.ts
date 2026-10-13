@@ -228,6 +228,7 @@ describe('COMP-013 — PostgreSQL requirement evidence beyond root JS files', ()
   it('accepts a DATABASE_URL literal in Go, Python or Ruby configuration', () => {
     const go: FileTree = {
       'go.mod': 'module miniflux\n\nrequire github.com/lib/pq v1.12.3\n',
+      'main.go': 'package main\nimport _ "github.com/lib/pq"\n',
       'internal/config/options.go': 'case "DATABASE_URL":\n\tparser.parseString(value)\n',
     };
     expect(assessPostgres(go).required).toBe(true);

@@ -55,7 +55,14 @@
 
 import { oneShotContainerCommand, type FailureEvidence } from '@deployz/contracts';
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
-import type { PendingStore } from './pending.js';
+import {
+  reportSettled,
+  saveMarker,
+  settledResultOf,
+  settleMarker,
+  type CheckAuthority,
+  type PendingStore,
+} from './pending.js';
 import type { CloudFormationReader } from './verify.js';
 import { applicationContainers, applicationExits, essentialContainerNames } from './ecs-observe.js';
 import type { TargetHealthReader } from './ecs-health.js';
@@ -177,6 +184,11 @@ export interface EcsDeployDeps {
    */
   readonly elb: TargetHealthReader;
   readonly pending: PendingStore;
+  /**
+   * The control plane's word on whether a command may still change AWS. A
+   * command it no longer owns mutates nothing; an unknown answer defers.
+   */
+  readonly checkAuthority?: CheckAuthority;
   readonly stackName: string;
   /** Stamped on every registered task-definition copy (IAM tag boundary). */
   readonly installationId: string;
@@ -945,7 +957,7 @@ async function settleMigration(
       params.markerType !== undefined &&
       params.markerPayload !== undefined
     ) {
-      await deps.pending.write({
+      await saveMarker(deps.pending, {
         commandId: params.markerCommandId,
         idempotencyKey: params.markerIdempotencyKey,
         type: params.markerType,
@@ -1613,32 +1625,51 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       });
     }
 
+    const marker = {
+      commandId: command.id,
+      idempotencyKey: command.idempotencyKey,
+      type: command.type,
+      stackName: deps.stackName,
+      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+    };
+    const deferred = { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+
     let outcome: EcsDeployOutcome;
     try {
+      const current = await deps.pending.inspect();
+      // The marker cannot be read, so whether this command already ran is
+      // unknown: mutate nothing and let the control plane offer it again.
+      if (current.state === 'unreadable') return deferred;
       // Only this command's OWN marker may carry a migration task forward —
       // a stale marker from an earlier command must never resume its task.
-      const existing = await deps.pending.read();
-      const migration = existing?.commandId === command.id ? (existing.migration ?? null) : null;
+      const existing = current.state === 'present' && current.marker.commandId === command.id ? current.marker : null;
+      // A settled marker holds the answer: report it, never run again.
+      const stored = existing === null ? null : settledResultOf(existing);
+      if (stored !== null) return stored;
+
+      const authority = deps.checkAuthority ? await deps.checkAuthority(command.id) : undefined;
+      if (authority === false) {
+        return result(command, false, { error: 'Deploy command is no longer active — not changing the service' });
+      }
+      if (authority === null) return deferred;
+
       outcome = await settleEcsDeploy(deps, request, {
         allowMigration: command.type === 'DEPLOY_RELEASE',
-        migration,
+        migration: existing?.migration ?? null,
         markerCommandId: command.id,
         markerIdempotencyKey: command.idempotencyKey,
         markerType: command.type,
         markerPayload: command.payload,
       });
     } catch (err) {
-      return result(command, false, {
-        error: String(err),
-        failureCode: 'AWS_PERMISSION_DENIED',
-      });
+      return reportSettled(
+        deps.pending,
+        marker,
+        result(command, false, { error: String(err), failureCode: 'AWS_PERMISSION_DENIED' }),
+      );
     }
 
     if (outcome.state === 'failed') {
-      // The early migration marker (DZ-AUDIT-003) may have been written
-      // inside settleMigration before the poll discovered the failure —
-      // clear it so a stale marker never looks like something to resume.
-      await deps.pending.clear();
       console.log(
         JSON.stringify({
           event: 'relay:command-failed',
@@ -1647,19 +1678,20 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
           reason: outcome.reason,
         }),
       );
-      return result(command, false, {
-        error: outcome.reason,
-        ...(outcome.failureCode ? { failureCode: outcome.failureCode } : {}),
-        ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
-      });
+      // The settled marker replaces the early migration marker (DZ-AUDIT-003)
+      // that settleMigration may have written, so no stale marker is resumed.
+      return reportSettled(
+        deps.pending,
+        marker,
+        result(command, false, {
+          error: outcome.reason,
+          ...(outcome.failureCode ? { failureCode: outcome.failureCode } : {}),
+          ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
+        }),
+      );
     }
 
     if (outcome.state === 'succeeded') {
-      // The early migration marker (DZ-AUDIT-003) may exist when the deploy
-      // was already-succeeded but still owed a migration — the stage ran to
-      // completion above, so the marker must not survive: a dangling marker
-      // of a settled command would be resumed and re-reported on later polls.
-      await deps.pending.clear();
       console.log(
         JSON.stringify({
           event: 'relay:command-succeeded',
@@ -1668,21 +1700,21 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
           alreadyRunning: outcome.alreadyRunning,
         }),
       );
-      return result(command, true, {
-        output: { executed: true, type: command.type, alreadyRunning: outcome.alreadyRunning },
-      });
+      return reportSettled(
+        deps.pending,
+        marker,
+        result(command, true, {
+          output: { executed: true, type: command.type, alreadyRunning: outcome.alreadyRunning },
+        }),
+      );
     }
 
     // Record the debt BEFORE deferring — an unfindable deferral leaves the
     // job in RUNNING forever, which is worse than an honest failure. The
     // marker also carries any migration task so a later invocation resumes
     // the SAME task instead of starting a second migration.
-    const recorded = await deps.pending.write({
-      commandId: command.id,
-      idempotencyKey: command.idempotencyKey,
-      type: command.type,
-      stackName: deps.stackName,
-      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+    const recorded = await saveMarker(deps.pending, {
+      ...marker,
       payload: { ...command.payload, ...rolloutFacts(outcome) },
       ...(outcome.migration ? { migration: outcome.migration } : {}),
     });
@@ -1724,27 +1756,48 @@ function rolloutFacts(outcome: Extract<EcsDeployOutcome, { state: 'in-progress' 
 /** The other half: finish a deploy an earlier invocation started. */
 export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<RelayCommandResult[]> {
   return async () => {
-    const pending = await deps.pending.read();
-    if (pending === null || (pending.type !== 'DEPLOY_RELEASE' && pending.type !== 'ROLLBACK')) {
+    const current = await deps.pending.inspect();
+    if (
+      current.state !== 'present' ||
+      (current.marker.type !== 'DEPLOY_RELEASE' && current.marker.type !== 'ROLLBACK')
+    ) {
       return [];
     }
+    const pending = current.marker;
+    // A settled marker holds the answer: report it again, never run again.
+    const stored = settledResultOf(pending);
+    if (stored !== null) return [stored];
 
     const request = readDeployRequest(pending.payload);
     if (!request) {
-      await deps.pending.clear();
-      return [
-        {
-          commandId: pending.commandId,
-          idempotencyKey: pending.idempotencyKey,
-          success: false,
-          error: 'Pending payload lost its imageRepository/imageDigest pair',
-        },
-      ];
+      const failed: RelayCommandResult = {
+        commandId: pending.commandId,
+        idempotencyKey: pending.idempotencyKey,
+        success: false,
+        error: 'Pending payload lost its imageRepository/imageDigest pair',
+      };
+      return (await settleMarker(deps.pending, pending, failed, false)) ? [failed] : [];
     }
 
     const rawTarget = pending.payload['targetTaskDefinitionArn'];
     const targetMap = revisionMap(pending.payload['targetTaskDefinitionArns']);
     const previousMap = revisionMap(pending.payload['previousTaskDefinitionArns']);
+
+    // Settling a rollout this command already started only reads. Anything
+    // before that (a migration, the rollout itself) changes AWS, and only a
+    // command the control plane still owns may do that.
+    if (rawTarget === undefined && Object.keys(targetMap).length === 0) {
+      const authority = deps.checkAuthority ? await deps.checkAuthority(pending.commandId) : undefined;
+      if (authority === false) {
+        await deps.pending.compareAndSet(pending.commandId, null);
+        console.log(
+          JSON.stringify({ event: 'relay:deploy-superseded', commandId: pending.commandId, type: pending.type }),
+        );
+        return [];
+      }
+      if (authority === null) return [];
+    }
+
     const outcome = await settleEcsDeploy(deps, request, {
       allowMigration: pending.type === 'DEPLOY_RELEASE',
       migration: pending.migration ?? null,
@@ -1768,7 +1821,7 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
         pending.payload['targetTaskDefinitionArns'] === undefined &&
         pending.payload['targetTaskDefinitionArn'] === undefined;
       if (migrationCompleted || rolloutStarted) {
-        await deps.pending.write({
+        await deps.pending.compareAndSet(pending.commandId, {
           ...pending,
           payload: { ...pending.payload, ...rolloutFacts(outcome) },
           ...(outcome.migration !== undefined ? { migration: outcome.migration } : {}),
@@ -1785,9 +1838,6 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
       return [];
     }
 
-    // Clear first: reporting twice would re-emit the control plane's
-    // deploy/rollback event on every poll.
-    await deps.pending.clear();
     console.log(
       JSON.stringify({
         event: 'relay:command-resumed',
@@ -1797,7 +1847,7 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
         startedAt: pending.startedAt,
       }),
     );
-    return [
+    const report: RelayCommandResult =
       outcome.state === 'succeeded'
         ? {
             commandId: pending.commandId,
@@ -1812,7 +1862,10 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
             error: outcome.reason,
             ...(outcome.failureCode ? { failureCode: outcome.failureCode } : {}),
             ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
-          },
-    ];
+          };
+    // Settle first: if the report is lost, the next poll re-reports this
+    // answer from the marker instead of running the deploy again. A marker a
+    // newer command owns makes this answer obsolete.
+    return (await settleMarker(deps.pending, pending, report, false)) ? [report] : [];
   };
 }

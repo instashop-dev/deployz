@@ -2106,6 +2106,9 @@ export async function buildServer({
             prefix: env.defaultHostnamePrefix,
           }),
         probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
+        // The simulated relay polls every few milliseconds; the production
+        // minimum interval would stall every scenario.
+        minAttemptIntervalMs: 0,
       };
     }
     const apex = DEFAULT_HTTPS_APEX;
@@ -2260,6 +2263,34 @@ export async function buildServer({
     // default-HTTPS machine's writes — drives the Phase 12 watchdog and the
     // rate-limit path end to end. `deploymentId` scopes the script to one
     // deployment so parallel simulated scenarios never consume each other's.
+    // Scenario time control for the elapsed configure budget: `clear` drops a
+    // deployment's unconsumed failures; `ageMs` moves its budget start back.
+    app.post('/internal/fixture/default-https-budget', async (request) => {
+      const body = request.body as { deploymentId?: unknown; ageMs?: unknown; clear?: unknown };
+      if (typeof body?.deploymentId !== 'string') {
+        throw new ApiError(400, 'INVALID_REQUEST', 'deploymentId is required');
+      }
+      if (body.clear === true) {
+        fixtureDefaultDnsProvider.clearFailures(body.deploymentId);
+      }
+      if (typeof body.ageMs === 'number') {
+        const [row] = await db
+          .select({ defaultHttps: schema.deployments.defaultHttps })
+          .from(schema.deployments)
+          .where(eq(schema.deployments.id, body.deploymentId))
+          .limit(1);
+        const state = parseDefaultHttps(row?.defaultHttps ?? null);
+        if (state?.configureStartedAt) {
+          const aged = { ...state, configureStartedAt: new Date(Date.parse(state.configureStartedAt) - body.ageMs).toISOString() };
+          await db
+            .update(schema.deployments)
+            .set({ defaultHttps: aged as unknown as Record<string, unknown> })
+            .where(eq(schema.deployments.id, body.deploymentId));
+        }
+      }
+      return snapshot();
+    });
+
     app.post('/internal/fixture/default-dns-failures', async (request) => {
       const body = request.body as { code?: unknown; count?: unknown; deploymentId?: unknown };
       const code = body?.code;

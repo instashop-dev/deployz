@@ -289,7 +289,7 @@ export async function runApplicationPreflight(
  */
 export async function runDeploymentPreflight(
   db: RuntimeDb,
-  deployment: { applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  deployment: { id: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
   application: PreflightApplicationRow | null,
 ): Promise<PreflightResult> {
   const manifest = readStoredManifest(deployment.desiredState);
@@ -311,7 +311,7 @@ export async function runDeploymentPreflight(
         .where(eq(schema.applications.id, deployment.applicationId))
         .limit(1);
   const settings = settingsRow ? readEnvironmentSettings(settingsRow) : null;
-  const providedEnvKeys = await listProvidedConfigKeys(db, deployment.applicationId, deployment.customerId, settings);
+  const providedEnvKeys = await listProvidedConfigKeys(db, deployment.applicationId, deployment.customerId, settings, deployment.id);
   return evaluatePreflight({
     manifest,
     providedEnvKeys,

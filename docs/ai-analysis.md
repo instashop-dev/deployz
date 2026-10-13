@@ -80,7 +80,11 @@ Repository (GitHub tree, bounded)
   stage, together with the stages it is built from. A Dockerfile in a test,
   example or dev-container directory, a base image (system packages only, no
   CMD, ENTRYPOINT, EXPOSE or COPY) and a Dockerfile that starts a dev server
-  are never selected. A Dockerfile named production or prod ranks first. An
+  are never selected (a dev server is `npm run dev`, `next dev`, `nodemon`,
+  `--reload` or `sleep infinity`). A Dockerfile in a `dev/` build directory
+  is selected when it starts something (CMD, ENTRYPOINT or EXPOSE) and is not
+  one of those; a `.devcontainer/` or `.gitpod/` Dockerfile never is. A
+  Dockerfile named production or prod ranks first. An
   arm or multi-process variant ranks last. The port is the ENV PORT or EXPOSE of the production stage. An
   image with a front web server (nginx, caddy) publishes port 80. The health
   path, in order: the URL that the HEALTHCHECK of the production stage or a
@@ -121,6 +125,10 @@ Repository (GitHub tree, bounded)
   bindings (the `DATABASE_*` names plus the names the app reads, such as
   `DB_HOST`), migration mode and migration findings as PostgreSQL.
   `databaseState` names the engine that the manifest provisions.
+- **Go PostgreSQL drivers:** a direct `github.com/lib/pq` or `jackc/pgx`
+  requirement in `go.mod` counts only when non-test, non-vendored Go source
+  imports the module. A requirement that no code imports is not evidence of
+  PostgreSQL.
 - **Database engine:** PostgreSQL wins when the app can run on it. The
   engine is MySQL only when a MySQL driver and one independent signal are
   present and PostgreSQL is not a runtime option. The independent signal
@@ -209,7 +217,7 @@ image, a removed npm, pnpm without corepack, an unreadable base image, no
 Dockerfile) is `migration-command-needs-input`: it records
 `migrationNeedsInput`, sets `migration.needsCommand` and blocks
 deployment until the vendor enters a command or chooses "No separate
-migration" — both are vendor overrides that re-analysis keeps. A declared worker
+migration" — both are vendor overrides that re-analysis keeps. Analysis writes its result under a row lock from the row as it is at that moment, so an override saved while a run is in progress is kept. A row with no `vendorOverrides` list (older than the list) keeps its saved port, health path, migration and worker command; analysis fills only empty columns and does not add the list. A declared worker
 process is `worker-process` — informational, because Deployz now runs it
 as its own service. Worker-like code with no declared start command is
 `worker-command` and sets `worker.needsCommand`: a needs-input question
