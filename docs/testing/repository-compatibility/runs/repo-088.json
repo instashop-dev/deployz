@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 190,
     "entries": 2665,
@@ -25,15 +25,16 @@
     "storage": true,
     "migration": true,
     "unsupported": [
-      "background-worker"
+      "background-worker",
+      "no-buildable-dockerfile"
     ]
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": null,
@@ -53,15 +54,18 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [],
-    "unsupported": [],
+    "unsupported": [
+      "no-buildable-dockerfile"
+    ],
     "readinessFindings": [
-      "container-setup",
+      "unsupported-no-dockerfile",
       "health-check",
       "localhost-binding",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
+      "unsupported",
       "dockerfile-missing",
       "start-command-missing",
       "health-path-required",
@@ -77,9 +81,8 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -115,24 +118,17 @@
     {
       "fact": "unsupported",
       "expected": [
-        "background-worker"
+        "background-worker",
+        "no-buildable-dockerfile"
       ],
-      "actual": [],
+      "actual": [
+        "no-buildable-dockerfile"
+      ],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-015",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -147,9 +143,12 @@
       "fact": "unsupported",
       "kind": "fact",
       "expected": [
-        "background-worker"
+        "background-worker",
+        "no-buildable-dockerfile"
       ],
-      "actual": [],
+      "actual": [
+        "no-buildable-dockerfile"
+      ],
       "finding": {
         "id": "COMP-015",
         "type": "ANALYSIS_MISSING_SIGNAL"

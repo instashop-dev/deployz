@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 190,
     "entries": 1850,
@@ -29,7 +29,8 @@
     "port": 8000,
     "healthPath": "/",
     "unsupported": [
-      "local-filesystem"
+      "local-filesystem",
+      "multi-process-image"
     ]
   },
   "status": "analysed",
@@ -63,14 +64,17 @@
       "PAPERLESS_SECRET_KEY"
     ],
     "unsupported": [
-      "local-filesystem"
+      "local-filesystem",
+      "multi-process-image"
     ],
     "readinessFindings": [
+      "unsupported-multi-service",
       "local-file-storage",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -144,10 +148,12 @@
     {
       "fact": "unsupported",
       "expected": [
-        "local-filesystem"
+        "local-filesystem",
+        "multi-process-image"
       ],
       "actual": [
-        "local-filesystem"
+        "local-filesystem",
+        "multi-process-image"
       ],
       "match": true
     }

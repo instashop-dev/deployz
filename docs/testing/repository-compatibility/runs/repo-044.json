@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 201,
     "entries": 3063,
@@ -27,15 +27,16 @@
     "appRoot": ".",
     "healthPath": "/health",
     "unsupported": [
-      "local-filesystem"
+      "local-filesystem",
+      "no-buildable-dockerfile"
     ]
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "php",
     "appRoot": ".",
     "dockerfilePath": null,
@@ -74,12 +75,15 @@
       "STRIPE_KEY",
       "STRIPE_SECRET"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "no-buildable-dockerfile"
+    ],
     "readinessFindings": [
-      "container-setup",
+      "unsupported-no-dockerfile",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
       "dockerfile-missing",
       "start-command-missing",
       "required-env-vars-missing",
@@ -95,9 +99,8 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -146,24 +149,17 @@
     {
       "fact": "unsupported",
       "expected": [
-        "local-filesystem"
+        "local-filesystem",
+        "no-buildable-dockerfile"
       ],
-      "actual": [],
+      "actual": [
+        "no-buildable-dockerfile"
+      ],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-025",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -188,9 +184,12 @@
       "fact": "unsupported",
       "kind": "fact",
       "expected": [
-        "local-filesystem"
+        "local-filesystem",
+        "no-buildable-dockerfile"
       ],
-      "actual": [],
+      "actual": [
+        "no-buildable-dockerfile"
+      ],
       "finding": {
         "id": "COMP-025",
         "type": "ANALYSIS_MISSING_SIGNAL"

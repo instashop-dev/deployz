@@ -6,15 +6,15 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 201,
     "entries": 2381,
     "truncated": false
   },
   "expected": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "NOT_COMPATIBLE",
     "runtime": [
       "node"
     ],
@@ -26,14 +26,16 @@
     "migration": true,
     "port": 3000,
     "healthPath": "/api/health",
-    "unsupported": []
+    "unsupported": [
+      "no-buildable-dockerfile"
+    ]
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": null,
@@ -67,11 +69,14 @@
       "POSTGRES_PRISMA_URL_NON_POOLING",
       "REVALIDATE_TOKEN"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "no-buildable-dockerfile"
+    ],
     "readinessFindings": [
-      "container-setup"
+      "unsupported-no-dockerfile"
     ],
     "gateFindings": [
+      "unsupported",
       "dockerfile-missing",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -81,8 +86,8 @@
   "comparisons": [
     {
       "fact": "compatibility",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
       "match": true
     },
     {
@@ -131,8 +136,12 @@
     },
     {
       "fact": "unsupported",
-      "expected": [],
-      "actual": [],
+      "expected": [
+        "no-buildable-dockerfile"
+      ],
+      "actual": [
+        "no-buildable-dockerfile"
+      ],
       "match": true
     }
   ],

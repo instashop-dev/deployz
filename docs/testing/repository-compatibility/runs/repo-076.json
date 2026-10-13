@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 203,
     "entries": 5472,
@@ -82,16 +82,13 @@
     ],
     "unsupported": [
       "docker-compose-multi-service",
-      "mongodb",
-      "redis-unsupported"
+      "mongodb"
     ],
     "readinessFindings": [
-      "unsupported-redis-setup",
       "unsupported-database-mongo",
       "unsupported-multi-service"
     ],
     "gateFindings": [
-      "unsupported",
       "unsupported",
       "unsupported",
       "unsupported",
@@ -171,8 +168,7 @@
       ],
       "actual": [
         "docker-compose-multi-service",
-        "mongodb",
-        "redis-unsupported"
+        "mongodb"
       ],
       "match": false,
       "kind": "fact"
@@ -197,8 +193,7 @@
       ],
       "actual": [
         "docker-compose-multi-service",
-        "mongodb",
-        "redis-unsupported"
+        "mongodb"
       ],
       "finding": {
         "id": "COMP-026",

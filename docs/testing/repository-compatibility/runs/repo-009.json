@@ -6,15 +6,15 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 6,
     "entries": 27,
     "truncated": false
   },
   "expected": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "NOT_COMPATIBLE",
     "runtime": [
       "node"
     ],
@@ -26,14 +26,16 @@
     "migration": false,
     "appRoot": ".",
     "port": 5006,
-    "unsupported": []
+    "unsupported": [
+      "no-buildable-dockerfile"
+    ]
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": null,
@@ -53,12 +55,15 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [],
-    "unsupported": [],
+    "unsupported": [
+      "no-buildable-dockerfile"
+    ],
     "readinessFindings": [
-      "container-setup",
+      "unsupported-no-dockerfile",
       "health-check"
     ],
     "gateFindings": [
+      "unsupported",
       "dockerfile-missing",
       "health-path-required"
     ],
@@ -69,8 +74,8 @@
   "comparisons": [
     {
       "fact": "compatibility",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
       "match": true
     },
     {
@@ -117,8 +122,12 @@
     },
     {
       "fact": "unsupported",
-      "expected": [],
-      "actual": [],
+      "expected": [
+        "no-buildable-dockerfile"
+      ],
+      "actual": [
+        "no-buildable-dockerfile"
+      ],
       "match": true
     }
   ],
