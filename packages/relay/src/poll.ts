@@ -18,7 +18,13 @@
  * relay is the only thing that can remember it.
  */
 
-import type { FailureEvidence, RelayCommandProgress } from '@deployz/contracts';
+import {
+  RELEASE_EVIDENCE_VERSION,
+  type FailureEvidence,
+  type RelayCommandProgress,
+  type ReleaseEvidence,
+  type ServiceEvidence,
+} from '@deployz/contracts';
 
 import type { RelayCommand, RelayCommandResult } from './commands.js';
 import { dispatchCommand, IdempotencyStore, type CommandExecutor } from './commands.js';
@@ -31,6 +37,7 @@ import {
   type FetchFn,
 } from './auth.js';
 import type { RuntimeHealth } from './ecs-health.js';
+import { singleDigest, type ServiceDigests } from './ecs-observe.js';
 import type { HttpProbeRecord } from './http-probe.js';
 import type { VerificationResult } from './verify.js';
 import { fetchWithRetry, type SleepFn } from './retry.js';
@@ -133,6 +140,11 @@ export interface PollDependencies {
   identity?: Record<string, unknown>;
   /** Observes the image digest actually running in ECS; null = unknown. */
   observeImage?: () => Promise<string | null>;
+  /**
+   * Observes the digests running in each ECS service. Feeds the release
+   * evidence; also the running image digest when `observeImage` is absent.
+   */
+  observeServiceDigests?: () => Promise<ServiceDigests[] | null>;
   /** Measures runtime health (ECS counts, target health, rollout state). */
   observeHealth?: () => Promise<RuntimeHealth>;
   /**
@@ -240,7 +252,7 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity, observeImage, observeHealth, observeProbe } =
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity, observeImage, observeHealth, observeProbe, observeServiceDigests } =
     deps;
 
   // ── 1. Enroll on first contact ────────────────────────────────────────
@@ -338,10 +350,10 @@ export async function pollOnce(
 
   const body = (await commandsResponse.json()) as PendingCommandsResponse;
   const commands = body.commands;
+  const workloads = body.deployment ? readDeploymentWorkloads(body.deployment.workloads) : undefined;
   if (body.deployment && typeof body.deployment.redisRequired === 'boolean') {
     const rawProbeUrl = body.deployment.probeUrl;
     const rawDatabaseRequired = body.deployment.databaseRequired;
-    const workloads = readDeploymentWorkloads(body.deployment.workloads);
     const resourceChecks = readDeploymentResourceChecks(body.deployment.resourceChecks);
     deps.onDeploymentMeta?.({
       redisRequired: body.deployment.redisRequired,
@@ -359,7 +371,7 @@ export async function pollOnce(
   if (!Array.isArray(commands) || commands.length === 0) {
     // Still report observed state (§59) on an idle poll — most polls have no
     // commands, and that is exactly when infrastructure drift needs catching.
-    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth, observeProbe);
+    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth, observeProbe, observeServiceDigests, workloads);
     decrementGrace(authState);
     return { fetched: 0, executed: 0, succeeded: 0, failed: 0, deferred: 0, resumed, ok: true };
   }
@@ -404,7 +416,7 @@ export async function pollOnce(
   }
 
   // ── 6. Report observed state (§59) ────────────────────────────────────
-  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth, observeProbe);
+  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth, observeProbe, observeServiceDigests, workloads);
 
   decrementGrace(authState);
 
@@ -577,6 +589,45 @@ export async function reportCommandProgress(
   }
 }
 
+/**
+ * The positive evidence this heartbeat carries for release promotion (see
+ * `releaseEvidenceSchema`). One entry per expected workload: a service the
+ * relay could not see is `observed: false`, and a digest list it could not
+ * read in full is null. Nothing is inferred from a failed observation.
+ */
+function buildReleaseEvidence(
+  runtimeHealth: RuntimeHealth | null,
+  serviceDigests: readonly ServiceDigests[] | null,
+  workloads: readonly DeploymentWorkload[] | undefined,
+  httpProbe: HttpProbeRecord | null,
+): ReleaseEvidence {
+  const services: ServiceEvidence[] = (
+    runtimeHealth?.services ??
+    (workloads ?? []).map((workload) => ({
+      workloadId: workload.id,
+      serviceLogicalId: workload.serviceLogicalId,
+      observed: false,
+      desiredCount: null,
+      runningCount: null,
+      rolloutState: null,
+      targets: null,
+    }))
+  ).map((service) => ({
+    ...service,
+    runningDigests: service.observed
+      ? (serviceDigests?.find((entry) => entry.serviceLogicalId === service.serviceLogicalId)?.digests ?? null)
+      : null,
+  }));
+  return {
+    version: RELEASE_EVIDENCE_VERSION,
+    observedAt: new Date().toISOString(),
+    services,
+    httpProbe: httpProbe
+      ? { ok: httpProbe.ok, status: httpProbe.statusCode, checkedAt: httpProbe.checkedAt }
+      : null,
+  };
+}
+
 async function reportHealth(
   fetchFn: FetchFn,
   controlPlaneUrl: string,
@@ -588,6 +639,8 @@ async function reportHealth(
   observeImage?: PollDependencies['observeImage'],
   observeHealth?: PollDependencies['observeHealth'],
   observeProbe?: PollDependencies['observeProbe'],
+  observeServiceDigests?: PollDependencies['observeServiceDigests'],
+  workloads?: readonly DeploymentWorkload[],
 ): Promise<void> {
   let infraHealth: VerificationResult | null = null;
   if (observe) {
@@ -602,7 +655,15 @@ async function reportHealth(
 
   // A digest observation failing must not fail the health report — the rest
   // of the payload is still true. null means "not observed", never a guess.
-  let runningImageDigest: string | null = null;
+  let serviceDigests: ServiceDigests[] | null = null;
+  if (observeServiceDigests) {
+    try {
+      serviceDigests = await observeServiceDigests();
+    } catch {
+      serviceDigests = null;
+    }
+  }
+  let runningImageDigest: string | null = singleDigest(serviceDigests);
   if (observeImage) {
     try {
       runningImageDigest = await observeImage();
@@ -650,6 +711,9 @@ async function reportHealth(
         }
       : {}),
     ...(httpProbe ? { httpProbe } : {}),
+    ...(observeHealth || observeServiceDigests
+      ? { releaseEvidence: buildReleaseEvidence(runtimeHealth, serviceDigests, workloads, httpProbe) }
+      : {}),
   };
 
   const payload: HealthReportPayload = {

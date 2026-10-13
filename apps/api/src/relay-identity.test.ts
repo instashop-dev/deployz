@@ -307,4 +307,39 @@ describe('relay identity + deployment serialization', () => {
       .limit(1);
     expect(row!.relayCapabilities).toEqual({ ...CAPABILITIES });
   });
+
+  it('flags a connector whose heartbeat carries no release evidence as needing an upgrade', async () => {
+    const token = 'hb4-token-' + crypto.randomUUID();
+    const installationId = 'inst-' + crypto.randomUUID();
+    const deployment = await insertDeployment({
+      installationId,
+      relayTokenHash: hashRelayToken(token),
+      relayVersion: '0.1.9',
+    });
+    const heartbeat = (observedState: Record<string, unknown>) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/relay/health',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: JSON.stringify({ installationId, healthStatus: 'HEALTHY', observedState }),
+      });
+    const connector = async () => {
+      const detail = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deployment.id}`,
+        headers: { cookie },
+      });
+      return (detail.json() as { deploymentStatus: { connector: unknown } }).deploymentStatus.connector;
+    };
+
+    expect((await heartbeat({})).statusCode).toBe(200);
+    expect(await connector()).toEqual({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' });
+
+    // A connector that sends evidence (even evidence that fails) is not outdated.
+    const now = new Date().toISOString();
+    expect(
+      (await heartbeat({ releaseEvidence: { version: 1, observedAt: now, services: [], httpProbe: null } })).statusCode,
+    ).toBe(200);
+    expect(await connector()).toEqual({ upgradeRequired: false, reason: null });
+  });
 });

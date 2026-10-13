@@ -24,10 +24,20 @@ import {
  *  and the application-page drift notice). Shared so the wording never
  *  diverges. */
 export function requirementDriftLine(entry: {
-  kind: 'database' | 'cache' | 'storage';
+  kind: 'database' | 'cache' | 'storage' | 'engine' | 'workload' | 'queue' | 'schedule';
+  name?: string | undefined;
   deployed: boolean;
   desired: boolean;
 }): string {
+  if (entry.kind === 'engine') {
+    return `Database: the application now uses ${entry.name === 'mysql' ? 'MySQL' : 'PostgreSQL'}, which this deployment does not have`;
+  }
+  if (entry.kind === 'workload' || entry.kind === 'queue' || entry.kind === 'schedule') {
+    const label = { workload: 'Process', queue: 'Queue', schedule: 'Schedule' }[entry.kind];
+    return entry.desired && !entry.deployed
+      ? `${label} "${entry.name}": not set up here, now required`
+      : `${label} "${entry.name}": set up here, no longer required`;
+  }
   const name = INFRASTRUCTURE_COMPONENT_DISPLAY[entry.kind].name;
   return entry.desired && !entry.deployed
     ? `${name}: not provisioned here, now required`

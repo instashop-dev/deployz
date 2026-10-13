@@ -16,6 +16,7 @@ import {
   requiredAwsResources,
   resolveDeploymentFootprint,
   toPlanAwsResource,
+  workloadServicesFromSpec,
 } from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -23,11 +24,12 @@ import * as schema from '@deployz/db/schema';
 import { ANALYSIS_VERSION } from './analysis.js';
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
-import { readStoredManifest } from './manifest.js';
+import { readStoredDeploymentSpec, readStoredManifest } from './manifest.js';
 import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
 import { ApiError } from './errors.js';
 import { GITHUB_FIXTURE_FILE_TREES } from './github.js';
+import { createCipherStub, createDrizzlePendingSecretStore } from './pending-secrets.js';
 import { createRequireAuth } from './require-auth.js';
 import { hashRelayToken } from './relay-store.js';
 import {
@@ -151,6 +153,26 @@ async function insertDeployableRelease(
     releaseStatus: 'READY',
     imageDigest: `151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:${'c'.repeat(64)}`,
   });
+}
+
+/** The relay's complete healthy release evidence for a deployment's frozen spec, running `digest`. */
+function healthyReleaseEvidence(deployment: typeof schema.deployments.$inferSelect, digest: string) {
+  const at = new Date().toISOString();
+  return {
+    version: 1,
+    observedAt: at,
+    services: workloadServicesFromSpec(readStoredDeploymentSpec(deployment.specV2)!)!.map((workload) => ({
+      workloadId: workload.id,
+      serviceLogicalId: workload.serviceLogicalId,
+      observed: true,
+      desiredCount: 1,
+      runningCount: 1,
+      rolloutState: 'COMPLETED',
+      runningDigests: [digest],
+      targets: workload.id === 'web' ? { healthy: 1, unhealthy: 0, pending: 0, unknown: 0 } : null,
+    })),
+    httpProbe: { ok: true, status: 200, checkedAt: at },
+  };
 }
 
 async function insertDeployment(
@@ -1304,11 +1326,38 @@ describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
   });
 
   it('PATCH does not claim a contract field the vendor re-submitted unchanged', async () => {
-    const application = await insertApplication(db, org.organizationId, { containerPort: 3000, healthPath: '/health' });
+    const application = await insertApplication(db, org.organizationId, {
+      containerPort: 3000,
+      healthPath: '/health',
+      detectedMetadata: { vendorOverrides: [] },
+    });
     const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { containerPort: 3000, healthPath: '/live' }, { cookie: org.cookie });
     expect(response.statusCode).toBe(200);
     const metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
     expect(metadata.vendorOverrides).toEqual(['healthPath']);
+  });
+
+  it('PATCH on a legacy row keeps its other saved values vendor-owned', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      containerPort: 3000,
+      migrationCommand: 'npm run migrate',
+      workerCommand: 'node worker.js',
+    });
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { healthPath: '/live' }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    const metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
+    expect([...metadata.vendorOverrides!].sort()).toEqual(['containerPort', 'healthPath', 'migrationCommand', 'workerCommand']);
+  });
+
+  it('concurrent PATCHes of different fields both keep their override', async () => {
+    const application = await insertApplication(db, org.organizationId, { detectedMetadata: { vendorOverrides: [] } });
+    const responses = await Promise.all([
+      sendJson(app, 'PATCH', `/api/applications/${application.id}`, { containerPort: 8080 }, { cookie: org.cookie }),
+      sendJson(app, 'PATCH', `/api/applications/${application.id}`, { healthPath: '/live' }, { cookie: org.cookie }),
+    ]);
+    expect(responses.map((response) => response.statusCode)).toEqual([200, 200]);
+    const [row] = await db.select().from(schema.applications).where(eq(schema.applications.id, application.id));
+    expect([...(row!.detectedMetadata as { vendorOverrides: string[] }).vendorOverrides].sort()).toEqual(['containerPort', 'healthPath']);
   });
 
   it('PATCH keeps the analysis findings on detectedMetadata when claiming a field', async () => {
@@ -1871,7 +1920,11 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     await postJson(
       app,
       '/api/relay/health',
-      { installationId, healthStatus: 'HEALTHY' },
+      {
+        installationId,
+        healthStatus: 'HEALTHY',
+        observedState: { releaseEvidence: healthyReleaseEvidence(fresh, 'sha256:' + '1'.repeat(64)) },
+      },
       { authorization: `Bearer ${token}` },
     );
 
@@ -1936,12 +1989,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
         healthStatus: 'HEALTHY',
         runningImageDigest: digest,
         observedState: {
-          deploymentRolloutState: 'COMPLETED',
-          desiredCount: 1,
-          runningCount: 1,
-          unhealthyTargetCount: 0,
-          pendingTargetCount: 0,
-          unknownTargetCount: 0,
+          releaseEvidence: healthyReleaseEvidence(fresh, digest),
           httpProbe: {
             ok: true,
             statusCode: 200,
@@ -2004,9 +2052,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
         healthStatus: 'HEALTHY',
         runningImageDigest: digest,
         observedState: {
-          deploymentRolloutState: 'COMPLETED',
-          desiredCount: 1,
-          runningCount: 1,
+          releaseEvidence: healthyReleaseEvidence(fresh, digest),
           httpProbe: { ok: true, statusCode: 200, latencyMs: 12, checkedAt: new Date().toISOString() },
         },
       },
@@ -6176,7 +6222,7 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
     const [job] = deployJobs;
     expect(job!.state).toBe('REQUESTED');
     expect(job!.requestedBy).toBeNull();
-    expect(job!.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:${release.id}`);
+    expect(job!.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:install:${installJob.id}`);
     // Digest-pinned: repository + immutable sha256, exactly what the relay's
     // readDeployRequest validates.
     expect(job!.payload).toMatchObject({
@@ -6204,6 +6250,220 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
         ),
       );
     expect(events).toHaveLength(1);
+  });
+
+  describe('install follow-ups', () => {
+    const relayAuth = { authorization: `Bearer ${RELAY_TOKEN}` };
+
+    async function installDeployment(applicationId: string) {
+      const customer = await insertCustomer(db, org.organizationId);
+      const deployment = await insertDeployment(db, org.organizationId, applicationId, customer.id, {
+        state: 'NOT_INSTALLED',
+        installationId: null,
+      });
+      const installationId = `inst-fu-${crypto.randomUUID()}`;
+      const register = await postJson(
+        app,
+        '/api/relay/register',
+        { enrollmentCode: deployment.enrollmentCode, installationId, awsAccountId: '123456789012' },
+        relayAuth,
+      );
+      expect(register.statusCode).toBe(200);
+      const installJob = (await claimCommands(installationId)).find((command) => command.type === 'INSTALL')!;
+      return { deployment, installationId, installJobId: installJob.id };
+    }
+
+    const reportInstall = (jobId: string) =>
+      postJson(app, `/api/relay/commands/${jobId}/result`, { success: true }, relayAuth);
+    const heartbeat = (installationId: string) =>
+      postJson(app, '/api/relay/health', { installationId }, relayAuth);
+    const jobsOfType = (deploymentId: string, type: 'CONFIG_UPDATE' | 'DEPLOY_RELEASE') =>
+      db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(and(eq(schema.deploymentJobs.deploymentId, deploymentId), eq(schema.deploymentJobs.type, type)));
+    async function followUpsOf(installJobId: string) {
+      const [row] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, installJobId));
+      return (row!.result as { followUps?: { autoDeploy: string } } | null)?.followUps;
+    }
+    async function requireVendorConfig(applicationId: string) {
+      await db
+        .insert(schema.applicationConfigs)
+        .values({ applicationId, customerId: null, key: 'LOG_LEVEL', value: 'debug', isSecret: false });
+    }
+    async function blockConfigJobs() {
+      await db.execute(sql`CREATE OR REPLACE FUNCTION block_config_job() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'config job blocked'; END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`CREATE TRIGGER block_config_job BEFORE INSERT ON deployment_jobs FOR EACH ROW WHEN (NEW.type = 'CONFIG_UPDATE') EXECUTE FUNCTION block_config_job()`);
+    }
+    async function unblockConfigJobs() {
+      await db.execute(sql`DROP TRIGGER block_config_job ON deployment_jobs`);
+    }
+
+    it('creates the configuration pass before the auto-deploy, keyed on the install job', async () => {
+      const application = await insertApplication(db, org.organizationId);
+      await requireVendorConfig(application.id);
+      await seedReadyRelease(application.id);
+      const { deployment, installJobId } = await installDeployment(application.id);
+
+      expect((await reportInstall(installJobId)).statusCode).toBe(200);
+
+      const [config] = await jobsOfType(deployment.id, 'CONFIG_UPDATE');
+      const [deploy] = await jobsOfType(deployment.id, 'DEPLOY_RELEASE');
+      expect(config!.idempotencyKey).toBe(`${deployment.id}:CONFIG_UPDATE:install:${installJobId}`);
+      expect(deploy!.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:install:${installJobId}`);
+      expect(config!.createdAt.getTime()).toBeLessThanOrEqual(deploy!.createdAt.getTime());
+      expect(await followUpsOf(installJobId)).toEqual({ autoDeploy: 'queued' });
+    });
+
+    it('queues no deploy while the required configuration pass is absent, and the heartbeat repairs both in order', async () => {
+      const application = await insertApplication(db, org.organizationId);
+      await requireVendorConfig(application.id);
+      await seedReadyRelease(application.id);
+      const { deployment, installationId, installJobId } = await installDeployment(application.id);
+
+      await blockConfigJobs();
+      try {
+        expect((await reportInstall(installJobId)).statusCode).toBe(200);
+      } finally {
+        await unblockConfigJobs();
+      }
+      expect(await jobsOfType(deployment.id, 'CONFIG_UPDATE')).toHaveLength(0);
+      expect(await jobsOfType(deployment.id, 'DEPLOY_RELEASE')).toHaveLength(0);
+      expect(await followUpsOf(installJobId)).toBeUndefined();
+
+      expect((await heartbeat(installationId)).statusCode).toBe(200);
+      const [config] = await jobsOfType(deployment.id, 'CONFIG_UPDATE');
+      const [deploy] = await jobsOfType(deployment.id, 'DEPLOY_RELEASE');
+      expect(config!.createdAt.getTime()).toBeLessThanOrEqual(deploy!.createdAt.getTime());
+
+      // Repeated heartbeats and a replayed result create nothing more.
+      expect((await heartbeat(installationId)).statusCode).toBe(200);
+      expect((await reportInstall(installJobId)).statusCode).toBe(200);
+      expect(await jobsOfType(deployment.id, 'CONFIG_UPDATE')).toHaveLength(1);
+      expect(await jobsOfType(deployment.id, 'DEPLOY_RELEASE')).toHaveLength(1);
+    });
+
+    it('repairs the follow-ups when the install result is replayed', async () => {
+      const application = await insertApplication(db, org.organizationId);
+      await requireVendorConfig(application.id);
+      await seedReadyRelease(application.id);
+      const { deployment, installJobId } = await installDeployment(application.id);
+
+      await blockConfigJobs();
+      try {
+        await reportInstall(installJobId);
+      } finally {
+        await unblockConfigJobs();
+      }
+      const replay = await reportInstall(installJobId);
+      expect(replay.json()).toMatchObject({ alreadySettled: true });
+
+      expect(await jobsOfType(deployment.id, 'CONFIG_UPDATE')).toHaveLength(1);
+      expect(await jobsOfType(deployment.id, 'DEPLOY_RELEASE')).toHaveLength(1);
+    });
+
+    it('stops repairing once the deployment has moved on', async () => {
+      const application = await insertApplication(db, org.organizationId);
+      await requireVendorConfig(application.id);
+      await seedReadyRelease(application.id);
+      const { deployment, installationId, installJobId } = await installDeployment(application.id);
+
+      await blockConfigJobs();
+      try {
+        await reportInstall(installJobId);
+      } finally {
+        await unblockConfigJobs();
+      }
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'SUCCEEDED',
+        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:manual-${crypto.randomUUID()}`,
+        finishedAt: new Date(),
+      });
+
+      expect((await heartbeat(installationId)).statusCode).toBe(200);
+
+      expect(await jobsOfType(deployment.id, 'CONFIG_UPDATE')).toHaveLength(0);
+      expect(await jobsOfType(deployment.id, 'DEPLOY_RELEASE')).toHaveLength(1);
+      expect(await followUpsOf(installJobId)).toEqual({ autoDeploy: 'superseded' });
+    });
+
+    it('records a missing READY release as a decision, so a later release is not auto-deployed', async () => {
+      const application = await insertApplication(db, org.organizationId);
+      const release = await seedReadyRelease(application.id);
+      const { deployment, installationId, installJobId } = await installDeployment(application.id);
+      await db.update(schema.releases).set({ imageUnavailableAt: new Date() }).where(eq(schema.releases.id, release.id));
+
+      expect((await reportInstall(installJobId)).statusCode).toBe(200);
+      expect(await followUpsOf(installJobId)).toEqual({ autoDeploy: 'no_ready_release' });
+
+      await seedReadyRelease(application.id);
+      expect((await heartbeat(installationId)).statusCode).toBe(200);
+      expect(await jobsOfType(deployment.id, 'DEPLOY_RELEASE')).toHaveLength(0);
+    });
+
+    it('does not auto-deploy onto a stack whose topology the application has outgrown', async () => {
+      // The frozen stack runs PostgreSQL; the application now wants MySQL.
+      const application = await insertApplication(db, org.organizationId, {
+        databaseRequired: true,
+        detectedMetadata: { mysql: { required: true } },
+      });
+      await seedReadyRelease(application.id);
+      const { deployment, installJobId } = await installDeployment(application.id);
+
+      expect((await reportInstall(installJobId)).statusCode).toBe(200);
+
+      expect(await jobsOfType(deployment.id, 'DEPLOY_RELEASE')).toHaveLength(0);
+      expect(await followUpsOf(installJobId)).toEqual({ autoDeploy: 'topology_changed' });
+    });
+  });
+
+  it('a CONFIG_UPDATE success deletes only the bound secrets its job carried', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      installationId: null,
+    });
+    const installationId = `inst-bound-${crypto.randomUUID()}`;
+    await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId, awsAccountId: '123456789012' },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    const store = createDrizzlePendingSecretStore(db, createCipherStub());
+    for (const key of ['CARRIED_KEY', 'LATER_KEY']) {
+      await store.upsertBound({
+        organizationId: org.organizationId,
+        applicationId: application.id,
+        deploymentId: deployment.id,
+        key,
+        ciphertext: `enc:ctx:${key}`,
+        encryptionContext: {},
+        expiresAt: new Date(Date.now() + 3_600_000),
+      });
+    }
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment.id,
+        type: 'CONFIG_UPDATE',
+        idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${crypto.randomUUID()}`,
+        payload: { changedKeys: ['CARRIED_KEY'] },
+      })
+      .returning();
+
+    const result = await postJson(
+      app,
+      `/api/relay/commands/${job!.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(result.statusCode).toBe(200);
+
+    expect((await store.listBoundForDeployment(deployment.id)).map((row) => row.key)).toEqual(['LATER_KEY']);
   });
 
   it('skips a newest release that is not READY yet: the auto-deploy rolls the newest READY one', async () => {

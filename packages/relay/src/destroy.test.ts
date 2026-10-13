@@ -347,6 +347,49 @@ describe('settleDestroy', () => {
     expect(deleter.retained).toEqual([[DB_ORPHAN.logicalId, STUCK_SECURITY_GROUP.logicalId]]);
   });
 
+  it('retains only the database-pinned resources and surfaces an unrelated DELETE_FAILED as a failure', async () => {
+    const cluster: StackResource = {
+      logicalId: 'Cluster',
+      type: 'AWS::ECS::Cluster',
+      status: 'DELETE_FAILED',
+      statusReason: 'The Cluster cannot be deleted while Container Instances are active',
+    };
+    const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS'], [
+      DB_ORPHAN,
+      STUCK_SECURITY_GROUP,
+      cluster,
+    ]);
+
+    const outcome = await settleDestroy(deps(cfn, deleter));
+
+    expect(outcome.state).toBe('failed');
+    const reason = (outcome as { reason: string }).reason;
+    expect(reason).toContain('Cluster (AWS::ECS::Cluster)');
+    expect(reason).toContain('Container Instances are active');
+    expect(deleter.retained).toEqual([]);
+  });
+
+  it('treats network resources failing with no database as a genuine failure', async () => {
+    const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS'], [STUCK_SECURITY_GROUP]);
+
+    const outcome = await settleDestroy(deps(cfn, deleter));
+
+    expect(outcome.state).toBe('failed');
+    expect(deleter.retained).toEqual([]);
+  });
+
+  it('keeps retaining the pinned network on a later pass once the database is already DELETE_SKIPPED', async () => {
+    const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS'], [
+      { ...DB_ORPHAN, status: 'DELETE_SKIPPED' },
+      STUCK_SECURITY_GROUP,
+    ]);
+
+    const outcome = await settleDestroy(deps(cfn, deleter));
+
+    expect(outcome).toEqual({ state: 'deleting' });
+    expect(deleter.retained).toEqual([[STUCK_SECURITY_GROUP.logicalId]]);
+  });
+
   it('re-running destroy after a cleared DELETE_FAILED stack is harmless', async () => {
     const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS', 'DELETE_COMPLETE'], [
       DB_ORPHAN,

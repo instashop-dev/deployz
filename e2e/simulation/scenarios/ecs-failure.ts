@@ -28,11 +28,11 @@ export const ecsFailure: ScenarioDefinition = {
     { afterMs: 205, atVirtualMs: 242_000, logicalResourceId: 'ApplicationTargetGroup', resourceType: 'AWS::ElasticLoadBalancingV2::TargetGroup', status: 'CREATE_IN_PROGRESS' },
     { afterMs: 230, atVirtualMs: 260_000, logicalResourceId: 'ApplicationLoadBalancer', resourceType: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
     { afterMs: 235, atVirtualMs: 262_000, logicalResourceId: 'ApplicationTargetGroup', resourceType: 'AWS::ElasticLoadBalancingV2::TargetGroup', status: 'CREATE_COMPLETE' },
-    { afterMs: 250, atVirtualMs: 270_000, logicalResourceId: 'ApplicationService', resourceType: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
+    { afterMs: 250, atVirtualMs: 270_000, logicalResourceId: 'WebService', resourceType: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
     {
       afterMs: 340,
       atVirtualMs: 400_000,
-      logicalResourceId: 'ApplicationService',
+      logicalResourceId: 'WebService',
       resourceType: 'AWS::ECS::Service',
       status: 'CREATE_FAILED',
       statusReason: 'Service failed health checks',
@@ -43,7 +43,7 @@ export const ecsFailure: ScenarioDefinition = {
       logicalResourceId: '__stack__',
       resourceType: 'AWS::CloudFormation::Stack',
       status: 'ROLLBACK_IN_PROGRESS',
-      statusReason: 'The following resource(s) failed to create: [ApplicationService].',
+      statusReason: 'The following resource(s) failed to create: [WebService].',
     },
     {
       afterMs: 380,

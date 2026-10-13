@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
+import { observeRunningImageDigest, observeServiceDigests, type EcsTaskReader } from './ecs-observe.js';
 import type { CloudFormationReader, StackResource } from './verify.js';
 
 const DIGEST = 'sha256:' + 'a'.repeat(64);
@@ -40,8 +40,8 @@ function ecsWith(options: {
     async describeTasks(input) {
       if (options.failAt === 'describe') throw new Error('AccessDenied');
       const perService = Object.values(options.byService ?? {}).find((entry) => entry.taskArns[0] === input.tasks[0]);
-      if (perService) return { tasks: [{ containers: [{ imageDigest: perService.digest }] }] };
-      return { tasks: options.tasks ?? [{ containers: [{ imageDigest: DIGEST }] }] };
+      if (perService) return { tasks: [{ lastStatus: 'RUNNING', containers: [{ imageDigest: perService.digest }] }] };
+      return { tasks: options.tasks ?? [{ lastStatus: 'RUNNING', containers: [{ imageDigest: DIGEST }] }] };
     },
     async describeTaskDefinition() {
       return { taskDefinition: { containerDefinitions: options.containerDefinitions ?? [] } };
@@ -128,7 +128,7 @@ describe('observeRunningImageDigest', () => {
     const digest = await observeRunningImageDigest(
       {
         cfn: cfnWith(serviceStack()),
-        ecs: ecsWith({ tasks: [{ containers: [{ imageDigest: undefined }] }] }),
+        ecs: ecsWith({ tasks: [{ lastStatus: 'RUNNING', containers: [{ imageDigest: undefined }] }] }),
         installationId: 'inst-1',
       },
       'deployz-app',
@@ -136,13 +136,12 @@ describe('observeRunningImageDigest', () => {
     expect(digest).toBeNull();
   });
 
-  it('propagates lookup failures as errors, not fake digests', async () => {
-    await expect(
-      observeRunningImageDigest(
-        { cfn: cfnWith(serviceStack()), ecs: ecsWith({ failAt: 'list' }), installationId: 'inst-1' },
-        'deployz-app',
-      ),
-    ).rejects.toThrow('AccessDenied');
+  it('returns null, not a fake digest, when the lookup fails', async () => {
+    const deps = { cfn: cfnWith(serviceStack()), ecs: ecsWith({ failAt: 'list' }), installationId: 'inst-1' };
+    expect(await observeRunningImageDigest(deps, 'deployz-app')).toBeNull();
+    expect(await observeServiceDigests(deps, 'deployz-app')).toEqual([
+      { serviceLogicalId: 'Service', digests: null },
+    ]);
   });
 
   it('returns the digest when every service runs it', async () => {
@@ -179,21 +178,97 @@ describe('observeRunningImageDigest', () => {
     expect(digest).toBeNull();
   });
 
-  it('ignores a service with no running task when another supplies the digest', async () => {
-    const digest = await observeRunningImageDigest(
-      {
-        cfn: cfnWith(twoServiceStack()),
-        ecs: ecsWith({
-          byService: {
-            'deployz-app-service': { taskArns: ['web-1'], digest: DIGEST },
-            'deployz-worker-service': { taskArns: [], digest: OLD_DIGEST },
-          },
-        }),
-        installationId: 'inst-1',
+  it('returns null when one service has no running task, and reports it as an empty digest list', async () => {
+    const deps = {
+      cfn: cfnWith(twoServiceStack()),
+      ecs: ecsWith({
+        byService: {
+          'deployz-app-service': { taskArns: ['web-1'], digest: DIGEST },
+          'deployz-worker-service': { taskArns: [], digest: OLD_DIGEST },
+        },
+      }),
+      installationId: 'inst-1',
+    };
+    expect(await observeRunningImageDigest(deps, 'deployz-app')).toBeNull();
+    expect(await observeServiceDigests(deps, 'deployz-app')).toEqual([
+      { serviceLogicalId: 'Service', digests: [DIGEST] },
+      { serviceLogicalId: 'WorkerService', digests: [] },
+    ]);
+  });
+
+  it('returns null when the tasks of one service run different digests', async () => {
+    const deps = {
+      cfn: cfnWith(serviceStack()),
+      ecs: ecsWith({
+        taskArns: ['t1', 't2'],
+        tasks: [
+          { lastStatus: 'RUNNING', containers: [{ imageDigest: DIGEST }] },
+          { lastStatus: 'RUNNING', containers: [{ imageDigest: OLD_DIGEST }] },
+        ],
+      }),
+      installationId: 'inst-1',
+    };
+    expect(await observeRunningImageDigest(deps, 'deployz-app')).toBeNull();
+    expect(await observeServiceDigests(deps, 'deployz-app')).toEqual([
+      { serviceLogicalId: 'Service', digests: [DIGEST, OLD_DIGEST] },
+    ]);
+  });
+
+  it('ignores tasks that are not RUNNING', async () => {
+    const deps = {
+      cfn: cfnWith(serviceStack()),
+      ecs: ecsWith({
+        taskArns: ['t1', 't2'],
+        tasks: [
+          { lastStatus: 'RUNNING', containers: [{ imageDigest: DIGEST }] },
+          { lastStatus: 'PENDING', containers: [{ imageDigest: OLD_DIGEST }] },
+        ],
+      }),
+      installationId: 'inst-1',
+    };
+    expect(await observeRunningImageDigest(deps, 'deployz-app')).toBe(DIGEST);
+  });
+
+  it('returns null when a RUNNING task has no application digest', async () => {
+    const deps = {
+      cfn: cfnWith(serviceStack()),
+      ecs: ecsWith({
+        taskArns: ['t1', 't2'],
+        tasks: [
+          { lastStatus: 'RUNNING', containers: [{ imageDigest: DIGEST }] },
+          { lastStatus: 'RUNNING', containers: [{}] },
+        ],
+      }),
+      installationId: 'inst-1',
+    };
+    expect(await observeRunningImageDigest(deps, 'deployz-app')).toBeNull();
+  });
+
+  it('reads every page of ListTasks and every batch of DescribeTasks', async () => {
+    const taskArns = Array.from({ length: 150 }, (_, i) => `task-${i}`);
+    const described: number[] = [];
+    const ecs: EcsTaskReader = {
+      async listTasks(input) {
+        return input.nextToken === undefined
+          ? { taskArns: taskArns.slice(0, 100), nextToken: 'page-2' }
+          : { taskArns: taskArns.slice(100) };
       },
-      'deployz-app',
-    );
-    expect(digest).toBe(DIGEST);
+      async describeTasks(input) {
+        described.push(input.tasks.length);
+        return {
+          tasks: input.tasks.map((arn) => ({
+            lastStatus: 'RUNNING',
+            containers: [{ imageDigest: arn === 'task-149' ? OLD_DIGEST : DIGEST }],
+          })),
+        };
+      },
+      async describeTaskDefinition() {
+        return { taskDefinition: { containerDefinitions: [] } };
+      },
+    };
+    const digests = await observeServiceDigests({ cfn: cfnWith(serviceStack()), ecs, installationId: 'inst-1' }, 'deployz-app');
+    expect(described).toEqual([100, 50]);
+    expect(digests).toEqual([{ serviceLogicalId: 'Service', digests: [DIGEST, OLD_DIGEST] }]);
   });
 
   it('returns null when the stack resources cannot be read', async () => {

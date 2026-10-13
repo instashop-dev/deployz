@@ -64,7 +64,7 @@ export function RequirementDriftNotice({
                 </div>
                 <ul className="list-disc pl-5 text-sm text-muted-foreground">
                   {entry.drift.map((item) => (
-                    <li key={item.kind}>{requirementDriftLine(item)}</li>
+                    <li key={`${item.kind}:${item.name ?? ''}`}>{requirementDriftLine(item)}</li>
                   ))}
                 </ul>
               </CardContent>

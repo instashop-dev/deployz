@@ -51,7 +51,7 @@ export function ArchitectureDiagram({ plan }: { plan: DeploymentPlan }) {
           <div className="flex flex-col gap-2 border-t pt-4">
             <p className="text-xs text-muted-foreground">Applies changes to your application</p>
             <div className="flex">
-              <DiagramBox emphasis detail="Runs every 5 minutes">
+              <DiagramBox emphasis detail="Runs every minute">
                 Deployz connector
               </DiagramBox>
             </div>

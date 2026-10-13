@@ -122,6 +122,18 @@ API compiles and publishes it at deployment creation.
    creation. It prints the `BOOTSTRAP_TEMPLATE_URL` and
    `DEPLOYABLE_AWS_REGIONS` values to set as repository variables.
 
+   Each publish has a **build id**: `BOOTSTRAP_BUILD_ID`, else the short
+   source commit (`-dirty` when the working tree has changes). The id is
+   baked into the relay Lambda as `DEPLOYZ_BOOTSTRAP_VERSION`, so the relay
+   reports it as `bootstrapVersion` at enrollment and on every heartbeat.
+   The publisher also writes an immutable copy of the template to
+   `bootstrap/v1/versions/<buildId>/bootstrap-template-v1.json` in each
+   Region and prints it as `versioned`. The fixed key
+   `bootstrap/v1/bootstrap-template-v1.json` stays the latest build. Use the
+   versioned URL for a customer-approved stack update, so the update applies
+   the build that was reviewed and not a later one. A plain synth (tests, the
+   committed artifact) uses the build id `dev`.
+
 Why per Region: a Lambda must read its code from a bucket in its own Region.
 The regional buckets must already exist with public read — the
 `publish:bootstrap` verifier and the API's artifact publisher verify and
@@ -152,10 +164,40 @@ in place, the customer must authorize and do the update:
    `PermissionsBoundary`. Stop if the change set replaces a resource or
    changes the credential secret.
 
-The installation identity and the enrollment do not change. The
+The installation identity and the enrollment do not change. This holds
+only when the update keeps the previous value of every parameter:
+
+- The installation id comes from the `InstallationId` custom resource. It
+  reuses its physical id on an update, so it does not change.
+- The relay credential secret stays only while `RelayCredential` keeps its
+  previous value. An empty value flips the `HasRelayCredential` /
+  `NoRelayCredential` conditions: CloudFormation deletes the secret and
+  creates a new one with a new token, and the relay loses its enrollment.
+  The console update flow keeps previous values when you do not edit the
+  parameter; an `UpdateStack` API call must use `UsePreviousValue`.
+- The SSM markers (`/deployz/<installationId>/…`) and the application stack
+  are not resources of the bootstrap template, so an update does not touch
+  them.
+- A test pins the logical ids of the credential secrets, roles, permissions
+  boundary, installation-id resource, relay function and schedule. A
+  template change that renames one fails that test.
+
+The
 `AWS::IAM::ManagedPolicy` descriptions stay the same on purpose:
 `Description` is a replacement property, so a new description would replace
 both managed policies.
+
+The relay runs once a minute on an EventBridge schedule with no retries, so
+a missed event is dropped and not queued. The function has a 5-minute
+timeout, so one invocation can overlap the next ones. Reserved concurrency
+is not used, because a new AWS account may have a concurrency limit that is
+too low to reserve any. Instead each invocation holds a lease in the SSM
+parameter `/deployz/<installationId>/invocation-lease` (value:
+invocation id and expiry). An invocation that finds a live lease, or cannot
+read it, ends without polling. The lease expires 30 seconds after the
+function timeout, so a crashed invocation does not block the relay for
+long. The install-id function, its provider function and the relay function
+keep their logs for one week.
 
 Until `BOOTSTRAP_TEMPLATE_URL` is set, the API returns no Quick Create URL
 and the install page says no template has been published. A Region that is

@@ -82,9 +82,17 @@ export interface BootstrapStackProps extends StackProps {
    * GenerateSecretString. Relay code reads the secret by name and is unchanged.
    */
   readonly relayCredential?: string;
+  /**
+   * Identity of this bootstrap build, reported by the relay as its
+   * `bootstrapVersion` and used as the key of the immutable published
+   * template. The publish script passes the source commit; an unset value is
+   * the deterministic `dev` so a plain synth is stable.
+   */
+  readonly buildId?: string;
 }
 
 const DEFAULT_CONTROL_PLANE_URL = 'https://api.deployz.dev';
+const DEFAULT_BUILD_ID = 'dev';
 
 /** Relay (phase 1) + provisioner (phase 2) permission actions, all granted at install. */
 const PHASE_1_LOG_WRITE_ACTIONS = [
@@ -345,6 +353,9 @@ const PHASE_4_DEPLOY_OBSERVE_ACTIONS = [
   // tag condition); folded into this statement rather than a new one to
   // stay under the managed-policy size quota.
   'ecs:StopTask',
+  // Revision cleanup lists a family's ACTIVE revisions. ListTaskDefinitions
+  // is a list action with no resource-level scoping; read-only.
+  'ecs:ListTaskDefinitions',
 ] as const;
 
 /**
@@ -710,6 +721,7 @@ export class BootstrapStack extends Stack {
       handler: 'handler',
       timeout: Duration.minutes(1),
       memorySize: 128,
+      logRetention: RetentionDays.ONE_WEEK,
       bundling: {
         format: 'esm' as OutputFormat,
         target: 'node22',
@@ -719,6 +731,7 @@ export class BootstrapStack extends Stack {
 
     const installIdProvider = new Provider(this, 'InstallIdProvider', {
       onEventHandler: installIdFunction,
+      logRetention: RetentionDays.ONE_WEEK,
     });
 
     const installIdResource = new CustomResource(this, 'InstallationId', {
@@ -1189,6 +1202,22 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // Revision cleanup deregisters superseded revisions of the application's
+    // own task families. DeregisterTaskDefinition does not evaluate tags, so
+    // the grant is scoped by ARN to the DeployzApp* families instead.
+    const phase4DeregisterRevisions = new PolicyStatement({
+      sid: 'RelayDeregisterRevisions',
+      effect: Effect.ALLOW,
+      actions: ['ecs:DeregisterTaskDefinition'],
+      resources: [
+        Stack.of(this).formatArn({
+          service: 'ecs',
+          resource: 'task-definition',
+          resourceName: 'DeployzApp*:*',
+        }),
+      ],
+    });
+
     const phase4MigrationRun = new PolicyStatement({
       sid: 'RelayMigrationRun',
       effect: Effect.ALLOW,
@@ -1278,7 +1307,18 @@ export class BootstrapStack extends Stack {
         phase1LogWrite,
         phase1SecretAccess,
         phase2RelayState,
-        ...phase2Statements,
+        // The boundary is at the policy-size quota, so it folds the
+        // revision deregistration into the observe statement. The relay
+        // role's own inline grant stays scoped to DeployzApp* families.
+        ...phase2Statements.map((statement) =>
+          statement === phase4DeployObserve
+            ? new PolicyStatement({
+                effect: Effect.ALLOW,
+                actions: [...PHASE_4_DEPLOY_OBSERVE_ACTIONS, 'ecs:DeregisterTaskDefinition'],
+                resources: ['*'],
+              })
+            : statement,
+        ),
       ].map(withoutSid),
     });
 
@@ -1303,6 +1343,7 @@ export class BootstrapStack extends Stack {
     this.relayRole.addToPolicy(phase1SecretAccess);
     this.relayRole.addToPolicy(phase2VerifyStack);
     this.relayRole.addToPolicy(phase2RelayState);
+    this.relayRole.addToPolicy(phase4DeregisterRevisions);
 
     // The provisioner policy used to be created and attached to nothing, on
     // the theory that the control plane would attach it after the relay's
@@ -1511,6 +1552,7 @@ export class BootstrapStack extends Stack {
       logRetention: RetentionDays.ONE_WEEK,
       environment: {
         DEPLOYZ_INSTALLATION_ID: this.installationId,
+        DEPLOYZ_BOOTSTRAP_VERSION: props.buildId ?? DEFAULT_BUILD_ID,
         DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecretArn,
         DEPLOYZ_CONTROL_PLANE_URL: controlPlaneUrlParam.valueAsString,
         DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
@@ -1531,9 +1573,16 @@ export class BootstrapStack extends Stack {
     });
 
     const relaySchedule = new Rule(this, 'RelaySchedule', {
-      description: 'Polls the Deployz control plane every 5 minutes (egress-only).',
-      schedule: Schedule.rate(Duration.minutes(5)),
-      targets: [new LambdaFunction(this.relayFunction)],
+      description: 'Polls the Deployz control plane every minute (egress-only).',
+      schedule: Schedule.rate(Duration.minutes(1)),
+      // A scheduled event that is skipped or throttled is dropped, not
+      // retried: the next minute's event replaces it, so no backlog builds.
+      targets: [
+        new LambdaFunction(this.relayFunction, {
+          retryAttempts: 0,
+          maxEventAge: Duration.minutes(1),
+        }),
+      ],
     });
 
     // ── 5. deployz: tags (§15) ──────────────────────────────────────────

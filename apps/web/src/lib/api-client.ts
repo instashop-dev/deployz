@@ -16,13 +16,25 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Reads give up after this long so a stalled request surfaces as an error
+ *  instead of a spinner. Mutations are never timed out or retried: a lost
+ *  response leaves the outcome unknown, and the caller reconciles by
+ *  refreshing the resource. */
+export const READ_TIMEOUT_MS = 20_000;
+
+export function readSignal(): AbortSignal {
+  return AbortSignal.timeout(READ_TIMEOUT_MS);
+}
+
 export async function apiRequest<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
 ): Promise<T> {
+  const method = init.method ?? 'GET';
   const response = await fetch(`${apiUrl}${path}`, {
-    method: init.method ?? 'GET',
+    method,
     credentials: 'include',
+    ...(method === 'GET' ? { signal: readSignal() } : {}),
     ...(init.body === undefined
       ? {}
       : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(init.body) }),

@@ -18,6 +18,28 @@ function event(overrides: Partial<ActivityEvent>): ActivityEvent {
   };
 }
 
+describe('activityEventLabel for deployment.reconciled', () => {
+  const reconciled = (payload: ActivityEvent['payload']) =>
+    activityEventLabel(event({ eventType: 'deployment.reconciled', payload }));
+
+  it('says the running version was confirmed for an initial reconcile', () => {
+    expect(reconciled({ kind: 'initial', previousReleaseId: 'r0' })).toBe('Running version confirmed');
+  });
+
+  it('keeps the correction label for a drift reconcile', () => {
+    expect(reconciled({ kind: 'drift', previousReleaseId: null })).toBe('Running version corrected from AWS');
+  });
+
+  it('treats an older event with no previous release as initial', () => {
+    expect(reconciled({})).toBe('Running version confirmed');
+    expect(reconciled({ previousReleaseId: null })).toBe('Running version confirmed');
+  });
+
+  it('treats an older event with a previous release as drift', () => {
+    expect(reconciled({ previousReleaseId: 'r0' })).toBe('Running version corrected from AWS');
+  });
+});
+
 describe('newestFirst', () => {
   it('reverses the API order so the latest event leads', () => {
     const sorted = newestFirst([

@@ -3,7 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { createHash } from 'node:crypto';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, getTableColumns, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -54,6 +54,7 @@ import {
   failureCodeSchema,
   provisionedResources,
   validateEnvironmentSettings,
+  evaluateReleaseEvidence,
   failureEvidenceSchema,
   healthComponentsSchema,
   healthStatusSchema,
@@ -63,6 +64,7 @@ import {
   regionSchema,
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
+  releaseEvidenceSchema,
   requiredInfrastructureComponents,
   requirementsFromSpec,
   migrationTaskFromSpec,
@@ -72,12 +74,14 @@ import {
   resolveStoredInfrastructureSizeProfile,
   summarizeApplicationGraph,
   summarizeInfrastructureStatus,
+  topologyDriftFor,
   workloadServicesFromSpec,
   type ApplicationAnalysis,
   type ApplicationGraphSummary,
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
   type CustomerDeploymentStatus,
+  type ExpectedWorkload,
   type DeploymentManifest,
   type DeploymentPlan,
   type InfrastructureChange,
@@ -104,6 +108,7 @@ import { createFixtureAiGateway } from './ai-fixture.js';
 import {
   ANALYSIS_VERSION,
   createAnalysisRunner,
+  legacySavedFields,
   readVendorOverrides,
   type AnalysisRunner,
   type AttentionCheck,
@@ -1013,6 +1018,28 @@ function deployReleaseKey(deploymentId: string, releaseId: string, payload: Depl
   return payload.migrationPolicy === undefined ? base : `${base}:migration:${payload.migrationPolicy}`;
 }
 
+/** The keys a CONFIG_UPDATE job carried: the ones whose bound pending-secret rows its success delivered. */
+function configUpdateDeliveredKeys(payload: Record<string, unknown> | null): string[] {
+  const keys = (field: string): string[] =>
+    Array.isArray(payload?.[field])
+      ? (payload[field] as unknown[]).filter((key): key is string => typeof key === 'string')
+      : [];
+  const secrets = Array.isArray(payload?.['secrets']) ? (payload['secrets'] as { key?: unknown }[]) : [];
+  return [
+    ...new Set([
+      ...keys('changedKeys'),
+      ...keys('removedKeys'),
+      ...secrets.flatMap((entry) => (typeof entry.key === 'string' ? [entry.key] : [])),
+    ]),
+  ];
+}
+
+/**
+ * How long after an INSTALL succeeded a heartbeat still repairs its missing
+ * follow-ups. Installs from before the decision was recorded stay untouched.
+ */
+const INSTALL_FOLLOW_UP_REPAIR_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 /** Job types that change the stack or its ECS services — the relay runs one at a time. */
 const SERVICE_MUTATING_JOB_TYPES: ReadonlySet<string> = new Set([
   'INSTALL',
@@ -1499,7 +1526,8 @@ function computeDeploymentRequirementDrift(
   deployments: DeploymentRequirementDriftRow[],
 ): ReadinessResponse['deploymentRequirementDrift'] {
   const desiredManifest = effectiveApplicationManifest(app);
-  const desiredGraphHash = applicationGraphHash(manifestToApplicationGraph(desiredManifest));
+  const desiredGraph = manifestToApplicationGraph(desiredManifest);
+  const desiredGraphHash = applicationGraphHash(desiredGraph);
   const summary: ReadinessResponse['deploymentRequirementDrift'] = [];
   for (const deployment of deployments) {
     if (deployment.state === 'DELETED') continue;
@@ -1516,6 +1544,7 @@ function computeDeploymentRequirementDrift(
     if (deployedRedis !== desiredManifest.redis.required) {
       drift.push({ kind: 'cache', deployed: deployedRedis, desired: desiredManifest.redis.required });
     }
+    drift.push(...topologyDriftFor(spec.graph, desiredGraph));
     if (drift.length > 0) {
       summary.push({
         deploymentId: deployment.id,
@@ -1531,9 +1560,11 @@ function computeDeploymentRequirementDrift(
 /**
  * Fail closed on an unsupported infrastructure change: the application now
  * needs a database or cache that this deployment's frozen stack does not
- * have. A new release on that stack would run with no binding, and an app
- * that falls back to local storage would look healthy while it loses data.
- * A dropped requirement stays deployable (the resource is only unused).
+ * have, or a different database engine, workload set, queue set or schedule
+ * set. A new release on that stack would run with no binding or without its
+ * workers, and an app that falls back to local storage would look healthy
+ * while it loses data. A dropped database or cache stays deployable (the
+ * resource is only unused).
  */
 async function requireNoAddedRequirement(
   db: RuntimeDb,
@@ -1546,9 +1577,21 @@ async function requireNoAddedRequirement(
     .limit(1);
   if (!app) return;
   const [summary] = computeDeploymentRequirementDrift(app, [{ ...deployment, customerName: '' }]);
-  const added = (summary?.drift ?? []).filter((entry) => entry.desired && !entry.deployed);
-  if (added.length === 0) return;
-  const names = added.map((entry) => (entry.kind === 'database' ? 'a database' : 'a cache')).join(' and ');
+  const blocking = (summary?.drift ?? []).filter(
+    (entry) => (entry.kind !== 'database' && entry.kind !== 'cache') || (entry.desired && !entry.deployed),
+  );
+  if (blocking.length === 0) return;
+  const names = blocking
+    .map((entry) =>
+      entry.kind === 'database'
+        ? 'a database'
+        : entry.kind === 'cache'
+          ? 'a cache'
+          : entry.kind === 'engine'
+            ? `a ${entry.name} database`
+            : `a changed ${entry.kind} set (${entry.name})`,
+    )
+    .join(', ');
   throw new ApiError(
     409,
     'INFRASTRUCTURE_CHANGE_REQUIRED',
@@ -2109,6 +2152,9 @@ export async function buildServer({
             prefix: env.defaultHostnamePrefix,
           }),
         probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
+        // The simulated relay polls every few milliseconds; the production
+        // minimum interval would stall every scenario.
+        minAttemptIntervalMs: 0,
       };
     }
     const apex = DEFAULT_HTTPS_APEX;
@@ -2263,6 +2309,34 @@ export async function buildServer({
     // default-HTTPS machine's writes — drives the Phase 12 watchdog and the
     // rate-limit path end to end. `deploymentId` scopes the script to one
     // deployment so parallel simulated scenarios never consume each other's.
+    // Scenario time control for the elapsed configure budget: `clear` drops a
+    // deployment's unconsumed failures; `ageMs` moves its budget start back.
+    app.post('/internal/fixture/default-https-budget', async (request) => {
+      const body = request.body as { deploymentId?: unknown; ageMs?: unknown; clear?: unknown };
+      if (typeof body?.deploymentId !== 'string') {
+        throw new ApiError(400, 'INVALID_REQUEST', 'deploymentId is required');
+      }
+      if (body.clear === true) {
+        fixtureDefaultDnsProvider.clearFailures(body.deploymentId);
+      }
+      if (typeof body.ageMs === 'number') {
+        const [row] = await db
+          .select({ defaultHttps: schema.deployments.defaultHttps })
+          .from(schema.deployments)
+          .where(eq(schema.deployments.id, body.deploymentId))
+          .limit(1);
+        const state = parseDefaultHttps(row?.defaultHttps ?? null);
+        if (state?.configureStartedAt) {
+          const aged = { ...state, configureStartedAt: new Date(Date.parse(state.configureStartedAt) - body.ageMs).toISOString() };
+          await db
+            .update(schema.deployments)
+            .set({ defaultHttps: aged as unknown as Record<string, unknown> })
+            .where(eq(schema.deployments.id, body.deploymentId));
+        }
+      }
+      return snapshot();
+    });
+
     app.post('/internal/fixture/default-dns-failures', async (request) => {
       const body = request.body as { code?: unknown; count?: unknown; deploymentId?: unknown };
       const code = body?.code;
@@ -3779,100 +3853,120 @@ export async function buildServer({
   app.patch('/api/applications/:id', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
-    const existing = await loadOwnedApplication(db, id, organizationId);
+    await loadOwnedApplication(db, id, organizationId);
     const body = patchApplicationBodySchema.parse(request.body);
-    const set: Record<string, unknown> = {};
-    if (body.name !== undefined) set.name = body.name;
-    if (body.containerPort !== undefined) set.containerPort = body.containerPort ?? null;
-    if (body.healthPath !== undefined) set.healthPath = body.healthPath ?? null;
-    if (body.migrationCommand !== undefined) set.migrationCommand = body.migrationCommand ?? null;
-    const detectedRequirements = readApplicationAnalysis(existing.detectedMetadata);
-    if (body.databaseRequired !== undefined) {
-      set.databaseRequired = body.databaseRequired ?? detectedRequirements?.database.required ?? false;
-    }
-    if (body.storageRequired !== undefined) {
-      set.storageRequired = body.storageRequired ?? detectedRequirements?.storage.objectStorageDetected ?? false;
-    }
-    if (body.redisRequired !== undefined) {
-      set.redisRequired = body.redisRequired ?? detectedRequirements?.redis.required ?? false;
-    }
-
-    // Phase 2 manifest-only overrides (app root, Dockerfile, build
-    // context/command, start command) have no applications column; they live
-    // on detected_metadata.manifestOverrides. A null clears that key.
-    let nextMetadata = existing.detectedMetadata ?? {};
-    const storedManifestOverrides = (nextMetadata['manifestOverrides'] ?? {}) as Record<string, unknown>;
-    const nextManifestOverrides = { ...storedManifestOverrides };
-    let manifestOnlyChanged = false;
-    for (const field of MANIFEST_OVERRIDE_FIELDS) {
-      const value = body[field];
-      if (value === undefined) continue;
-      manifestOnlyChanged = true;
-      if (value === null) {
-        delete nextManifestOverrides[field];
-      } else {
-        nextManifestOverrides[field] = value;
+    // The read-modify-write of detected_metadata holds the row lock, so a
+    // concurrent PATCH or analysis write cannot drop this request's override.
+    return db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.applications)
+        .where(eq(schema.applications.id, id))
+        .limit(1)
+        .for('update');
+      if (!existing) throw new NotFoundError('Application not found');
+      const set: Record<string, unknown> = {};
+      if (body.name !== undefined) set.name = body.name;
+      if (body.containerPort !== undefined) set.containerPort = body.containerPort ?? null;
+      if (body.healthPath !== undefined) set.healthPath = body.healthPath ?? null;
+      if (body.migrationCommand !== undefined) set.migrationCommand = body.migrationCommand ?? null;
+      const detectedRequirements = readApplicationAnalysis(existing.detectedMetadata);
+      if (body.databaseRequired !== undefined) {
+        set.databaseRequired = body.databaseRequired ?? detectedRequirements?.database.required ?? false;
       }
-    }
-    if (manifestOnlyChanged) {
-      nextMetadata = { ...nextMetadata, manifestOverrides: nextManifestOverrides };
-    }
+      if (body.storageRequired !== undefined) {
+        set.storageRequired = body.storageRequired ?? detectedRequirements?.storage.objectStorageDetected ?? false;
+      }
+      if (body.redisRequired !== undefined) {
+        set.redisRequired = body.redisRequired ?? detectedRequirements?.redis.required ?? false;
+      }
 
-    if (Object.keys(set).length === 0 && !manifestOnlyChanged) return existing;
-    // The details form re-submits every field on every save, so only a value
-    // that actually differs counts as the vendor claiming that field. An
-    // explicit null migration command is the vendor's "No separate
-    // migration" decision, so it always claims the field.
-    const claimed = CONTRACT_FIELDS.filter(
-      (field) =>
-        set[field] !== undefined &&
-        (set[field] !== existing[field] || (field === 'migrationCommand' && body.migrationCommand === null)),
-    );
-    // Any other field explicitly set to null relinquishes vendor ownership so
-    // the next analysis re-detects it (see analysis.ts deriveContractFieldUpdates).
-    const released = CONTRACT_FIELDS.filter(
-      (field) => field !== 'migrationCommand' && body[field] === null,
-    );
-    if (claimed.length > 0 || released.length > 0 || manifestOnlyChanged) {
-      if (claimed.length > 0 || released.length > 0) {
-        const overrides = new Set([...readVendorOverrides(existing.detectedMetadata), ...claimed]);
-        for (const field of released) {
-          overrides.delete(field);
+      // Phase 2 manifest-only overrides (app root, Dockerfile, build
+      // context/command, start command) have no applications column; they live
+      // on detected_metadata.manifestOverrides. A null clears that key.
+      let nextMetadata = existing.detectedMetadata ?? {};
+      const storedManifestOverrides = (nextMetadata['manifestOverrides'] ?? {}) as Record<string, unknown>;
+      const nextManifestOverrides = { ...storedManifestOverrides };
+      let manifestOnlyChanged = false;
+      for (const field of MANIFEST_OVERRIDE_FIELDS) {
+        const value = body[field];
+        if (value === undefined) continue;
+        manifestOnlyChanged = true;
+        if (value === null) {
+          delete nextManifestOverrides[field];
+        } else {
+          nextManifestOverrides[field] = value;
         }
-        nextMetadata = { ...nextMetadata, vendorOverrides: [...overrides] };
       }
-      set.detectedMetadata = nextMetadata;
-    }
-    // A port, health path or start command the vendor sets (or clears) resolves
-    // (or restores) a readiness finding — keep the persisted verdict in step
-    // with the readiness page, which applies the same reconciliation on read.
-    if (
-      existing.analysisStatus === 'COMPLETE' &&
-      (claimed.includes('containerPort') ||
-        claimed.includes('migrationCommand') ||
-        claimed.includes('healthPath') ||
-        released.includes('healthPath') ||
-        manifestOnlyChanged)
-    ) {
-      const effective = effectiveReadinessReport({
-        containerPort: 'containerPort' in set ? (set.containerPort as number | null) : existing.containerPort,
-        detectedMetadata: nextMetadata,
-      });
-      if (effective) {
-        set.compatibilityStatus = verdictFromReadiness(effective.state);
-        set.compatibilityReason = effective.summary;
+      if (manifestOnlyChanged) {
+        nextMetadata = { ...nextMetadata, manifestOverrides: nextManifestOverrides };
       }
-    }
-    set.updatedBy = request.user?.id ?? null;
-    const [row] = await db
-      .update(schema.applications)
-      .set(set)
-      .where(eq(schema.applications.id, id))
-      .returning();
-    if (!row) {
-      throw new NotFoundError('Application not found');
-    }
-    return row;
+
+      if (Object.keys(set).length === 0 && !manifestOnlyChanged) return existing;
+      // The details form re-submits every field on every save, so only a value
+      // that actually differs counts as the vendor claiming that field. An
+      // explicit null migration command is the vendor's "No separate
+      // migration" decision, so it always claims the field.
+      const claimed = CONTRACT_FIELDS.filter(
+        (field) =>
+          set[field] !== undefined &&
+          (set[field] !== existing[field] || (field === 'migrationCommand' && body.migrationCommand === null)),
+      );
+      // Any other field explicitly set to null relinquishes vendor ownership so
+      // the next analysis re-detects it (see analysis.ts deriveContractFieldUpdates).
+      const released = CONTRACT_FIELDS.filter(
+        (field) => field !== 'migrationCommand' && body[field] === null,
+      );
+      if (claimed.length > 0 || released.length > 0 || manifestOnlyChanged) {
+        if (claimed.length > 0 || released.length > 0) {
+          // A row analysed before the list existed treats its non-null saved
+          // columns as the vendor's (analysis.ts); recording one claim must not
+          // make the others look auto-detected.
+          const overrides = new Set([
+            ...(Array.isArray(existing.detectedMetadata?.['vendorOverrides'])
+              ? readVendorOverrides(existing.detectedMetadata)
+              : legacySavedFields(existing)),
+            ...claimed,
+          ]);
+          for (const field of released) {
+            overrides.delete(field);
+          }
+          nextMetadata = { ...nextMetadata, vendorOverrides: [...overrides] };
+        }
+        set.detectedMetadata = nextMetadata;
+      }
+      // A port, health path or start command the vendor sets (or clears)
+      // resolves (or restores) a readiness finding — keep the persisted verdict
+      // in step with the readiness page, which applies the same reconciliation
+      // on read.
+      if (
+        existing.analysisStatus === 'COMPLETE' &&
+        (claimed.includes('containerPort') ||
+          claimed.includes('migrationCommand') ||
+          claimed.includes('healthPath') ||
+          released.includes('healthPath') ||
+          manifestOnlyChanged)
+      ) {
+        const effective = effectiveReadinessReport({
+          containerPort: 'containerPort' in set ? (set.containerPort as number | null) : existing.containerPort,
+          detectedMetadata: nextMetadata,
+        });
+        if (effective) {
+          set.compatibilityStatus = verdictFromReadiness(effective.state);
+          set.compatibilityReason = effective.summary;
+        }
+      }
+      set.updatedBy = request.user?.id ?? null;
+      const [row] = await tx
+        .update(schema.applications)
+        .set(set)
+        .where(eq(schema.applications.id, id))
+        .returning();
+      if (!row) {
+        throw new NotFoundError('Application not found');
+      }
+      return row;
+    });
   });
 
   // DELETE /api/applications/:id — Remove an application (only if it has zero deployments)
@@ -5360,11 +5454,12 @@ export async function buildServer({
    * image — roll the newest READY release of the application immediately so a
    * fresh installation serves real traffic without a manual deploy step.
    *
-   * Best-effort: no READY release (nothing built yet) or a payload that stops
-   * validating simply skips, and so does a migration command the frozen
-   * deployment has no migration step for. The job uses the SAME idempotency
-   * key as the manual deploy route (`deployReleaseKey`), so a vendor-driven
-   * deploy of the same release reuses it instead of racing it.
+   * No READY release (nothing built yet), a migration command the frozen
+   * deployment has no migration step for, or an application whose topology
+   * no longer fits the frozen stack are decisions, not failures: the outcome
+   * names the reason and nothing is queued. The job is keyed on the install
+   * job, so a replay or a heartbeat repair reuses it; a vendor-driven deploy
+   * meets it through the one-active-job rule.
    *
    * The deployment state is deliberately NOT advanced (`inFlightState: null`):
    * the INSTALLING → HEALTHY transition belongs to the relay's runtime-health
@@ -5372,7 +5467,16 @@ export async function buildServer({
    * healthier than it is. The relay picks the job up on its next poll and the
    * DEPLOY_RELEASE result handler settles the state as usual.
    */
-  async function autoDeploySelectedRelease(deployment: DeploymentRow): Promise<void> {
+  async function autoDeploySelectedRelease(
+    deployment: DeploymentRow,
+    installJobId: string,
+  ): Promise<'queued' | 'no_ready_release' | 'migration_workload_missing' | 'topology_changed'> {
+    try {
+      await requireNoAddedRequirement(db, deployment);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'INFRASTRUCTURE_CHANGE_REQUIRED') return 'topology_changed';
+      throw error;
+    }
     // Newest first, skipping releases already known to be unavailable; a
     // release whose image turns out to be gone at this moment is skipped for
     // the next one rather than queued to fail.
@@ -5397,16 +5501,16 @@ export async function buildServer({
         break;
       } catch (error) {
         if (error instanceof ApiError && error.code === 'RELEASE_UNAVAILABLE') continue;
-        if (error instanceof ApiError && error.code === 'MIGRATION_WORKLOAD_MISSING') return;
+        if (error instanceof ApiError && error.code === 'MIGRATION_WORKLOAD_MISSING') return 'migration_workload_missing';
         throw error;
       }
     }
-    if (!release || !payload) return;
+    if (!release || !payload) return 'no_ready_release';
 
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DEPLOY_RELEASE',
-      idempotencyKey: deployReleaseKey(deployment.id, release.id, payload),
+      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:install:${installJobId}`,
       payload,
       requestedBy: null,
     });
@@ -5420,6 +5524,48 @@ export async function buildServer({
         releaseId: release.id,
       });
     }
+    return 'queued';
+  }
+
+  /**
+   * The follow-ups of a successful INSTALL, in the order the relay must run
+   * them: the first configuration pass, then the auto-deploy (a zero-task
+   * install, DEPLOY-009, needs its configured task-definition revision before
+   * the deploy that first starts it). Both are keyed on the install job, so
+   * the result route, a replayed result and the heartbeat repair converge on
+   * the same jobs. A failure here leaves the install job unmarked, so the next
+   * heartbeat retries; once the outcome is decided (queued, skipped with a
+   * reason, or the deployment moved on) the decision is recorded on the install
+   * job's result and the repair stops.
+   */
+  async function ensureInstallFollowUps(
+    deployment: DeploymentRow,
+    installJob: { id: string; createdAt: Date },
+  ): Promise<void> {
+    if (deployment.state === 'DELETING' || deployment.state === 'DELETED') return;
+    const [later] = await db
+      .select({ id: schema.deploymentJobs.id })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.type, ['DEPLOY_RELEASE', 'ROLLBACK', 'DESTROY']),
+          gt(schema.deploymentJobs.createdAt, installJob.createdAt),
+          ne(schema.deploymentJobs.idempotencyKey, `${deployment.id}:DEPLOY_RELEASE:install:${installJob.id}`),
+        ),
+      )
+      .limit(1);
+    let outcome: string = 'superseded';
+    if (!later) {
+      await queuePostInstallConfig(db, deployment, installJob.id, configStore);
+      outcome = await autoDeploySelectedRelease(deployment, installJob.id);
+    }
+    await db
+      .update(schema.deploymentJobs)
+      .set({
+        result: sql`coalesce(${schema.deploymentJobs.result}, '{}'::jsonb) || ${JSON.stringify({ followUps: { autoDeploy: outcome } })}::jsonb`,
+      })
+      .where(eq(schema.deploymentJobs.id, installJob.id));
   }
 
 
@@ -6669,7 +6815,7 @@ export async function buildServer({
       const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
       const { manifest: desiredManifest } = await runApplicationPreflight(db, application, null);
       const newRelease = await newerReadyReleaseExists(db, deployment.applicationId, deployment.currentReleaseId);
-      const plan = buildUpdatePlan({
+      const updatePlan = buildUpdatePlan({
         deployedManifest: manifest,
         desiredManifest,
         region: deployment.region,
@@ -6677,6 +6823,16 @@ export async function buildServer({
         ...(profile ? { profile } : {}),
         ...(compiledFootprint ? { compiledFootprint } : {}),
       });
+      const plan = {
+        ...updatePlan,
+        requirementDrift: [
+          ...updatePlan.requirementDrift,
+          ...topologyDriftFor(
+            spec?.graph ?? manifestToApplicationGraph(manifest),
+            manifestToApplicationGraph(desiredManifest),
+          ),
+        ],
+      };
       // Release-vs-infrastructure gate (phase 3): requirement drift means the
       // release needs topology changes the MVP cannot apply in place — fail
       // closed regardless of feasibility. requirementDrift stays in the
@@ -7331,101 +7487,148 @@ export async function buildServer({
   ];
   const ACTIVE_JOB_STATES: readonly JobStateValue[] = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
 
-  /**
-   * §10.3 the promotion gate's observational half: whether ONE heartbeat's
-   * observedState shows a fully rolled-out, healthy release. Every layer the
-   * relay reported must pass — ECS rollout COMPLETED, expected task count up,
-   * no unhealthy/pending/unclassified ALB targets, and a successful HTTP
-   * probe. A signal the relay did not report (older relay, unreadable AWS)
-   * is not an obstacle, but a reported failure in any layer blocks promotion:
-   * a partially-rolled-out service must never become current.
-   */
-  function releasePromotionGatesPass(observedState: Record<string, unknown> | null | undefined): boolean {
-    if (!observedState || typeof observedState !== 'object') return false;
-
-    const rollout = observedState['deploymentRolloutState'];
-    if (rollout !== undefined && rollout !== null && rollout !== 'COMPLETED') return false;
-
-    // HTTP probe: when one was taken this poll, only a successful one passes.
-    const probe = observedState['httpProbe'] as { ok?: unknown } | null | undefined;
-    if (probe !== undefined && probe !== null && probe.ok !== true) return false;
-
-    const desired = observedState['desiredCount'];
-    const running = observedState['runningCount'];
-    if (typeof desired === 'number' && typeof running === 'number' && desired > 0 && running < desired) {
-      return false;
-    }
-    for (const key of ['unhealthyTargetCount', 'pendingTargetCount', 'unknownTargetCount']) {
-      const count = observedState[key];
-      if (typeof count === 'number' && count > 0) return false;
-    }
-    return true;
+  /** The workloads the frozen spec requires; `public` marks the ones the load balancer serves. */
+  function expectedWorkloadsFor(deployment: Pick<DeploymentRow, 'specV2'>): ExpectedWorkload[] {
+    const spec = readStoredDeploymentSpec(deployment.specV2);
+    const services = spec ? workloadServicesFromSpec(spec) : null;
+    if (!spec || !services) return [];
+    const publicIds = new Set(spec.ir.ingress.public ? spec.ir.ingress.targetWorkloadIds : []);
+    return services.map((service) => ({
+      id: service.id,
+      serviceLogicalId: service.serviceLogicalId,
+      public: publicIds.has(service.id),
+    }));
   }
 
+  /**
+   * §10.3 the promotion gate's observational half: whether ONE heartbeat's
+   * `releaseEvidence` proves every required workload runs one image digest at
+   * full capacity with healthy targets and a successful public probe. Only
+   * that heartbeat counts — never the stored observedState — and evidence
+   * older than the newest already accepted for the deployment is rejected, so
+   * a late heartbeat cannot move the release pointer back.
+   */
+  function assessReleaseEvidence(
+    deployment: Pick<DeploymentRow, 'specV2' | 'currentReleaseConfirmedAt'>,
+    rawEvidence: unknown,
+  ): { accepted: boolean; digest: string | null; observedAt: Date | null; reason: string | null; notStarted: boolean } {
+    const expected = expectedWorkloadsFor(deployment);
+    const verdict = evaluateReleaseEvidence(rawEvidence, expected, new Date());
+    const parsed = releaseEvidenceSchema.safeParse(rawEvidence);
+    const observedAt = parsed.success ? new Date(parsed.data.observedAt) : null;
+    const notStarted =
+      parsed.success &&
+      !verdict.pass &&
+      verdict.reason !== 'EVIDENCE_STALE' &&
+      expected.length > 0 &&
+      expected.every((workload) =>
+        parsed.data.services.some(
+          (service) =>
+            service.workloadId === workload.id &&
+            service.serviceLogicalId === workload.serviceLogicalId &&
+            service.observed &&
+            service.desiredCount === 0,
+        ),
+      );
+    const outOfOrder =
+      observedAt !== null &&
+      deployment.currentReleaseConfirmedAt !== null &&
+      observedAt < deployment.currentReleaseConfirmedAt;
+    if (verdict.pass && outOfOrder) {
+      return { accepted: false, digest: null, observedAt, reason: 'EVIDENCE_OUT_OF_ORDER', notStarted: false };
+    }
+    return verdict.pass
+      ? { accepted: true, digest: verdict.digest, observedAt, reason: null, notStarted: false }
+      : { accepted: false, digest: null, observedAt, reason: verdict.reason, notStarted };
+  }
+
+  /**
+   * Promotes or re-confirms the current release from accepted evidence. The
+   * deployment row is locked inside the transaction (a job insert needs the
+   * same row for its foreign key), so a job created or settled since the
+   * heartbeat began cannot be overrun, and an older heartbeat that lost a race
+   * cannot move the confirmation back.
+   */
   async function reconcileRunningDigest(
     deployment: DeploymentRow,
-    runningImageDigest: string | null,
-    observedState: Record<string, unknown> | null,
+    runningImageDigest: string,
+    observedAt: Date,
   ): Promise<void> {
     const digest = digestSuffix(runningImageDigest);
     if (!digest) return;
 
+    let currentIsServing = false;
     if (deployment.currentReleaseId) {
       const currentRows = await db
         .select({ imageDigest: schema.releases.imageDigest })
         .from(schema.releases)
         .where(eq(schema.releases.id, deployment.currentReleaseId))
         .limit(1);
-      if (digestSuffix(currentRows[0]?.imageDigest ?? null) === digest) return; // Already truthful.
+      currentIsServing = digestSuffix(currentRows[0]?.imageDigest ?? null) === digest;
     }
 
-    const activeJobs = await db
-      .select({ id: schema.deploymentJobs.id })
-      .from(schema.deploymentJobs)
-      .where(
-        and(
-          eq(schema.deploymentJobs.deploymentId, deployment.id),
-          inArray(schema.deploymentJobs.state, ACTIVE_JOB_STATES),
-          inArray(schema.deploymentJobs.type, MUTATING_JOB_TYPES),
-        ),
-      )
-      .limit(1);
-    if (activeJobs.length > 0) return; // A job owns the pointer right now.
-
-    const releases = await db
-      .select()
-      .from(schema.releases)
-      .where(eq(schema.releases.applicationId, deployment.applicationId));
-    const matches = releases.filter(
-      (release) => release.releaseStatus === 'READY' && digestSuffix(release.imageDigest) === digest,
-    );
-    // Zero matches: the raw digest stays in observedState and the runtime
-    // version renders as unknown. More than one: the same image built under
-    // two versions — reconciling would be a guess, so it stays as-is.
-    if (matches.length !== 1) return;
-    const reconciled = matches[0]!;
-    if (reconciled.id === deployment.currentReleaseId) return;
-
-    // §10.3 promotion gate: a release only becomes current on the strength of
-    // THIS heartbeat's observations, and only when every one of them passes —
-    // the ECS rollout completed, the expected task count is up, no ALB target
-    // is unhealthy/pending/unknown, and the HTTP probe succeeded. A
-    // partially-rolled-out or failing application is never promoted.
-    if (!releasePromotionGatesPass(observedState)) return;
+    let reconciled: typeof schema.releases.$inferSelect | null = null;
+    if (!currentIsServing) {
+      const releases = await db
+        .select()
+        .from(schema.releases)
+        .where(eq(schema.releases.applicationId, deployment.applicationId));
+      const matches = releases.filter(
+        (release) => release.releaseStatus === 'READY' && digestSuffix(release.imageDigest) === digest,
+      );
+      // Zero matches: the raw digest stays in observedState and the runtime
+      // version renders as unknown. More than one: the same image built under
+      // two versions — reconciling would be a guess, so it stays as-is.
+      if (matches.length !== 1) return;
+      reconciled = matches[0]!;
+    }
 
     await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({
+          currentReleaseId: schema.deployments.currentReleaseId,
+          currentReleaseConfirmedAt: schema.deployments.currentReleaseConfirmedAt,
+          state: schema.deployments.state,
+        })
+        .from(schema.deployments)
+        .where(eq(schema.deployments.id, deployment.id))
+        .for('update');
+      if (!locked || locked.currentReleaseId !== deployment.currentReleaseId) return; // The pointer moved meanwhile.
+      if (locked.currentReleaseConfirmedAt !== null && locked.currentReleaseConfirmedAt > observedAt) return;
+      const activeJobs = await tx
+        .select({ id: schema.deploymentJobs.id })
+        .from(schema.deploymentJobs)
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            inArray(schema.deploymentJobs.state, ACTIVE_JOB_STATES),
+            inArray(schema.deploymentJobs.type, MUTATING_JOB_TYPES),
+          ),
+        )
+        .limit(1);
+      if (activeJobs.length > 0) return; // A job owns the pointer right now.
+
+      if (reconciled === null) {
+        await tx
+          .update(schema.deployments)
+          .set({ currentReleaseConfirmedAt: observedAt })
+          .where(eq(schema.deployments.id, deployment.id));
+        return;
+      }
+
       await tx
         .update(schema.deployments)
         .set({
           currentReleaseId: reconciled.id,
-          previousReleaseId: deployment.currentReleaseId,
+          previousReleaseId: locked.currentReleaseId,
+          currentReleaseConfirmedAt: observedAt,
         })
         .where(eq(schema.deployments.id, deployment.id));
       // The result route may have set UPDATE_AVAILABLE because the released
       // image was not yet promoted — now that it IS promoted, resolve the
       // state: HEALTHY when no newer READY release exists, else stay
       // UPDATE_AVAILABLE (a genuinely newer release was published meanwhile).
-      if (deployment.state === 'UPDATE_AVAILABLE') {
+      if (locked.state === 'UPDATE_AVAILABLE') {
         const hasNewer = await newerReadyReleaseExists(
           tx,
           deployment.applicationId,
@@ -7451,12 +7654,15 @@ export async function buildServer({
         deploymentId: deployment.id,
         customerId: deployment.customerId,
         releaseId: reconciled.id,
-        previousState: deployment.currentReleaseId,
+        previousState: locked.currentReleaseId,
         requestedState: reconciled.id,
         result: 'success',
         payload: {
           source: 'runtime-observation',
-          previousReleaseId: deployment.currentReleaseId,
+          // initial: the first release confirmed for this deployment;
+          // drift: the runtime differed from the release the pointer named.
+          kind: locked.currentReleaseId === null ? 'initial' : 'drift',
+          previousReleaseId: locked.currentReleaseId,
           reconciledReleaseId: reconciled.id,
           imageDigest: digest,
         },
@@ -8274,18 +8480,26 @@ export async function buildServer({
     // Job was already settled (result route's earlier report won, or
     // force-complete cancelled it) — skip all side effects.
     if (alreadySettled) {
+      if (job.type === 'INSTALL' && job.state === 'SUCCEEDED') {
+        try {
+          await ensureInstallFollowUps(deployment, job);
+        } catch (error) {
+          request.log.warn({ err: error }, 'install follow-up repair failed');
+        }
+      }
       return reply.code(200).send({ received: true, alreadySettled: true });
     }
 
     // DEPLOY-027 (Phase 4): a successful CONFIG_UPDATE ack means the relay
     // fetched every bound row, applied the secrets to the customer, and is
     // done with them. The deployment never polls again with the same key,
-    // so we drop the bound tier — the values live only in the customer's
-    // Secrets Manager from here on. Same idea for PURGE success: the relay
-    // has confirmed the customer account is fully released, no relay will
-    // ever poll again.
+    // so we drop the bound rows of the keys THIS job carried — the values
+    // live only in the customer's Secrets Manager from here on. A secret
+    // bound after the job was created waits for the CONFIG_UPDATE its own
+    // write queued. Same idea for PURGE success: the relay has confirmed the
+    // customer account is fully released, no relay will ever poll again.
     if (job.type === 'CONFIG_UPDATE' && state === 'SUCCEEDED') {
-      await pendingSecrets.deleteBoundForDeployment(deployment.id);
+      await pendingSecrets.deleteBoundForDeployment(deployment.id, configUpdateDeliveredKeys(job.payload));
     }
     if (job.type === 'PURGE' && state === 'SUCCEEDED') {
       await pendingSecrets.deleteBoundForDeployment(deployment.id);
@@ -8312,27 +8526,20 @@ export async function buildServer({
 
     // Phase 1.1 side effects, best-effort after the transaction — neither may
     // fail the /result response:
-    //  - INSTALL success auto-queues the deploy of the newest READY release.
+    //  - INSTALL success queues its follow-ups (first configuration pass, then
+    //    the deploy of the newest READY release). A replayed result and the
+    //    relay heartbeat repair a failed attempt.
     //  - DESTROY/PURGE success revokes the customer's ECR pull grant (both
     //    revocations are idempotent, whichever lands first).
-    // A replay of an already-reported result re-runs both: the deploy enqueue
-    // reuses its idempotency key and the revoke is a no-op policy read.
     if (job.type === 'INSTALL' && state === 'SUCCEEDED') {
       // Phase 4: the first configuration pass — vendor/customer values saved
       // before the install, and the app-internal secrets Deployz generates.
-      // Queued BEFORE the auto-deploy: the relay claims commands in creation
-      // order, and a zero-task install (DEPLOY-009) must have its configured
-      // task-definition revision in place before the deploy that first
-      // starts it.
+      // Queued BEFORE the auto-deploy (see ensureInstallFollowUps). A failure
+      // is repaired by the next heartbeat or a replayed result.
       try {
-        await queuePostInstallConfig(db, deployment, job.id, configStore);
+        await ensureInstallFollowUps(deployment, job);
       } catch (error) {
-        request.log.warn({ err: error }, 'post-install configuration queue failed');
-      }
-      try {
-        await autoDeploySelectedRelease(deployment);
-      } catch (error) {
-        request.log.warn({ err: error }, 'auto-deploy after install failed');
+        request.log.warn({ err: error }, 'install follow-ups failed');
       }
     }
     // Phase 11: a successful INSTALL means the ALB exists — start (or nudge)
@@ -8711,7 +8918,7 @@ export async function buildServer({
     const observedState =
       componentsParsed?.success === true
         ? { ...(body.observedState ?? deployment.observedState ?? {}), components: componentsParsed.data }
-        : (body.observedState ?? deployment.observedState);
+        : (body.observedState ?? deployment.observedState ?? {});
     // The runtime digest rides observedState too, so the raw truth survives
     // even when it cannot be reconciled to a release.
     if (body?.runningImageDigest !== undefined) {
@@ -8759,6 +8966,21 @@ export async function buildServer({
       };
     }
 
+    // Release evidence: only THIS heartbeat's own report counts, never the
+    // state stored by an earlier one. The verdict is stamped into observedState
+    // for the status derivation; a connector that sends no evidence is stamped
+    // EVIDENCE_MISSING, which flags it for upgrade.
+    const evidence = assessReleaseEvidence(
+      deployment,
+      (body.observedState as Record<string, unknown> | undefined)?.['releaseEvidence'],
+    );
+    (observedState as Record<string, unknown>)['releaseVerdict'] = {
+      pass: evidence.accepted,
+      reason: evidence.reason,
+      notStarted: evidence.notStarted,
+      evaluatedAt: new Date().toISOString(),
+    };
+
     const previousHealth = deployment.healthStatus;
     const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
     // Edge-triggered: the rollout failure is recorded once per observed
@@ -8783,6 +9005,7 @@ export async function buildServer({
     // stuck teardown the vendor explicitly asked for.
     const stateRecovered =
       nextHealth === 'HEALTHY' &&
+      evidence.accepted &&
       deployment.state === 'FAILED' &&
       deployment.currentReleaseId !== null &&
       !(await latestJobIsDestroy(db, deployment.id));
@@ -8794,6 +9017,7 @@ export async function buildServer({
     const installVerifiedHealthy =
       deployment.state === 'INSTALLING' &&
       nextHealth === 'HEALTHY' &&
+      evidence.accepted &&
       (await hasSucceededInstall(db, deployment.id));
 
     await db.transaction(async (tx) => {
@@ -8817,7 +9041,9 @@ export async function buildServer({
 
       // Only a CHANGE is worth an event — the relay reports on every poll and
       // an append-only log of "still healthy" would bury everything else.
-      if (nextHealth !== previousHealth) {
+      // An intentional zero-task state (a configured first start still
+      // waiting) is not an outage and records no health event.
+      if (nextHealth !== previousHealth && !(evidence.notStarted && nextHealth !== 'HEALTHY')) {
         await recordEvent(tx, {
           organizationId: deployment.organizationId,
           eventType:
@@ -8889,19 +9115,38 @@ export async function buildServer({
       request.log.warn({ err: error }, 'infrastructure inventory persistence failed');
     }
 
-    // Runtime truth wins: reconcile the deployment's release pointer to
-    // whatever the relay observed actually running — but ONLY once §10.3's
-    // promotion gates pass in this very heartbeat (rollout complete, counts
-    // full, targets healthy, HTTP probe successful). Failures here must not
-    // fail the heartbeat itself.
+    // Runtime truth wins: reconcile the deployment's release pointer to the
+    // digest this heartbeat's release evidence proved running — but ONLY when
+    // the evidence passes in full (§10.3). Failures here must not fail the
+    // heartbeat itself.
+    if (evidence.accepted && evidence.digest !== null && evidence.observedAt !== null) {
+      try {
+        await reconcileRunningDigest(deployment, evidence.digest, evidence.observedAt);
+      } catch (error) {
+        request.log.warn({ err: error }, 'runtime digest reconciliation failed');
+      }
+    }
+
+    // Repair the follow-ups of a recent successful INSTALL whose result route
+    // died before queuing them (see ensureInstallFollowUps). The install job's
+    // result records the decision, so a settled install costs one read.
     try {
-      await reconcileRunningDigest(
-        deployment,
-        body?.runningImageDigest ?? null,
-        observedState as Record<string, unknown> | null,
-      );
+      const [install] = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')))
+        .orderBy(desc(schema.deploymentJobs.createdAt))
+        .limit(1);
+      if (
+        install?.state === 'SUCCEEDED' &&
+        install.result?.['followUps'] === undefined &&
+        install.finishedAt !== null &&
+        Date.now() - install.finishedAt.getTime() <= INSTALL_FOLLOW_UP_REPAIR_WINDOW_MS
+      ) {
+        await ensureInstallFollowUps(deployment, install);
+      }
     } catch (error) {
-      request.log.warn({ err: error }, 'runtime digest reconciliation failed');
+      request.log.warn({ err: error }, 'install follow-up repair failed');
     }
 
     // A heartbeat is a progress signal for the deployment's active mutating

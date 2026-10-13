@@ -1130,7 +1130,7 @@ export function readVendorOverrides(metadata: Record<string, unknown> | null): s
  * saved values the vendor chose. Its non-null saved columns stay as they are;
  * analysis only fills the empty ones.
  */
-function legacySavedFields(app: {
+export function legacySavedFields(app: {
   containerPort: number | null;
   healthPath: string | null;
   migrationCommand: string | null;

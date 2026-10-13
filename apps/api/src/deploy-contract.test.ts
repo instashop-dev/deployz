@@ -5,7 +5,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
-import { deployzTaskFamily, taskFamilySuffix, type DeploymentManifest, type DeploymentSpecV2 } from '@deployz/contracts';
+import {
+  deployzTaskFamily,
+  taskFamilySuffix,
+  workloadServicesFromSpec,
+  type DeploymentManifest,
+  type DeploymentSpecV2,
+} from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
@@ -572,6 +578,97 @@ describe('deploy contract, busy gate and restart', () => {
     expect(jobs).toEqual([]);
   });
 
+  describe('topology the frozen stack cannot apply', () => {
+    const queue = {
+      id: 'jobs',
+      envBindings: [{ name: 'JOBS_QUEUE_URL', kind: 'url' }],
+      producers: ['web'],
+      consumers: ['web'],
+      source: 'src/queue.ts',
+    };
+    const schedule = {
+      id: 'nightly',
+      command: 'node job.js',
+      schedule: { type: 'cron', cron: '0 3 * * *' },
+      timezone: null,
+      source: 'deploy.yml',
+    };
+
+    /** An application that needs the database the frozen (PostgreSQL) stack has, plus the given analysis facts. */
+    async function seedApplication(
+      detectedMetadata: Record<string, unknown>,
+      overrides: Partial<typeof schema.applications.$inferInsert> = {},
+    ) {
+      const [row] = await db
+        .insert(schema.applications)
+        .values({
+          organizationId,
+          name: 'Topology App',
+          repoFullName: `acme/dc-topology-${crypto.randomUUID().slice(0, 8)}`,
+          repoUrl: 'https://github.com/acme/dc-topology',
+          defaultBranch: 'main',
+          databaseRequired: true,
+          detectedMetadata,
+          ...overrides,
+        })
+        .returning();
+      const [release] = await db
+        .insert(schema.releases)
+        .values({
+          applicationId: row!.id,
+          version: 'v1.0.0',
+          gitSha: 'abc123',
+          imageDigest: digestFor(`topology-${row!.id}`),
+          buildStatus: 'SUCCEEDED',
+          releaseStatus: 'READY',
+        })
+        .returning();
+      const deployment = await seedDeployment({
+        applicationId: row!.id,
+        specV2: migratingSpec() as unknown as Record<string, unknown>,
+        desiredState: { manifest: MIGRATING_MANIFEST },
+      });
+      return { applicationId: row!.id, releaseId: release!.id, deployment };
+    }
+
+    it.each([
+      ['database engine', { mysql: { required: true } }],
+      ['worker', { resolvedWorkerCommands: [{ id: 'email-worker', command: 'node worker.js', source: 'Procfile' }] }],
+      ['queue', { asyncQueues: [queue] }],
+      ['schedule', { asyncScheduledJobs: [schedule] }],
+    ])('refuses a changed %s with INFRASTRUCTURE_CHANGE_REQUIRED, skips it in bulk and reports it in the plan', async (_name, metadata) => {
+      const { applicationId, releaseId, deployment } = await seedApplication(metadata);
+
+      const single = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(single.statusCode, single.body).toBe(409);
+      expect(single.json()).toMatchObject({ error: { code: 'INFRASTRUCTURE_CHANGE_REQUIRED' } });
+
+      const bulk = await post(`/api/applications/${applicationId}/deploy-bulk`, { releaseId });
+      expect((bulk.json() as { results: unknown[] }).results).toEqual([
+        expect.objectContaining({ deploymentId: deployment.id, status: 'SKIPPED' }),
+      ]);
+
+      const plan = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deployment.id}/plan?action=update`,
+        headers: { cookie },
+      });
+      expect(plan.statusCode, plan.body).toBe(200);
+      const body = plan.json() as { requirementDrift: unknown[]; infrastructureChange: unknown };
+      expect(body.requirementDrift.length).toBeGreaterThan(0);
+      expect(body.infrastructureChange).toEqual({ status: 'unsupported', reason: 'topology_changed' });
+
+      expect(await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id))).toEqual([]);
+    });
+
+    it('still deploys a changed port and health path', async () => {
+      const { releaseId, deployment } = await seedApplication({}, { containerPort: 8080, healthPath: '/ready' });
+
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode, response.body).toBe(202);
+    });
+  });
+
   it('still deploys when the application dropped a database the frozen stack has', async () => {
     const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
     const releaseId = await seedRelease('v9.6.0');
@@ -757,8 +854,46 @@ describe('deploy contract, busy gate and restart', () => {
     expect(jobs[0]!.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:${releaseId}:RETRY:1`);
   });
 
+  /** The relay's healthy release evidence for the migrating spec's workloads, running `digest`. */
+  function healthyEvidenceFor(digest: string) {
+    const at = new Date().toISOString();
+    return {
+      version: 1,
+      observedAt: at,
+      services: workloadServicesFromSpec(migratingSpec())!.map((workload) => ({
+        workloadId: workload.id,
+        serviceLogicalId: workload.serviceLogicalId,
+        observed: true,
+        desiredCount: 2,
+        runningCount: 2,
+        rolloutState: 'COMPLETED',
+        runningDigests: [digest],
+        targets: workload.id === 'web' ? { healthy: 2, unhealthy: 0, pending: 0, unknown: 0 } : null,
+      })),
+      httpProbe: { ok: true, status: 200, checkedAt: at },
+    };
+  }
+
+  async function postHealthy(
+    deployment: { id: string; installationId: string; token: string },
+    digest: string,
+  ): Promise<void> {
+    const heartbeat = await app.inject({
+      method: 'POST',
+      url: '/api/relay/health',
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        installationId: deployment.installationId,
+        healthStatus: 'HEALTHY',
+        runningImageDigest: digest,
+        observedState: { releaseEvidence: healthyEvidenceFor(digest) },
+      }),
+    });
+    expect(heartbeat.statusCode, heartbeat.body).toBe(200);
+  }
+
   it('advances pointers v1 → v2 → v3 → rollback → v2 only after each rollout passes the promotion gate', async () => {
-    const deployment = await seedDeployment();
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
     const v1 = await seedRelease('v4.0.0');
     const v2 = await seedRelease('v4.1.0');
     const v3 = await seedRelease('v4.2.0');
@@ -795,34 +930,7 @@ describe('deploy contract, busy gate and restart', () => {
       });
       expect(response.statusCode, response.body).toBe(200);
 
-      const heartbeat = await app.inject({
-        method: 'POST',
-        url: '/api/relay/health',
-        headers: {
-          authorization: `Bearer ${deployment.token}`,
-          'content-type': 'application/json',
-        },
-        payload: JSON.stringify({
-          installationId: deployment.installationId,
-          healthStatus: 'HEALTHY',
-          runningImageDigest: await releaseDigest(releaseId),
-          observedState: {
-            deploymentRolloutState: 'COMPLETED',
-            desiredCount: 2,
-            runningCount: 2,
-            unhealthyTargetCount: 0,
-            pendingTargetCount: 0,
-            unknownTargetCount: 0,
-            httpProbe: {
-              ok: true,
-              statusCode: 200,
-              latencyMs: 9,
-              checkedAt: new Date().toISOString(),
-            },
-          },
-        }),
-      });
-      expect(heartbeat.statusCode, heartbeat.body).toBe(200);
+      await postHealthy(deployment, await releaseDigest(releaseId));
     };
 
     const pointers = async () => {
@@ -845,5 +953,45 @@ describe('deploy contract, busy gate and restart', () => {
     await post(`/api/deployments/${deployment.id}/rollback`, { releaseId: v2 });
     await reportSuccess(v2, 'ROLLBACK');
     expect(await pointers()).toEqual({ current: v2, previous: v3 });
+  });
+
+  it('does not present the previous release as confirmed after a failed rollback until fresh evidence re-confirms it', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const v1 = await seedRelease('v8.0.0');
+    const v2 = await seedRelease('v8.1.0');
+    await db.update(schema.deployments).set({ currentReleaseId: v2 }).where(eq(schema.deployments.id, deployment.id));
+    const digest = digestOf('v8.1.0');
+    await postHealthy(deployment, digest);
+
+    const servingRelease = async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deployment.id}`,
+        headers: { cookie },
+      });
+      return (response.json() as { deploymentStatus: { servingRelease: unknown } }).deploymentStatus.servingRelease;
+    };
+    expect(await servingRelease()).toMatchObject({ releaseId: v2, confirmed: true });
+
+    await post(`/api/deployments/${deployment.id}/rollback`, { releaseId: v1 });
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    const failed = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${job!.id}/result`,
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ success: false, error: 'rollout failed' }),
+    });
+    expect(failed.statusCode, failed.body).toBe(200);
+
+    // The update failed: the deployment stays live on v2, but nothing has
+    // re-confirmed that v2 is what serves.
+    expect(await servingRelease()).toEqual({ releaseId: v2, confirmedAt: null, confirmed: false });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await postHealthy(deployment, digest);
+    expect(await servingRelease()).toMatchObject({ releaseId: v2, confirmed: true });
   });
 });

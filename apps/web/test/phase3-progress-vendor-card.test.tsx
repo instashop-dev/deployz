@@ -40,7 +40,10 @@ const baseStatus: VendorDeploymentStatus = {
   health: {
     status: 'HEALTHY',
     layers: { infrastructure: 'UNKNOWN', rollout: null, targets: null, http: null, relay: 'CONNECTED' },
+    notStarted: false,
   },
+  servingRelease: { releaseId: null, confirmedAt: null, confirmed: false },
+  connector: { upgradeRequired: false, reason: null },
   url: null,
   failure: null,
 };

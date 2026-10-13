@@ -67,6 +67,7 @@ import type { CloudFormationReader } from './verify.js';
 import { applicationContainers, applicationExits, essentialContainerNames } from './ecs-observe.js';
 import type { TargetHealthReader } from './ecs-health.js';
 import { listAllStackResources } from './stack-resources.js';
+import { pruneSupersededRevisions } from './task-revisions.js';
 
 /** The ECS write surface this module needs (injectable seam for testing). */
 export interface EcsDeployClient {
@@ -98,6 +99,9 @@ export interface EcsDeployClient {
     taskDefinition: EcsTaskDefinition;
   }>;
   registerTaskDefinition(input: RegisterTaskDefinitionInput): Promise<{ taskDefinitionArn: string }>;
+  /** ACTIVE revisions of a family prefix, newest first. Optional: absent, revision cleanup is skipped. */
+  listTaskDefinitions?(input: { familyPrefix: string; status: 'ACTIVE' }): Promise<{ taskDefinitionArns: string[] }>;
+  deregisterTaskDefinition?(input: { taskDefinition: string }): Promise<void>;
   updateService(input: {
     cluster: string;
     service: string;
@@ -1692,6 +1696,7 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
     }
 
     if (outcome.state === 'succeeded') {
+      await pruneSupersededRevisions(deps);
       console.log(
         JSON.stringify({
           event: 'relay:command-succeeded',
@@ -1847,6 +1852,9 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
         startedAt: pending.startedAt,
       }),
     );
+    if (outcome.state === 'succeeded') {
+      await pruneSupersededRevisions(deps, [...Object.values(targetMap), ...Object.values(previousMap)]);
+    }
     const report: RelayCommandResult =
       outcome.state === 'succeeded'
         ? {

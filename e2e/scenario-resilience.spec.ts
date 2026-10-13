@@ -159,6 +159,7 @@ test.describe('relay-death-destroy', () => {
         message: 'waiting for install to reach HEALTHY',
       })
       .toBe('HEALTHY');
+    await waitForInstallAutoDeploy(api, deploymentId);
 
     const destroy = await request.post(`${API_URL}/api/deployments/${deploymentId}/destroy`, {
       data: {},

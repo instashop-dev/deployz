@@ -106,6 +106,136 @@
         "InstallIdFunctionServiceRole9CEC2041"
       ]
     },
+    "InstallIdFunctionLogRetentionF7881702": {
+      "Type": "Custom::LogRetention",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn"
+          ]
+        },
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/lambda/",
+              {
+                "Ref": "InstallIdFunctionE00E99D3"
+              }
+            ]
+          ]
+        },
+        "RetentionInDays": 7
+      }
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          }
+        ]
+      }
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:PutRetentionPolicy",
+                "logs:DeleteRetentionPolicy"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "Roles": [
+          {
+            "Ref": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB"
+          }
+        ]
+      }
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "index.handler",
+        "Runtime": "nodejs24.x",
+        "Timeout": 900,
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+          },
+          "S3Key": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip"
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+            "Arn"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          }
+        ]
+      },
+      "DependsOn": [
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB"
+      ]
+    },
     "InstallIdProviderframeworkonEventServiceRole99D4C1C6": {
       "Type": "AWS::IAM::Role",
       "Properties": {
@@ -255,6 +385,29 @@
         "InstallIdProviderframeworkonEventServiceRoleDefaultPolicy0DEC8FAD",
         "InstallIdProviderframeworkonEventServiceRole99D4C1C6"
       ]
+    },
+    "InstallIdProviderframeworkonEventLogRetentionECA2520C": {
+      "Type": "Custom::LogRetention",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn"
+          ]
+        },
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/lambda/",
+              {
+                "Ref": "InstallIdProviderframeworkonEvent80868007"
+              }
+            ]
+          ]
+        },
+        "RetentionInDays": 7
+      }
     },
     "InstallationId": {
       "Type": "AWS::CloudFormation::CustomResource",
@@ -607,7 +760,9 @@
                 "ecs:ListTasks",
                 "ecs:DescribeTasks",
                 "ecs:DescribeTaskDefinition",
-                "ecs:StopTask"
+                "ecs:StopTask",
+                "ecs:ListTaskDefinitions",
+                "ecs:DeregisterTaskDefinition"
               ],
               "Effect": "Allow",
               "Resource": "*"
@@ -986,7 +1141,8 @@
                 "ecs:ListTasks",
                 "ecs:DescribeTasks",
                 "ecs:DescribeTaskDefinition",
-                "ecs:StopTask"
+                "ecs:StopTask",
+                "ecs:ListTaskDefinitions"
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -1312,6 +1468,31 @@
                 ]
               },
               "Sid": "RelayPendingCommandState"
+            },
+            {
+              "Action": "ecs:DeregisterTaskDefinition",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":ecs:",
+                    {
+                      "Ref": "AWS::Region"
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId"
+                    },
+                    ":task-definition/DeployzApp*:*"
+                  ]
+                ]
+              },
+              "Sid": "RelayDeregisterRevisions"
             }
           ],
           "Version": "2012-10-17"
@@ -1739,7 +1920,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "340cff4d29e2123ae4b26b9872750506bb7965f5a1f34b986dff1e9115a9333d.zip"
+          "S3Key": "89bdb5b612b542d319a0d0c6ee576cdccacd09fca37c4131f025a167b364701f.zip"
         },
         "Environment": {
           "Variables": {
@@ -1749,6 +1930,7 @@
                 "InstallationId"
               ]
             },
+            "DEPLOYZ_BOOTSTRAP_VERSION": "dev",
             "DEPLOYZ_CREDENTIAL_SECRET_ARN": {
               "Fn::If": [
                 "HasRelayCredential",
@@ -1839,118 +2021,11 @@
         "RetentionInDays": 7
       }
     },
-    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Statement": [
-            {
-              "Action": "sts:AssumeRole",
-              "Effect": "Allow",
-              "Principal": {
-                "Service": "lambda.amazonaws.com"
-              }
-            }
-          ],
-          "Version": "2012-10-17"
-        },
-        "ManagedPolicyArns": [
-          {
-            "Fn::Join": [
-              "",
-              [
-                "arn:",
-                {
-                  "Ref": "AWS::Partition"
-                },
-                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-              ]
-            ]
-          }
-        ],
-        "Tags": [
-          {
-            "Key": "deployz:component",
-            "Value": "bootstrap"
-          },
-          {
-            "Key": "deployz:managed",
-            "Value": "true"
-          },
-          {
-            "Key": "deployz:scope",
-            "Value": "customer"
-          }
-        ]
-      }
-    },
-    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB": {
-      "Type": "AWS::IAM::Policy",
-      "Properties": {
-        "PolicyDocument": {
-          "Statement": [
-            {
-              "Action": [
-                "logs:PutRetentionPolicy",
-                "logs:DeleteRetentionPolicy"
-              ],
-              "Effect": "Allow",
-              "Resource": "*"
-            }
-          ],
-          "Version": "2012-10-17"
-        },
-        "PolicyName": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
-        "Roles": [
-          {
-            "Ref": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB"
-          }
-        ]
-      }
-    },
-    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A": {
-      "Type": "AWS::Lambda::Function",
-      "Properties": {
-        "Handler": "index.handler",
-        "Runtime": "nodejs24.x",
-        "Timeout": 900,
-        "Code": {
-          "S3Bucket": {
-            "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
-          },
-          "S3Key": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip"
-        },
-        "Role": {
-          "Fn::GetAtt": [
-            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
-            "Arn"
-          ]
-        },
-        "Tags": [
-          {
-            "Key": "deployz:component",
-            "Value": "bootstrap"
-          },
-          {
-            "Key": "deployz:managed",
-            "Value": "true"
-          },
-          {
-            "Key": "deployz:scope",
-            "Value": "customer"
-          }
-        ]
-      },
-      "DependsOn": [
-        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
-        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB"
-      ]
-    },
     "RelaySchedule27C29C24": {
       "Type": "AWS::Events::Rule",
       "Properties": {
-        "Description": "Polls the Deployz control plane every 5 minutes (egress-only).",
-        "ScheduleExpression": "rate(5 minutes)",
+        "Description": "Polls the Deployz control plane every minute (egress-only).",
+        "ScheduleExpression": "rate(1 minute)",
         "State": "ENABLED",
         "Tags": [
           {
@@ -1983,7 +2058,11 @@
                 "Arn"
               ]
             },
-            "Id": "Target0"
+            "Id": "Target0",
+            "RetryPolicy": {
+              "MaximumEventAgeInSeconds": 60,
+              "MaximumRetryAttempts": 0
+            }
           }
         ]
       }

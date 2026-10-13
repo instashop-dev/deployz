@@ -36,11 +36,21 @@ known state, and provides a deterministic path forward.
   state; relay loss is `relayStatus`, not a lifecycle state.
 - **Release** (`releases` row) — an immutable version/build.
   `currentReleaseId` points at the release that is really running, and only
-  the heartbeat's digest reconciliation advances it — and only when that
-  heartbeat shows the new digest running (every ECS service that has a
-  running task must run the same digest; if they differ, no digest is
-  reported), rollout COMPLETED, full task
-  counts, healthy ALB targets and a successful HTTP probe.
+  the heartbeat's digest reconciliation advances it. The control plane
+  decides from that heartbeat's own `observedState.releaseEvidence`
+  (`evaluateReleaseEvidence`), never from stored state: every workload the
+  frozen spec requires must be observed with rollout COMPLETED, full and
+  non-zero task counts and one image digest, the public workload needs
+  healthy ALB targets, and the public HTTP probe must succeed. Evidence that
+  is missing, stale or older than the last accepted evidence promotes nothing.
+  The promotion transaction locks the deployment row and re-checks for an
+  active mutating job, so a job cannot be overrun.
+  `currentReleaseConfirmedAt` records the evidence that confirmed the current
+  release (a first promotion or a re-confirmation of the same digest). The
+  derived `servingRelease` is confirmed only while no deploy, rollback or
+  restart settled after that evidence, so a failed update never leaves the
+  previous release shown as confirmed until fresh evidence re-confirms it.
+  `deployment.reconciled` carries `kind: 'initial' | 'drift'`.
   A SUCCEEDED DEPLOY_RELEASE/ROLLBACK job result alone never advances the
   pointer, so after any failure it still names what is really running. There
   is no separate lastHealthyRelease column because `currentReleaseId` IS that
@@ -94,6 +104,23 @@ watchdog, and the stack-event progress route's settlement backstop):
   revision back on that one (`packages/relay/src/deploy.ts`).
 - A failed **first install** or **destroy** marks the deployment `FAILED` —
   there, the operation's failure IS the environment's.
+- **Install follow-ups are durable.** A successful INSTALL needs two
+  follow-up jobs: the first `CONFIG_UPDATE` (only when there is
+  configuration to apply) and the auto-deploy of the newest READY release.
+  Both use keys tied to the install job
+  (`<id>:CONFIG_UPDATE:install:<installJobId>`,
+  `<id>:DEPLOY_RELEASE:install:<installJobId>`). The config job is created
+  first; the deploy is never created when the config job could not be. The
+  result route, a replayed INSTALL result, and the relay heartbeat all run
+  the same idempotent `ensureInstallFollowUps` (`apps/api/src/server.ts`),
+  so a control-plane crash after the settlement transaction is repaired by
+  the next heartbeat, not by the watchdog. The decision is stored on the
+  install job (`result.followUps.autoDeploy`: `queued`, `no_ready_release`,
+  `migration_workload_missing`, `topology_changed`, or `superseded` when a
+  later DEPLOY_RELEASE, ROLLBACK or DESTROY exists). A stored decision ends
+  the repair; so does a DELETING or DELETED deployment. A failure stores
+  nothing, so the repair retries. The heartbeat repairs only installs that
+  finished in the last 24 hours.
 - A **configured first start** (DEPLOY-009): when a vendor value or a
   Deployz-generated secret must reach the task before it can boot
   (`configPrecedesFirstStart`, `apps/api/src/install-config.ts`) and a READY
@@ -684,11 +711,26 @@ group and subnet it pins, so the stack first lands on `DELETE_FAILED` —
 expected pacing (45+ minutes of CloudFormation retrying), not a failure.
 The relay lists the `DELETE_FAILED` resources and re-issues
 `delete-stack` with `RetainResources`, repeating the pass on each poll
-until the stack reaches `DELETE_COMPLETE`. The deployment then settles
+until the stack reaches `DELETE_COMPLETE`. Only the RDS instance and the
+network it pins (DB subnet group, security group, subnet, VPC — and the
+network only while a database is blocked or already retained) may be
+retained. Any other `DELETE_FAILED` resource is a real failure:
+`STACK_DELETE_FAILED` naming its logical id, type and reason, nothing retained. The deployment then settles
 `DELETED` — truthfully: the application, network and cache are gone; the
 database, its credential secrets and the bucket are deliberately retained
 (no final snapshot is ever taken), clearly visible, and removable by
 PURGE.
+
+After a DEPLOY_RELEASE, ROLLBACK or CONFIG_UPDATE has settled
+successfully, the relay deregisters old task-definition revisions it
+registered (best effort, at most 10 per invocation, never failing the
+command). It touches only families its own stack created and only when the
+family carries the installation suffix (shared v2-1/v2-2 families are
+skipped). It keeps the stack-created revision, every revision a service
+deployment uses, the target and previous revisions of the command, and the
+newest 3 revisions of each family as rollback headroom. It needs
+`ecs:ListTaskDefinitions` and `ecs:DeregisterTaskDefinition` on the relay
+role; without them it silently does nothing.
 
 PURGE is the second, explicit half. It deletes the retained data — every
 retained RDS instance (PostgreSQL or MySQL; deletion protection off,
@@ -743,8 +785,15 @@ CloudFormation success alone never marks a deployment healthy: INSTALL
 success leaves the deployment INSTALLING, and only the relay's runtime
 health verification (ECS running counts + ALB target health, reported via
 heartbeat) advances it to HEALTHY. The derived customer/vendor stage shows
-READY only with confirmed health plus an https URL. A missing required
-infrastructure component is reported, never repaired automatically.
+READY only with confirmed health, passing release evidence and an https
+URL. The INSTALLING to HEALTHY and FAILED to HEALTHY transitions need the
+same passing evidence; the relay's `healthStatus` alone never earns them. A
+connector that sends no `releaseEvidence` cannot promote or verify
+readiness, and the status reports `connector.upgradeRequired`. When every
+expected workload is intentionally at zero tasks (a configured first start
+still waiting), `health.notStarted` is set and no outage event is recorded.
+A missing required infrastructure component is reported, never repaired
+automatically.
 
 ## The trust boundary shapes everything
 

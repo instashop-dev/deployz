@@ -30,6 +30,8 @@ import {
   DescribeTasksCommand,
   ECSClient,
   ListTasksCommand,
+  DeregisterTaskDefinitionCommand,
+  ListTaskDefinitionsCommand,
   RegisterTaskDefinitionCommand,
   RunTaskCommand,
   StopTaskCommand,
@@ -58,7 +60,7 @@ import {
   type EcsDeployDeps,
   type EcsTaskDefinition,
 } from './deploy.js';
-import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
+import { observeServiceDigests, type EcsTaskReader } from './ecs-observe.js';
 import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
 import { probeHealthUrl } from './http-probe.js';
 import { readRelayIdentity } from './identity.js';
@@ -140,6 +142,7 @@ import {
   type VerifyOptions,
 } from './verify.js';
 import { buildProvisioningSnapshot, type ProvisioningSnapshot } from './provision-progress.js';
+import { withLease } from './lease.js';
 import { listAllStackResources } from './stack-resources.js';
 import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
@@ -202,9 +205,13 @@ function getEcsTaskReader(): EcsTaskReader {
     ecsTaskReader = {
       async listTasks(input) {
         const response = await client.send(
-          new ListTasksCommand({ cluster: input.cluster, serviceName: input.serviceName }),
+          new ListTasksCommand({
+            cluster: input.cluster,
+            serviceName: input.serviceName,
+            nextToken: input.nextToken,
+          }),
         );
-        return { taskArns: response.taskArns ?? [] };
+        return { taskArns: response.taskArns ?? [], nextToken: response.nextToken };
       },
       async describeTasks(input) {
         const response = await client.send(
@@ -299,12 +306,16 @@ function getEcsServiceReader(): EcsServiceReader {
         );
         return {
           services: (response.services ?? []).map((service) => ({
+            serviceArn: service.serviceArn ?? undefined,
             desiredCount: service.desiredCount ?? undefined,
             runningCount: service.runningCount ?? undefined,
             deployments: (service.deployments ?? []).map((deployment) => ({
               status: deployment.status ?? undefined,
               rolloutState: deployment.rolloutState ?? undefined,
               taskDefinition: deployment.taskDefinition ?? undefined,
+            })),
+            loadBalancers: (service.loadBalancers ?? []).map((lb) => ({
+              targetGroupArn: lb.targetGroupArn ?? undefined,
             })),
           })),
         };
@@ -409,6 +420,29 @@ function getEcsDeployClient(): EcsDeployClient {
         const arn = response.taskDefinition?.taskDefinitionArn;
         if (!arn) throw new Error('RegisterTaskDefinition returned no task definition ARN');
         return { taskDefinitionArn: arn };
+      },
+      async listTaskDefinitions(input) {
+        // Newest first, bounded to a few pages: older revisions are reached
+        // on later invocations as newer ones are deregistered.
+        const taskDefinitionArns: string[] = [];
+        let nextToken: string | undefined;
+        for (let page = 0; page < 3; page++) {
+          const response = await client.send(
+            new ListTaskDefinitionsCommand({
+              familyPrefix: input.familyPrefix,
+              status: input.status,
+              sort: 'DESC',
+              ...(nextToken !== undefined ? { nextToken } : {}),
+            }),
+          );
+          taskDefinitionArns.push(...(response.taskDefinitionArns ?? []));
+          nextToken = response.nextToken;
+          if (nextToken === undefined) break;
+        }
+        return { taskDefinitionArns };
+      },
+      async deregisterTaskDefinition(input) {
+        await client.send(new DeregisterTaskDefinitionCommand({ taskDefinition: input.taskDefinition }));
       },
       async updateService(input) {
         await client.send(
@@ -2062,6 +2096,11 @@ export interface RelayHandlerDeps {
    */
   observeImage?: PollDependencies['observeImage'];
   /**
+   * Overrides the per-service digest observation that feeds the release
+   * evidence and, without `observeImage`, the running image digest.
+   */
+  observeServiceDigests?: PollDependencies['observeServiceDigests'];
+  /**
    * Overrides the runtime health observation (ECS counts, target health,
    * rollout state) wired into every health report.
    */
@@ -2323,10 +2362,11 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
           })();
         }),
       identity: deps.identity ?? readRelayIdentity(context),
-      observeImage:
-        deps.observeImage ??
+      ...(deps.observeImage ? { observeImage: deps.observeImage } : {}),
+      observeServiceDigests:
+        deps.observeServiceDigests ??
         (() =>
-          observeRunningImageDigest(
+          observeServiceDigests(
             {
               cfn: getCloudFormationReader(),
               ecs: getEcsTaskReader(),
@@ -2389,7 +2429,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
  *
  * The `handler` export is what the CDK NodejsFunction invokes.
  */
-export const handler = createRelayHandler({
+export const handler = withLease(createRelayHandler({
   secretsClient: {
     async getSecretValue(params: { SecretId: string }) {
       const client = new AwsSecretsManagerClient({});
@@ -2398,4 +2438,4 @@ export const handler = createRelayHandler({
     },
   },
   fetchFn: globalThis.fetch.bind(globalThis),
-});
+}));

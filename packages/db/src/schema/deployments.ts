@@ -45,6 +45,10 @@ export const deployments = pgTable(
   awsAccountId: text('aws_account_id'),
   currentReleaseId: uuid('current_release_id').references(() => releases.id),
   previousReleaseId: uuid('previous_release_id').references(() => releases.id),
+  // The observation time of the last relay evidence that confirmed the
+  // current release is the one serving. Also the newest accepted evidence, so
+  // an older heartbeat arriving late cannot move the pointer back.
+  currentReleaseConfirmedAt: timestamp('current_release_confirmed_at', { withTimezone: true }),
   relayStatus: relayStatusEnum('relay_status').notNull().default('UNKNOWN'),
   // §46 health starts UNKNOWN, not HEALTHY: a deployment that has never
   // checked in has no observed health, and rendering one as healthy is the

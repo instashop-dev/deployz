@@ -31,7 +31,7 @@ const compositionTimeline: readonly TimelineEvent[] = [
   // services, queues and schedule this scenario adds have actually finished.
   { afterMs: 20, atVirtualMs: 0, logicalResourceId: '__stack__', resourceType: 'AWS::CloudFormation::Stack', status: 'CREATE_IN_PROGRESS' },
   ...happyPath.timeline.filter(
-    (event) => event.logicalResourceId !== 'ApplicationService' && event.logicalResourceId !== '__stack__',
+    (event) => event.logicalResourceId !== 'WebService' && event.logicalResourceId !== '__stack__',
   ),
   // The cluster itself — needed so DESTROY's `stopStandaloneTasks`
   // (packages/relay/src/destroy.ts) can find it and stop a running

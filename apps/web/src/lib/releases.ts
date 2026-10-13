@@ -3,6 +3,7 @@
 // never swallowed into look-alike placeholder data. §65: copy is jargon-free.
 
 import { apiUrl } from '@/lib/api-url';
+import { readSignal } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/list-view';
 
 export type ReleaseStatus = 'BUILDING' | 'READY' | 'FAILED' | 'UNAVAILABLE';
@@ -22,6 +23,7 @@ async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     credentials: 'include',
     cache: 'no-store',
+    signal: readSignal(),
   });
   if (!response.ok) {
     throw new Error(`Releases request failed (${response.status})`);

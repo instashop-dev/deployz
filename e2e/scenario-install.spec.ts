@@ -101,7 +101,7 @@ test.describe('happy-path', () => {
     // shows up, including the ones the collector only reported mid-install.
     const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
     const logicalIds = new Set(events.map((event) => event.logicalResourceId));
-    for (const expected of ['ApplicationVpc', 'ApplicationDatabase', 'ApplicationBucket', 'ApplicationService']) {
+    for (const expected of ['ApplicationVpc', 'ApplicationDatabase', 'ApplicationBucket', 'WebService']) {
       expect(logicalIds.has(expected), `expected a stack event for ${expected}`).toBe(true);
     }
     expect(events.every((event) => event.resourceStatus !== 'CREATE_FAILED')).toBe(true);
@@ -215,7 +215,7 @@ test.describe('ecs-failure', () => {
 
     const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
     const serviceEvent = events.find(
-      (event) => event.logicalResourceId === 'ApplicationService' && event.resourceStatus === 'CREATE_FAILED',
+      (event) => event.logicalResourceId === 'WebService' && event.resourceStatus === 'CREATE_FAILED',
     );
     expect(serviceEvent).toBeDefined();
     expect(serviceEvent!.resourceStatusReason).toBe('Service failed health checks');

@@ -172,7 +172,7 @@ describe('bootstrap permissions ↔ deployed template', () => {
       expect(types).toContain(type);
     }
     const schedule = resources[logicalId('RelaySchedule', 'AWS::Events::Rule')]!;
-    expect(schedule.Properties.ScheduleExpression).toBe('rate(5 minutes)');
+    expect(schedule.Properties.ScheduleExpression).toBe('rate(1 minute)');
     const retention = resources[logicalId('RelayFunctionLogRetention', 'Custom::LogRetention')]!;
     expect(retention.Properties.RetentionInDays).toBe(7);
   });
@@ -185,6 +185,10 @@ describe('bootstrap permissions ↔ deployed template', () => {
 describe('secrets truthfulness (§8)', () => {
   it('does not list application secrets as data never sent to Deployz', () => {
     expect(DATA_NOT_SENT_TO_DEPLOYZ.join(' ')).not.toMatch(/secret/i);
+  });
+
+  it('does not name a database engine the application may not use', () => {
+    expect(DATA_NOT_SENT_TO_DEPLOYZ.join(' ')).not.toMatch(/postgres|mysql/i);
   });
 
   it('states the verified secret-handling facts verbatim', () => {

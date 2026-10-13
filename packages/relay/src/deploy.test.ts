@@ -2765,3 +2765,65 @@ describe('durable deploy results', () => {
     expect(results).toHaveLength(1);
   });
 });
+
+describe('superseded task-definition revision cleanup', () => {
+  const FAMILY_PREFIX = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppWebinsttest';
+
+  function suffixedDeps(state: FakeEcs) {
+    const base = deps(state);
+    const deregistered: string[] = [];
+    const owned: StackResource = {
+      logicalId: 'WebTaskDefinition2',
+      type: 'AWS::ECS::TaskDefinition',
+      status: 'CREATE_COMPLETE',
+      physicalId: `${FAMILY_PREFIX}:1`,
+    };
+    return {
+      deregistered,
+      deps: {
+        ...base,
+        cfn: {
+          ...base.cfn,
+          async describeStack() {
+            return {
+              found: true as const,
+              stack: {
+                stackName: 'deployz-app',
+                status: 'CREATE_COMPLETE',
+                tags: { 'deployz:installation': 'inst-test' },
+                stackId: 'stack-id-deployz-app',
+              },
+            };
+          },
+          async listStackResources(name: string, token?: string) {
+            const page = await base.cfn.listStackResources!(name, token);
+            return page === null ? null : { resources: [...page.resources, owned] };
+          },
+        },
+        ecs: {
+          ...base.ecs,
+          async listTaskDefinitions() {
+            return { taskDefinitionArns: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `${FAMILY_PREFIX}:${n}`) };
+          },
+          async deregisterTaskDefinition(input: { taskDefinition: string }) {
+            deregistered.push(input.taskDefinition);
+          },
+        },
+      },
+    };
+  }
+
+  it('deregisters only eligible old revisions after a deploy settled successfully', async () => {
+    const { deps: d, deregistered } = suffixedDeps(baseState());
+    const result = await run(createEcsDeployExecutor(d), deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V2 }));
+    expect(result.success).toBe(true);
+    expect(deregistered).toEqual([2, 3, 4, 5].map((n) => `${FAMILY_PREFIX}:${n}`));
+  });
+
+  it('deregisters nothing when the deploy failed', async () => {
+    const { deps: d, deregistered } = suffixedDeps(baseState({ failAt: 'describeServices' }));
+    const result = await run(createEcsDeployExecutor(d), deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V2 }));
+    expect(result.success).toBe(false);
+    expect(deregistered).toEqual([]);
+  });
+});

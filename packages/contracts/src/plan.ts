@@ -8,6 +8,7 @@ import type { DeploymentFootprint } from './footprint.js';
 import { estimateFootprintCost, footprintCostEstimateSchema } from './pricing.js';
 import type { FootprintCostEstimate } from './pricing.js';
 import type { InfrastructureComponentDefinition } from './components.js';
+import type { ApplicationGraph } from './application-graph.js';
 import type { DeploymentManifest } from './manifest.js';
 // Value imports from './index.js' are used ONLY inside function bodies below
 // (never at this module's top level) — `plan.ts` is re-exported from
@@ -120,7 +121,9 @@ export type InfrastructureChange = z.infer<typeof infrastructureChangeSchema>;
 
 const planRequirementDriftSchema = z
   .object({
-    kind: z.enum(['database', 'cache']),
+    kind: z.enum(['database', 'cache', 'engine', 'workload', 'queue', 'schedule']),
+    /** The component the entry names — absent for database/cache. For `engine`, the desired engine. */
+    name: z.string().optional(),
     deployed: z.boolean(),
     desired: z.boolean(),
   })
@@ -188,6 +191,44 @@ export function requirementDriftFor(
   return [driftFor('database', deployedProfile, desiredProfile), driftFor('cache', deployedProfile, desiredProfile)].filter(
     (entry): entry is DeploymentPlan['requirementDrift'][number] => entry !== null,
   );
+}
+
+function idSetDrift(
+  kind: 'workload' | 'queue' | 'schedule',
+  deployed: ReadonlySet<string>,
+  desired: ReadonlySet<string>,
+): DeploymentPlan['requirementDrift'] {
+  return [...new Set([...deployed, ...desired])]
+    .filter((name) => deployed.has(name) !== desired.has(name))
+    .sort()
+    .map((name) => ({ kind, name, deployed: deployed.has(name), desired: desired.has(name) }));
+}
+
+/**
+ * Topology differences between a deployment's frozen graph and the graph the
+ * application wants now, beyond database/cache presence: the database engine,
+ * the workload set (the migration step is governed by the migration policy,
+ * not by topology), queues and schedules. A frozen stack cannot apply any of
+ * them in place.
+ */
+export function topologyDriftFor(deployed: ApplicationGraph, desired: ApplicationGraph): DeploymentPlan['requirementDrift'] {
+  const engineOf = (graph: ApplicationGraph): string | null =>
+    graph.resources.find((resource) => resource.kind === 'relational_database')?.engine ?? null;
+  const ids = (items: readonly { id: string }[]): ReadonlySet<string> => new Set(items.map((item) => item.id));
+  const workloads = (graph: ApplicationGraph): ReadonlySet<string> =>
+    ids(graph.workloads.filter((workload) => workload.kind !== 'migration'));
+  const queues = (graph: ApplicationGraph): ReadonlySet<string> =>
+    ids(graph.resources.filter((resource) => resource.kind === 'queue'));
+  const deployedEngine = engineOf(deployed);
+  const desiredEngine = engineOf(desired);
+  return [
+    ...(deployedEngine !== null && desiredEngine !== null && deployedEngine !== desiredEngine
+      ? [{ kind: 'engine' as const, name: desiredEngine, deployed: false, desired: true }]
+      : []),
+    ...idSetDrift('workload', workloads(deployed), workloads(desired)),
+    ...idSetDrift('queue', queues(deployed), queues(desired)),
+    ...idSetDrift('schedule', ids(deployed.schedules ?? []), ids(desired.schedules ?? [])),
+  ];
 }
 
 /**

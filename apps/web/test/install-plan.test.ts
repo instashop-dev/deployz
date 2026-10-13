@@ -7,6 +7,7 @@ import {
   installPlanRegionLabel,
   installPlanRetentionNote,
   installPlanRows,
+  requirementDriftLine,
 } from '../src/lib/install-plan';
 
 function plan(overrides: Partial<DeploymentPlan> = {}): DeploymentPlan {
@@ -43,6 +44,23 @@ function component(
 ) {
   return { kind, name, action, lifecycle };
 }
+
+describe('requirementDriftLine', () => {
+  it('words engine, process, queue and schedule drift in plain terms', () => {
+    expect(requirementDriftLine({ kind: 'engine', name: 'mysql', deployed: false, desired: true })).toBe(
+      'Database: the application now uses MySQL, which this deployment does not have',
+    );
+    expect(requirementDriftLine({ kind: 'workload', name: 'mailer', deployed: false, desired: true })).toBe(
+      'Process "mailer": not set up here, now required',
+    );
+    expect(requirementDriftLine({ kind: 'queue', name: 'jobs', deployed: true, desired: false })).toBe(
+      'Queue "jobs": set up here, no longer required',
+    );
+    expect(requirementDriftLine({ kind: 'schedule', name: 'nightly', deployed: false, desired: true })).toBe(
+      'Schedule "nightly": not set up here, now required',
+    );
+  });
+});
 
 describe('installPlanRows', () => {
   it('returns the fallback application row when the plan is null', () => {
