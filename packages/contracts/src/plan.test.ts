@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildDestroyPlan, buildInstallPlan, buildUpdatePlan, deploymentPlanSchema, planComponentKindSchema } from './plan.js';
+import { buildDestroyPlan, buildInstallPlan, buildUpdatePlan, deploymentPlanSchema, planComponentKindSchema, topologyDriftFor } from './plan.js';
+import type { ApplicationGraph } from './application-graph.js';
 import { requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
 import { estimateFootprintCost } from './pricing.js';
 import { resolveDeploymentFootprint } from './footprint.js';
@@ -273,6 +274,50 @@ describe('planComponentKindSchema widening', () => {
     for (const kind of ['worker', 'queue', 'schedule'] as const) {
       expect(planComponentKindSchema.safeParse(kind).success).toBe(true);
     }
+  });
+});
+
+describe('topologyDriftFor', () => {
+  function graph(parts: {
+    engine?: 'postgres' | 'mysql';
+    workloads?: string[];
+    queues?: string[];
+    schedules?: string[];
+  }): ApplicationGraph {
+    return {
+      workloads: [{ id: 'web', kind: 'web' }, { id: 'migration', kind: 'migration' }, ...(parts.workloads ?? []).map((id) => ({ id, kind: 'worker' }))],
+      resources: [
+        ...(parts.engine ? [{ id: 'primary-db', kind: 'relational_database', engine: parts.engine }] : []),
+        ...(parts.queues ?? []).map((id) => ({ id, kind: 'queue', engine: null })),
+      ],
+      schedules: (parts.schedules ?? []).map((id) => ({ id })),
+    } as unknown as ApplicationGraph;
+  }
+
+  it('reports nothing for identical topology, whatever the migration step does', () => {
+    expect(topologyDriftFor(graph({ engine: 'postgres' }), graph({ engine: 'postgres' }))).toEqual([]);
+  });
+
+  it('reports a changed engine only when both graphs have a database', () => {
+    expect(topologyDriftFor(graph({ engine: 'postgres' }), graph({ engine: 'mysql' }))).toEqual([
+      { kind: 'engine', name: 'mysql', deployed: false, desired: true },
+    ]);
+    expect(topologyDriftFor(graph({}), graph({ engine: 'mysql' }))).toEqual([]);
+  });
+
+  it('reports added and removed workloads, queues and schedules by name', () => {
+    expect(
+      topologyDriftFor(
+        graph({ workloads: ['mailer'], queues: ['old'], schedules: ['nightly'] }),
+        graph({ workloads: ['indexer'], queues: ['jobs'], schedules: ['nightly', 'weekly'] }),
+      ),
+    ).toEqual([
+      { kind: 'workload', name: 'indexer', deployed: false, desired: true },
+      { kind: 'workload', name: 'mailer', deployed: true, desired: false },
+      { kind: 'queue', name: 'jobs', deployed: false, desired: true },
+      { kind: 'queue', name: 'old', deployed: true, desired: false },
+      { kind: 'schedule', name: 'weekly', deployed: false, desired: true },
+    ]);
   });
 });
 

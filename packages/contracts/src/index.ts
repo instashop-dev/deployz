@@ -755,6 +755,25 @@ export const vendorDeploymentStatusSchema = z
         // §10.1 layered runtime health — see runtimeHealthLayersSchema. Never
         // collapsed into the scalar `status` above.
         layers: runtimeHealthLayersSchema,
+        // Every workload is intentionally at zero tasks (a configured first
+        // start still waiting) — a runtime condition, not an outage.
+        notStarted: z.boolean(),
+      })
+      .strict(),
+    // Which release is serving and whether relay evidence confirms it.
+    servingRelease: z
+      .object({
+        releaseId: z.uuid().nullable(),
+        confirmedAt: z.iso.datetime().nullable(),
+        confirmed: z.boolean(),
+      })
+      .strict(),
+    // The connector sends no release evidence, so it can neither promote a
+    // release nor verify readiness.
+    connector: z
+      .object({
+        upgradeRequired: z.boolean(),
+        reason: z.literal('RELEASE_EVIDENCE_MISSING').nullable(),
       })
       .strict(),
     url: z.string().nullable(),
