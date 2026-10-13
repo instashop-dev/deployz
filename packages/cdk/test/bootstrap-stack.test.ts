@@ -125,12 +125,87 @@ describe('BootstrapStack', () => {
     });
   });
 
-  it('schedules the relay to poll every 5 minutes', () => {
+  it('schedules the relay to poll every minute without retrying a dropped event', () => {
     const { template } = synth();
     template.resourceCountIs('AWS::Events::Rule', 1);
     template.hasResourceProperties('AWS::Events::Rule', {
-      ScheduleExpression: 'rate(5 minutes)',
+      ScheduleExpression: 'rate(1 minute)',
+      Targets: [
+        Match.objectLike({
+          RetryPolicy: { MaximumRetryAttempts: 0, MaximumEventAgeInSeconds: 60 },
+        }),
+      ],
     });
+  });
+
+  it('does not reserve concurrency (a new account may not be able to)', () => {
+    const { template } = synth();
+    for (const resource of Object.values(allResources(template))) {
+      expect(resource.Properties?.['ReservedConcurrentExecutions']).toBeUndefined();
+    }
+  });
+
+  it('reports the build identity through DEPLOYZ_BOOTSTRAP_VERSION', () => {
+    const app = new App();
+    const stack = new BootstrapStack(app, 'BootstrapBuildId', { buildId: 'abc123def456' });
+    Template.fromStack(stack).hasResourceProperties('AWS::Lambda::Function', {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ DEPLOYZ_BOOTSTRAP_VERSION: 'abc123def456' }),
+      }),
+    });
+    const { template } = synth();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ DEPLOYZ_BOOTSTRAP_VERSION: 'dev' }),
+      }),
+    });
+  });
+
+  it('keeps every function log retention at one week', () => {
+    const { template } = synth();
+    // relay + install-id + provider framework function
+    template.resourceCountIs('Custom::LogRetention', 3);
+    template.allResourcesProperties('Custom::LogRetention', {
+      RetentionInDays: 7,
+    });
+  });
+
+  it('keeps the logical ids an in-place stack update must not replace', () => {
+    // A customer-approved update re-applies this template to the live stack.
+    // Renaming or moving one of these resources makes CloudFormation replace
+    // it: a new installation id, a new relay credential, a new role, or a new
+    // relay function. Change the template without changing these ids.
+    const { template } = synth();
+    const prefixes = [
+      'InstallIdFunction',
+      'InstallationId',
+      'RelayCredentialFromParam',
+      'RelayCredentialGenerated',
+      'PermissionsBoundary',
+      'ProvisionerPolicy',
+      'RelayRole',
+      'ApplicationExecutionRole',
+      'RelayFunction',
+      'RelaySchedule',
+    ];
+    const stable = Object.keys(allResources(template))
+      .filter((id) => prefixes.some((prefix) => id.startsWith(prefix)))
+      .filter((id) => !/LogRetention|AllowEventRule/.test(id))
+      .sort();
+    expect(stable).toEqual([
+      'ApplicationExecutionRoleB4697B7D',
+      'InstallIdFunctionE00E99D3',
+      'InstallIdFunctionServiceRole9CEC2041',
+      'InstallationId',
+      'PermissionsBoundary2D0B48CC',
+      'ProvisionerPolicyCCE83F9D',
+      'RelayCredentialFromParam',
+      'RelayCredentialGenerated',
+      'RelayFunctionD137DF95',
+      'RelayRoleDefaultPolicyF6F9CA99',
+      'RelayRoleF85CA969',
+      'RelaySchedule27C29C24',
+    ]);
   });
 
   it('creates two mutually exclusive credential secrets (DZ-AUDIT-013, replaces one secret)', () => {

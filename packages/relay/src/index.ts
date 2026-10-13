@@ -139,6 +139,7 @@ import {
   type VerifyOptions,
 } from './verify.js';
 import { buildProvisioningSnapshot, type ProvisioningSnapshot } from './provision-progress.js';
+import { withLease } from './lease.js';
 import { listAllStackResources } from './stack-resources.js';
 import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
@@ -2401,7 +2402,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
  *
  * The `handler` export is what the CDK NodejsFunction invokes.
  */
-export const handler = createRelayHandler({
+export const handler = withLease(createRelayHandler({
   secretsClient: {
     async getSecretValue(params: { SecretId: string }) {
       const client = new AwsSecretsManagerClient({});
@@ -2410,4 +2411,4 @@ export const handler = createRelayHandler({
     },
   },
   fetchFn: globalThis.fetch.bind(globalThis),
-});
+}));

@@ -82,9 +82,17 @@ export interface BootstrapStackProps extends StackProps {
    * GenerateSecretString. Relay code reads the secret by name and is unchanged.
    */
   readonly relayCredential?: string;
+  /**
+   * Identity of this bootstrap build, reported by the relay as its
+   * `bootstrapVersion` and used as the key of the immutable published
+   * template. The publish script passes the source commit; an unset value is
+   * the deterministic `dev` so a plain synth is stable.
+   */
+  readonly buildId?: string;
 }
 
 const DEFAULT_CONTROL_PLANE_URL = 'https://api.deployz.dev';
+const DEFAULT_BUILD_ID = 'dev';
 
 /** Relay (phase 1) + provisioner (phase 2) permission actions, all granted at install. */
 const PHASE_1_LOG_WRITE_ACTIONS = [
@@ -710,6 +718,7 @@ export class BootstrapStack extends Stack {
       handler: 'handler',
       timeout: Duration.minutes(1),
       memorySize: 128,
+      logRetention: RetentionDays.ONE_WEEK,
       bundling: {
         format: 'esm' as OutputFormat,
         target: 'node22',
@@ -719,6 +728,7 @@ export class BootstrapStack extends Stack {
 
     const installIdProvider = new Provider(this, 'InstallIdProvider', {
       onEventHandler: installIdFunction,
+      logRetention: RetentionDays.ONE_WEEK,
     });
 
     const installIdResource = new CustomResource(this, 'InstallationId', {
@@ -1511,6 +1521,7 @@ export class BootstrapStack extends Stack {
       logRetention: RetentionDays.ONE_WEEK,
       environment: {
         DEPLOYZ_INSTALLATION_ID: this.installationId,
+        DEPLOYZ_BOOTSTRAP_VERSION: props.buildId ?? DEFAULT_BUILD_ID,
         DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecretArn,
         DEPLOYZ_CONTROL_PLANE_URL: controlPlaneUrlParam.valueAsString,
         DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
@@ -1531,9 +1542,16 @@ export class BootstrapStack extends Stack {
     });
 
     const relaySchedule = new Rule(this, 'RelaySchedule', {
-      description: 'Polls the Deployz control plane every 5 minutes (egress-only).',
-      schedule: Schedule.rate(Duration.minutes(5)),
-      targets: [new LambdaFunction(this.relayFunction)],
+      description: 'Polls the Deployz control plane every minute (egress-only).',
+      schedule: Schedule.rate(Duration.minutes(1)),
+      // A scheduled event that is skipped or throttled is dropped, not
+      // retried: the next minute's event replaces it, so no backlog builds.
+      targets: [
+        new LambdaFunction(this.relayFunction, {
+          retryAttempts: 0,
+          maxEventAge: Duration.minutes(1),
+        }),
+      ],
     });
 
     // ── 5. deployz: tags (§15) ──────────────────────────────────────────
