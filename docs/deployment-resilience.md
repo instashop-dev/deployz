@@ -86,6 +86,12 @@ watchdog, and the stack-event progress route's settlement backstop):
   carries the failure; the status derivation surfaces it
   (`deploymentStatus.failure`) without regressing the live stage, and the
   vendor UI adds "The previous version is still running."
+  The circuit breaker restores only a service whose own rollout failed. A
+  worker has no health check, so its rollout can complete on the failed
+  release. The relay therefore records each service's revision before it
+  rolls the service (`previousTaskDefinitionArns` on the pending marker),
+  and when the update fails it puts every service still on its new
+  revision back on that one (`packages/relay/src/deploy.ts`).
 - A failed **first install** or **destroy** marks the deployment `FAILED` —
   there, the operation's failure IS the environment's.
 - A **configured first start** (DEPLOY-009): when a vendor value or a

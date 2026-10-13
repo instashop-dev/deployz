@@ -364,6 +364,8 @@ type EcsDeployOutcome =
        * actually started rolling.
        */
       readonly targetTaskDefinitionArns?: Readonly<Record<string, string>>;
+      /** Per-service revisions each service ran before this command rolled it, keyed by ECS service ARN. */
+      readonly previousTaskDefinitionArns?: Readonly<Record<string, string>>;
     };
 
 /**
@@ -404,6 +406,14 @@ export interface DeploySettleContext {
    * never started rolling them.
    */
   readonly targetTaskDefinitionArns?: Readonly<Record<string, string>> | null;
+  /**
+   * The revision each service ran before this command rolled it, keyed by
+   * ECS service ARN. A failed update puts every service still on its new
+   * revision back on this one — the circuit breaker only restores a service
+   * whose own rollout failed, so a worker with no health check would stay on
+   * the failed release.
+   */
+  readonly previousTaskDefinitionArns?: Readonly<Record<string, string>> | null;
   /**
    * Command metadata for writing an early migration marker after RunTask
    * succeeds — set when the executor has the full command.  A migration task
@@ -596,6 +606,19 @@ export async function settleEcsDeploy(
           // Best effort: the failure below is the outcome either way.
         }
       }
+    } else {
+      // A failed update keeps the previous release on every workload: put
+      // each service this command moved, and that ECS did not roll back
+      // itself, back on the revision it ran before.
+      for (const view of views) {
+        const previous = context.previousTaskDefinitionArns?.[view.arn];
+        if (previous === undefined || view.service?.taskDefinition === previous) continue;
+        try {
+          await deps.ecs.updateService({ cluster, service: view.arn, taskDefinition: previous });
+        } catch {
+          // Best effort: the failure below is the outcome either way.
+        }
+      }
     }
     const reasons = failures.map((failure) => `${label(failure.view)}: ${failure.reason}`);
     return {
@@ -711,6 +734,7 @@ export async function settleEcsDeploy(
   const anyStartedFromZero =
     views.some((view) => (view.service?.desiredCount ?? 0) === 0) || context.startedFromZero === true;
   const targetArns: Record<string, string> = {};
+  const previousArns: Record<string, string> = { ...context.previousTaskDefinitionArns };
   for (const view of views) {
     if (view.alreadyRunning === true) continue;
     const service = view.service!;
@@ -741,6 +765,7 @@ export async function settleEcsDeploy(
       replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
       const registered = await deps.ecs.registerTaskDefinition(replaced);
       registeredArn = registered.taskDefinitionArn;
+      previousArns[view.arn] ??= service.taskDefinition!;
       await deps.ecs.updateService({
         cluster,
         service: view.arn,
@@ -773,6 +798,7 @@ export async function settleEcsDeploy(
     ...(migration === undefined ? {} : { migration }),
     ...(anyStartedFromZero ? { startedFromZero: true } : {}),
     targetTaskDefinitionArns: targetArns,
+    ...(Object.keys(previousArns).length > 0 ? { previousTaskDefinitionArns: previousArns } : {}),
     // Single-service stacks keep the legacy string form too, so an in-flight
     // marker written here still resumes under a relay that predates the map.
     ...(views.length === 1 ? { targetTaskDefinitionArn: targetArns[views[0]!.arn] } : {}),
@@ -1223,6 +1249,17 @@ function resolveTarget(
     // of a single-service stack.
     (serviceCount === 1 ? (context.targetTaskDefinitionArn ?? null) : null)
   );
+}
+
+/** A per-service revision map read back from the pending marker; malformed entries are dropped. */
+function revisionMap(raw: unknown): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (raw !== null && typeof raw === 'object') {
+    for (const [arn, revision] of Object.entries(raw as Record<string, unknown>)) {
+      if (arn.length > 0 && typeof revision === 'string' && revision.length > 0) map[arn] = revision;
+    }
+  }
+  return map;
 }
 
 /**
@@ -1677,6 +1714,9 @@ function rolloutFacts(outcome: Extract<EcsDeployOutcome, { state: 'in-progress' 
     ...(outcome.startedFromZero ? { startedFromZero: true } : {}),
     ...(outcome.targetTaskDefinitionArn ? { targetTaskDefinitionArn: outcome.targetTaskDefinitionArn } : {}),
     ...(outcome.targetTaskDefinitionArns ? { targetTaskDefinitionArns: outcome.targetTaskDefinitionArns } : {}),
+    ...(outcome.previousTaskDefinitionArns
+      ? { previousTaskDefinitionArns: outcome.previousTaskDefinitionArns }
+      : {}),
   };
 }
 
@@ -1702,21 +1742,15 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
     }
 
     const rawTarget = pending.payload['targetTaskDefinitionArn'];
-    const rawTargetMap = pending.payload['targetTaskDefinitionArns'];
-    const targetMap: Record<string, string> = {};
-    if (rawTargetMap !== null && typeof rawTargetMap === 'object') {
-      for (const [arn, revision] of Object.entries(rawTargetMap as Record<string, unknown>)) {
-        if (typeof arn === 'string' && arn.length > 0 && typeof revision === 'string' && revision.length > 0) {
-          targetMap[arn] = revision;
-        }
-      }
-    }
+    const targetMap = revisionMap(pending.payload['targetTaskDefinitionArns']);
+    const previousMap = revisionMap(pending.payload['previousTaskDefinitionArns']);
     const outcome = await settleEcsDeploy(deps, request, {
       allowMigration: pending.type === 'DEPLOY_RELEASE',
       migration: pending.migration ?? null,
       startedFromZero: pending.payload['startedFromZero'] === true,
       targetTaskDefinitionArn: typeof rawTarget === 'string' ? rawTarget : null,
       ...(Object.keys(targetMap).length > 0 ? { targetTaskDefinitionArns: targetMap } : {}),
+      ...(Object.keys(previousMap).length > 0 ? { previousTaskDefinitionArns: previousMap } : {}),
     });
     if (outcome.state === 'in-progress') {
       // The moment a migration task is first observed STOPPED + exit 0, pin

@@ -2137,6 +2137,72 @@ describe('settleEcsDeploy — multi-workload rollout', () => {
     }
   });
 
+  it('puts a worker that completed on the failed release back on its previous revision', async () => {
+    const WEB_PREVIOUS = 'arn:aws:ecs:us-east-1:151955775369:task-definition/web:6';
+    const WEB_TARGET = 'arn:aws:ecs:us-east-1:151955775369:task-definition/web:7';
+    const WORKER_PREVIOUS = 'arn:aws:ecs:us-east-1:151955775369:task-definition/worker:6';
+    const WORKER_TARGET = 'arn:aws:ecs:us-east-1:151955775369:task-definition/worker:7';
+    const state = baseState();
+    const single = multiFakeEcs(state);
+    const ecs: EcsDeployClient = {
+      ...single,
+      async describeServices(input) {
+        // The web rollout failed and ECS restored web:6; the worker has no
+        // health check, so its rollout completed on the failed release.
+        return {
+          services: input.services.map((arn) =>
+            arn === WORKER_SERVICE_ARN
+              ? {
+                  desiredCount: 1,
+                  runningCount: 1,
+                  taskDefinition: WORKER_TARGET,
+                  deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED', taskDefinition: WORKER_TARGET }],
+                }
+              : {
+                  desiredCount: 1,
+                  runningCount: 1,
+                  taskDefinition: WEB_PREVIOUS,
+                  deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED', taskDefinition: WEB_PREVIOUS }],
+                },
+          ),
+        };
+      },
+    };
+    const result = await settleEcsDeploy(
+      { ...(deps(state) as EcsDeployDeps), cfn: multiCfnWith(true), ecs },
+      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: null, workloads: MULTI_WORKLOADS },
+      {
+        allowMigration: true,
+        targetTaskDefinitionArns: { [SERVICE_ARN]: WEB_TARGET, [WORKER_SERVICE_ARN]: WORKER_TARGET },
+        previousTaskDefinitionArns: { [SERVICE_ARN]: WEB_PREVIOUS, [WORKER_SERVICE_ARN]: WORKER_PREVIOUS },
+      },
+    );
+
+    expect(result.state).toBe('failed');
+    expect(state.updates).toEqual([
+      expect.objectContaining({ service: WORKER_SERVICE_ARN, taskDefinition: WORKER_PREVIOUS }),
+    ]);
+  });
+
+  it('records each service revision before the rollout, so a later failure can restore it', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V2;
+    const d: EcsDeployDeps = {
+      ...(deps(state) as EcsDeployDeps),
+      cfn: multiCfnWith(true),
+      ecs: multiFakeEcs(state),
+    };
+    await run(
+      createEcsDeployExecutor(d),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, workloads: MULTI_WORKLOADS }),
+    );
+    // Both ARNs answer one shared fake service, so only the first service
+    // rolled still shows the revision it ran before.
+    const previous = (await d.pending.read())?.payload['previousTaskDefinitionArns'] as Record<string, string>;
+    expect(Object.keys(previous).sort()).toEqual([SERVICE_ARN, WORKER_SERVICE_ARN].sort());
+    expect(previous[SERVICE_ARN]).toBe(BASE_DEF_ARN);
+  });
+
   it('scales a first start from zero to each per-workload configured count', async () => {
     const state = baseState();
     state.service!.desiredCount = 0;
