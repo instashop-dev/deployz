@@ -187,6 +187,10 @@ describe('secrets truthfulness (§8)', () => {
     expect(DATA_NOT_SENT_TO_DEPLOYZ.join(' ')).not.toMatch(/secret/i);
   });
 
+  it('does not name a database engine the application may not use', () => {
+    expect(DATA_NOT_SENT_TO_DEPLOYZ.join(' ')).not.toMatch(/postgres|mysql/i);
+  });
+
   it('states the verified secret-handling facts verbatim', () => {
     expect(SECRET_HANDLING_STATEMENT).toContain('sent to Deployz over HTTPS and stored encrypted');
     expect(SECRET_HANDLING_STATEMENT).toContain('deletes the active copy');

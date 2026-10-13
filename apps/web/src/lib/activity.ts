@@ -37,7 +37,22 @@ export function activityEventLabel(event: ActivityEvent): string {
   if (event.eventType === 'install.completed' && event.payload['startAfterConfig'] === true) {
     return 'Infrastructure ready';
   }
+  if (event.eventType === 'deployment.reconciled' && isInitialReconcile(event.payload)) {
+    return 'Running version confirmed';
+  }
   return eventTypeLabel(event.eventType);
+}
+
+/**
+ * A reconcile that only confirmed the first running version corrected
+ * nothing. Newer events say so with `kind`; older ones carry no `kind`, and
+ * a missing previous release means there was nothing to correct.
+ */
+function isInitialReconcile(payload: ActivityEvent['payload']): boolean {
+  const kind = payload['kind'];
+  if (kind === 'initial') return true;
+  if (kind === 'drift') return false;
+  return payload['previousReleaseId'] == null;
 }
 
 /** How many events the feed shows before "View full activity". */

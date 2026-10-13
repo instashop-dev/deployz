@@ -230,6 +230,7 @@ export function InfrastructureSummary({
               deploymentId={detail.id}
               deploymentState={detail.state}
               purge={purge}
+              customDomainFailed={detail.customDomain?.status === 'error'}
             />
           </CollapsibleContent>
         </Collapsible>

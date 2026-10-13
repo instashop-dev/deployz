@@ -127,6 +127,7 @@ import {
   type InfraCheckOutcome,
   type RetryEligibility,
 } from '@/lib/diagnostics';
+import { isConfigurationFailure } from '@/lib/diagnostic-vocabulary';
 import { TONE_TEXT } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 import {
@@ -145,10 +146,15 @@ type DetailState =
   | {
       status: 'loaded';
       detail: FleetDeploymentDetail;
-      /** Null when the activity request failed — the feed says so. */
-      events: ActivityEvent[] | null;
+      events: EventsState;
       releases: ReleasesState;
     };
+
+/** The activity feed: loading, failed (the feed says so), or loaded. */
+type EventsState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; data: ActivityEvent[] };
 
 /** The resource inventory: loading, failed (the page stays up), or loaded. */
 type InfrastructureState =
@@ -207,6 +213,43 @@ export default function DeploymentDetailPage() {
     }
   }, [id]);
 
+  const refreshEvents = useCallback(async (): Promise<void> => {
+    try {
+      const data = await fetchDeploymentEvents(id);
+      setState((current) =>
+        current.status === 'loaded' ? { ...current, events: { status: 'loaded', data } } : current,
+      );
+    } catch {
+      // Keep the last feed if there is one; the poll refreshes it on the
+      // next lifecycle change.
+      setState((current) =>
+        current.status === 'loaded' && current.events.status !== 'loaded'
+          ? { ...current, events: { status: 'error' } }
+          : current,
+      );
+    }
+  }, [id]);
+
+  // Shows the list it already has while it refreshes; only a first load or a
+  // retry after a failure shows "Loading releases…".
+  const refreshReleases = useCallback(async (applicationId: string): Promise<void> => {
+    setState((current) =>
+      current.status === 'loaded' && current.releases.status === 'error'
+        ? { ...current, releases: { status: 'loading' } }
+        : current,
+    );
+    try {
+      const data = await fetchReleases(applicationId);
+      setState((current) =>
+        current.status === 'loaded' ? { ...current, releases: { status: 'loaded', data } } : current,
+      );
+    } catch {
+      setState((current) =>
+        current.status === 'loaded' ? { ...current, releases: { status: 'error' } } : current,
+      );
+    }
+  }, []);
+
   const load = useCallback(async (): Promise<void> => {
     let detail: FleetDeploymentDetail;
     try {
@@ -229,18 +272,20 @@ export default function DeploymentDetailPage() {
       );
       return;
     }
-    // The supporting requests degrade independently: a failed inventory or
-    // activity fetch marks its own section, never the whole page.
-    const [events, releases] = await Promise.all([
-      fetchDeploymentEvents(id).catch((): ActivityEvent[] | null => null),
-      fetchReleases(detail.applicationId)
-        .then((data): ReleasesState => ({ status: 'loaded', data }))
-        .catch((): ReleasesState => ({ status: 'error' })),
-      refreshInfrastructure(),
-    ]);
+    // The deployment renders as soon as it loads. The supporting requests
+    // run on their own and degrade independently: a failed inventory,
+    // activity or releases fetch marks its own section, never the whole page.
     lastSignature.current = { stage: detail.deploymentStatus.stage, state: detail.state };
-    setState({ status: 'loaded', detail, events, releases });
-  }, [id, refreshInfrastructure]);
+    setState((current) => ({
+      status: 'loaded',
+      detail,
+      events: current.status === 'loaded' ? current.events : { status: 'loading' },
+      releases: current.status === 'loaded' ? current.releases : { status: 'loading' },
+    }));
+    void refreshEvents();
+    void refreshReleases(detail.applicationId);
+    void refreshInfrastructure();
+  }, [id, refreshEvents, refreshReleases, refreshInfrastructure]);
 
   useEffect(() => {
     void load();
@@ -311,18 +356,12 @@ export default function DeploymentDetailPage() {
       lastSignature.current.state !== signature.state;
     lastSignature.current = signature;
     if (moved) {
-      void fetchDeploymentEvents(id)
-        .then((events) => {
-          setState((current) => (current.status === 'loaded' ? { ...current, events } : current));
-        })
-        .catch(() => {
-          // Keep the last feed; a transient failure is not a lifecycle change.
-        });
+      void refreshEvents();
     }
     // Refresh the infrastructure snapshot on every poll tick so the
     // component list stays live during disconnect.
     void refreshInfrastructure();
-  }, [poll.data, id, refreshInfrastructure]);
+  }, [poll.data, refreshEvents, refreshInfrastructure]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -362,6 +401,7 @@ export default function DeploymentDetailPage() {
           infrastructure={infrastructure}
           diagnostics={diagnostics}
           onChanged={load}
+          onRefreshReleases={refreshReleases}
         />
       ) : null}
     </div>
@@ -375,13 +415,15 @@ function DetailBody({
   infrastructure,
   diagnostics,
   onChanged,
+  onRefreshReleases,
 }: {
   detail: FleetDeploymentDetail;
-  events: ActivityEvent[] | null;
+  events: EventsState;
   releases: ReleasesState;
   infrastructure: InfrastructureState;
   diagnostics: Diagnostic[] | null;
   onChanged: () => void;
+  onRefreshReleases: (applicationId: string) => void;
 }) {
   const previousVersion =
     releases.status === 'loaded'
@@ -436,6 +478,7 @@ function DetailBody({
               updateVersion={updateTarget?.version ?? null}
               retryEligibility={diagnostic?.retryEligibility ?? null}
               onChanged={onChanged}
+              onRefreshReleases={onRefreshReleases}
             />
           }
         >
@@ -471,12 +514,14 @@ function DetailBody({
         <h2 id="activity" className="text-base font-semibold">
           Recent activity
         </h2>
-        {events === null ? (
+        {events.status === 'loading' ? (
+          <p className="text-sm text-muted-foreground">Loading activity…</p>
+        ) : events.status === 'error' ? (
           <p className="text-sm text-muted-foreground">
             Activity unavailable. Refreshes automatically.
           </p>
         ) : (
-          <ActivityFeed events={events} />
+          <ActivityFeed events={events.data} />
         )}
       </section>
 
@@ -858,6 +903,7 @@ function DeploymentActions({
   updateVersion,
   retryEligibility,
   onChanged,
+  onRefreshReleases,
 }: {
   detail: FleetDeploymentDetail;
   hero: HeroModel;
@@ -867,10 +913,17 @@ function DeploymentActions({
   updateVersion: string | null;
   retryEligibility: RetryEligibility | null;
   onChanged: () => void;
+  onRefreshReleases: (applicationId: string) => void;
 }) {
   const [open, setOpen] = useState<
     'deploy' | 'rollback' | 'restart' | 'disconnect' | 'retryInstall' | null
   >(null);
+  const { applicationId } = detail;
+  // The release list may have changed since the page loaded (a new build, a
+  // withdrawn release), so opening the picker refreshes it.
+  useEffect(() => {
+    if (open === 'deploy') onRefreshReleases(applicationId);
+  }, [open, applicationId, onRefreshReleases]);
   const moreActionsRef = useRef<HTMLButtonElement>(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
   // §24: day-2 actions act on a running application: nothing to act on
@@ -924,6 +977,10 @@ function DeploymentActions({
     busy,
     anyCapabilityGatedOff,
   });
+  // After a failure, Configuration is offered only when the failure's fix is
+  // on that screen; for any other failure a changed value would not help.
+  const failureCode = detail.deploymentStatus.failure?.code;
+  const showConfiguration = !failureCode || isConfigurationFailure(failureCode);
   const previousIsCurrent =
     detail.previousReleaseId !== null && detail.previousReleaseId === detail.currentReleaseId;
   const hasPreviousRelease = detail.previousReleaseId !== null && !previousIsCurrent;
@@ -976,7 +1033,7 @@ function DeploymentActions({
                 : 'Deploy update'}
           </Button>
         ) : null}
-        {everRan ? (
+        {everRan && showConfiguration ? (
           canConfig ? (
             <Button asChild size="sm" variant="outline">
               <Link
@@ -1053,7 +1110,7 @@ function DeploymentActions({
           onChanged();
         }}
         onCancel={() => setOpen(null)}
-        onRetryReleases={onChanged}
+        onRetryReleases={() => onRefreshReleases(detail.applicationId)}
       />
 
       <RollbackDialog
@@ -1143,11 +1200,14 @@ function DeployUpdateDialog({
   const loading = releases.status === 'loading';
   const failed = releases.status === 'error';
   const candidates = releases.status === 'loaded' ? deployableReleases(releases.data, currentReleaseId) : [];
-  const [releaseId, setReleaseId] = useState(candidates[0]?.id ?? '');
+  const [chosenReleaseId, setChosenReleaseId] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanState>({ status: 'loading' });
-  const selected = candidates.find((release) => release.id === releaseId);
+  // Releases refresh when the dialog opens, so a choice made on an older list
+  // may be gone; the first candidate stands in until one is picked.
+  const selected = candidates.find((release) => release.id === chosenReleaseId) ?? candidates[0];
+  const releaseId = selected?.id ?? '';
 
   // The update plan drives the requirement-drift warning below — this
   // application's requirements may have changed since the deployment was
@@ -1246,7 +1306,7 @@ function DeployUpdateDialog({
             ) : null}
             <div className="flex flex-col gap-2">
               <Label htmlFor="release-to-deploy">Release to deploy</Label>
-              <Select value={releaseId} onValueChange={setReleaseId}>
+              <Select value={releaseId} onValueChange={setChosenReleaseId}>
                 <SelectTrigger id="release-to-deploy" className="w-full">
                   <SelectValue placeholder="Pick a release" />
                 </SelectTrigger>

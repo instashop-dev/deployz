@@ -12,7 +12,7 @@ import { retainedResources } from './retained-resources.js';
  * array order doubles as reveal order.
  */
 const compositionTimeline: readonly TimelineEvent[] = [
-  ...happyPath.timeline.filter((event) => event.logicalResourceId !== 'ApplicationService'),
+  ...happyPath.timeline.filter((event) => event.logicalResourceId !== 'WebService'),
   { afterMs: 200, atVirtualMs: 120_000, logicalResourceId: 'CacheReplicationGroup', resourceType: 'AWS::ElastiCache::ReplicationGroup', status: 'CREATE_IN_PROGRESS' },
   { afterMs: 260, atVirtualMs: 200_000, logicalResourceId: 'CacheReplicationGroup', resourceType: 'AWS::ElastiCache::ReplicationGroup', status: 'CREATE_COMPLETE' },
   { afterMs: 350, atVirtualMs: 360_000, logicalResourceId: 'WebService', resourceType: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },

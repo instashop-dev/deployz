@@ -202,7 +202,7 @@ function OverviewTab({
         <ol className={orderedListClass}>
           <li>You create the Deployz connector in your AWS account from a standard AWS stack template.</li>
           <li>
-            Every 5 minutes, the connector calls Deployz over HTTPS and collects commands, such as
+            Every minute, the connector calls Deployz over HTTPS and collects commands, such as
             install, update or remove.
           </li>
           <li>

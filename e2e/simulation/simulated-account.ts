@@ -579,6 +579,8 @@ export class SimulatedCustomerAccount {
               const state = this.serviceStates.get(arn);
               if (state === undefined) return {};
               return {
+                serviceArn: arn,
+                loadBalancers: this.loadBalancersFor(arn, input.services[0]),
                 desiredCount: state.desiredCount,
                 runningCount: state.running && !state.healthRolloutFailed ? state.desiredCount : 0,
                 deployments: [
@@ -592,7 +594,9 @@ export class SimulatedCustomerAccount {
         const rolloutState = behavior.kind === 'rollout-failed' ? 'FAILED' : 'COMPLETED';
         const described = input.services.length > 0 ? input.services : ['simulated'];
         return {
-          services: described.map(() => ({
+          services: described.map((arn) => ({
+            serviceArn: arn,
+            loadBalancers: this.loadBalancersFor(arn, described[0]),
             desiredCount: behavior.desiredCount,
             runningCount: behavior.runningCount,
             deployments: [{ status: 'PRIMARY', rolloutState }],
@@ -638,6 +642,19 @@ export class SimulatedCustomerAccount {
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
     return `DeployzApp${pascal}${this.taskFamilySuffix}`;
+  }
+
+  /** The ALB target group's physical id, or undefined before the stack has one. */
+  private stackTargetGroupArn(): string | undefined {
+    return this.currentResourceStates().find((resource) => resource.type === 'AWS::ElasticLoadBalancingV2::TargetGroup')
+      ?.physicalId;
+  }
+
+  /** Like real ECS, only the web service (first, compile order) is registered with the target group. */
+  private loadBalancersFor(serviceArn: string, fallbackWebArn: string | undefined): { targetGroupArn: string }[] {
+    const targetGroupArn = this.stackTargetGroupArn();
+    const webArn = this.ecsServiceViews()[0]?.arn ?? fallbackWebArn;
+    return targetGroupArn !== undefined && serviceArn === webArn ? [{ targetGroupArn }] : [];
   }
 
   /** The stack's ECS services in resource order — web first (compile order). */
@@ -824,7 +841,7 @@ export class SimulatedCustomerAccount {
         const serviceArn = this.taskServiceByArn.get(taskArn);
         const state = serviceArn !== undefined ? this.serviceStates.get(serviceArn) : undefined;
         return state !== undefined && state.runningDigest !== null
-          ? [{ containers: [{ imageDigest: state.runningDigest }] }]
+          ? [{ lastStatus: 'RUNNING', containers: [{ imageDigest: state.runningDigest }] }]
           : [];
       }),
     };
@@ -859,6 +876,8 @@ export class SimulatedCustomerAccount {
             const rolledBack = state.failedDeployment;
             state.failedDeployment = null;
             return {
+              serviceArn: arn,
+              loadBalancers: this.loadBalancersFor(arn, input.services[0]),
               desiredCount: state.desiredCount,
               runningCount: failed || !state.running ? 0 : state.desiredCount,
               taskDefinition: state.taskDefinitionArn,

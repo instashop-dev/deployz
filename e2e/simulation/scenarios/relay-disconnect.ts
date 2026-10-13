@@ -41,8 +41,8 @@ export const relayDisconnect: ScenarioDefinition = {
     { afterMs: 1_200, atVirtualMs: 200_000, logicalResourceId: 'ApplicationDatabase', resourceType: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
     { afterMs: 1_250, atVirtualMs: 210_000, logicalResourceId: 'ApplicationLoadBalancer', resourceType: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_IN_PROGRESS' },
     { afterMs: 1_300, atVirtualMs: 220_000, logicalResourceId: 'ApplicationLoadBalancer', resourceType: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
-    { afterMs: 1_350, atVirtualMs: 230_000, logicalResourceId: 'ApplicationService', resourceType: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
-    { afterMs: 1_400, atVirtualMs: 240_000, logicalResourceId: 'ApplicationService', resourceType: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+    { afterMs: 1_350, atVirtualMs: 230_000, logicalResourceId: 'WebService', resourceType: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
+    { afterMs: 1_400, atVirtualMs: 240_000, logicalResourceId: 'WebService', resourceType: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
     { afterMs: 1_450, atVirtualMs: 245_000, logicalResourceId: '__stack__', resourceType: 'AWS::CloudFormation::Stack', status: 'CREATE_COMPLETE' },
   ],
 };
