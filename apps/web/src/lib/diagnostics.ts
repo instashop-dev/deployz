@@ -10,6 +10,7 @@ import type { FailureCode, FailureRecoverability } from './diagnostic-vocabulary
 // expandable technical detail. Code-driven ONLY: no diagnostic bundles, no
 // log export (S3).
 
+import { readSignal } from '@/lib/api-client';
 import { apiUrl } from '@/lib/api-url';
 import { RELAY_STALE_AFTER_MS, type RelayStatus } from '@/lib/deployment-vocabulary';
 
@@ -191,6 +192,7 @@ export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
   const response = await fetch(`${apiUrl}/api/deployments/${encodeURIComponent(id)}/diagnostics`, {
     credentials: 'include',
     cache: 'no-store',
+    signal: readSignal(),
   });
   if (!response.ok) throw new Error(`Diagnostics request failed (${response.status})`);
   const body = (await response.json()) as DiagnosticsApiResponse;

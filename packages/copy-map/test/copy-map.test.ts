@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   COMPATIBILITY_VERDICTS,
+  CONFIGURATION_FAILURE_CODES,
   COPY_RULES_65,
   DEPLOYMENT_STATE_BADGE,
   DEPLOYMENT_STATE_LABELS,
@@ -289,6 +290,22 @@ describe('§61 failure codes', () => {
       expect(remediation.why, `why for ${code}`).not.toMatch(JARGON_PATTERN);
       expect(remediation.fix, `fix for ${code}`).not.toMatch(JARGON_PATTERN);
     }
+  });
+
+  it('CONFIGURATION_FAILURE_CODES are exactly the codes whose fix names the Configuration screen', () => {
+    for (const code of FAILURE_CODES) {
+      expect(
+        CONFIGURATION_FAILURE_CODES.has(code),
+        `${code} Configuration action matches its remediation`,
+      ).toBe(FAILURE_REMEDIATION[code].fix.includes('Configuration screen'));
+    }
+  });
+
+  it('CONTAINER_START_FAILED remediation names the start command, the port and the required values', () => {
+    const { fix } = FAILURE_REMEDIATION.CONTAINER_START_FAILED;
+    expect(fix).toMatch(/start command/);
+    expect(fix).toMatch(/port/);
+    expect(fix).toMatch(/required values/);
   });
 
   it('REDIS_CONNECTION_FAILED remediation mentions redeploying', () => {

@@ -9,7 +9,7 @@ import type { CustomDomainStatus } from './domains';
 // vocabulary only — no raw AWS/CFN/ECS terms at the top level (M14:
 // deployment health only).
 
-import { apiRequest, ApiRequestError, errorMessage } from '@/lib/api-client';
+import { apiRequest, ApiRequestError, errorMessage, readSignal } from '@/lib/api-client';
 import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 import { apiUrl } from '@/lib/api-url';
 
@@ -290,6 +290,7 @@ async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     credentials: 'include',
     cache: 'no-store',
+    signal: readSignal(),
   });
   if (!response.ok) {
     throw new DeploymentRequestError(`Deployments request failed (${response.status})`, response.status);
@@ -380,6 +381,12 @@ export class DeploymentActionError extends Error {
  * against the busy gate; say what is actually happening instead.
  */
 export function actionErrorMessage(caught: unknown, fallback: string): string {
+  // No answer from the API (network failure): the request may still have
+  // been received, so do not invite a blind retry. The page refreshes the
+  // deployment and shows the real outcome.
+  if (caught instanceof TypeError || caught instanceof DOMException) {
+    return "We couldn't confirm that this request was received. Check the deployment status before you try again.";
+  }
   if (caught instanceof DeploymentActionError && caught.code === 'DEPLOYMENT_BUSY') {
     return 'Another operation is already running on this deployment. Wait for it to finish, then try again.';
   }

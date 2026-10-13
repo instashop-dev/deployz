@@ -20,7 +20,7 @@ export const DENIED_LOG_READ_ACTIONS = [
  * entry against the resource types in the deployed template.
  */
 export const CONNECTOR_STACK_RESOURCES = [
-  'Connector function (AWS Lambda) and its EventBridge schedule, which runs it every 5 minutes',
+  'Connector function (AWS Lambda) and its EventBridge schedule, which runs it every minute',
   'Connector role, with a permissions boundary and the provisioner policy',
   'CloudFormation execution role for your application stack',
   "Secrets Manager secret that holds the connector's Deployz credential",
@@ -49,7 +49,7 @@ export const DATA_SENT_TO_DEPLOYZ = [
  */
 export const DATA_NOT_SENT_TO_DEPLOYZ = [
   'Your application runtime and its in-memory data',
-  'Your PostgreSQL data',
+  'Your database data',
   'Your cache contents',
   'Your S3 data',
   'Your application CloudWatch logs',

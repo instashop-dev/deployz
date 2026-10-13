@@ -4,7 +4,6 @@ import {
   DOMAIN_STATUS_LABEL,
   domainErrorCopy,
   fetchDomainAccess,
-  isGenericDomainError,
   type CustomDomainStatus,
 } from '../src/lib/domains';
 
@@ -33,7 +32,6 @@ describe('domainErrorCopy', () => {
 
   it('maps CERTIFICATE_FAILED to a specific, non-generic message', () => {
     expect(domainErrorCopy('CERTIFICATE_FAILED')?.title).toBe("The HTTPS certificate couldn't be issued");
-    expect(isGenericDomainError('CERTIFICATE_FAILED')).toBe(false);
   });
 
   it('maps DNS_VALIDATION_NOT_FOUND', () => {
@@ -80,31 +78,6 @@ describe('domainErrorCopy', () => {
       body: 'Domain setup resumes once the deployment is running again.',
     });
   });
-});
-
-// CustomDomainCard uses this to switch its "Check again"/"Retry" button
-// label without re-declaring GENERIC_ERROR_COPY's strings itself.
-describe('isGenericDomainError', () => {
-  it('returns false for null (no error)', () => {
-    expect(isGenericDomainError(null)).toBe(false);
-  });
-
-  it.each([
-    'DNS_VALIDATION_NOT_FOUND',
-    'DNS_ROUTING_MISMATCH',
-    'AWS_PERMISSION_DENIED',
-    'HTTPS_NOT_REACHABLE',
-    'DEPLOYMENT_NOT_RUNNING',
-  ])('returns false for the specifically-copied code %s', (code) => {
-    expect(isGenericDomainError(code)).toBe(false);
-  });
-
-  it.each(['CONFIGURE_FAILED', 'REMOVE_FAILED', 'SOME_UNKNOWN_CODE'])(
-    'returns true for %s (generic connect-failure copy)',
-    (code) => {
-      expect(isGenericDomainError(code)).toBe(true);
-    },
-  );
 });
 
 // `fetchDomain` collapses "no domain yet" and "no access" into the same

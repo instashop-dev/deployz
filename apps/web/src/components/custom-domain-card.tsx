@@ -20,7 +20,6 @@ import {
   domainErrorCopy,
   fetchDomainAccess,
   fetchDomainByLink,
-  isGenericDomainError,
   removeDomain,
   type CustomDomainStatus,
   type CustomDomainView,
@@ -111,9 +110,10 @@ export function CustomDomainCard(props: {
 
   const status = domain?.status ?? null;
 
-  // Poll while a domain exists and hasn't settled into 'active'.
+  // Poll while a domain exists and hasn't settled into 'active' or the
+  // terminal 'error' (nothing changes it until it is removed).
   useEffect(() => {
-    if (!ready || status === null || status === 'active') return;
+    if (!ready || status === null || status === 'active' || status === 'error') return;
     let cancelled = false;
     const timer = setInterval(() => {
       const refresh =
@@ -377,7 +377,6 @@ function DomainStatusBody({
 
     case 'error': {
       const copy = domainErrorCopy(domain.error);
-      const isGeneric = isGenericDomainError(domain.error);
       return (
         <>
           {copy ? (
@@ -387,14 +386,20 @@ function DomainStatusBody({
             </div>
           ) : null}
           <DnsRecordsList records={domain.records} />
-          <CheckAndRemoveRow
-            canManage={canManage}
-            checking={checking}
-            checkLabel={isGeneric ? 'Retry' : 'Check again'}
-            checkError={checkError}
-            onCheck={onCheck}
-            onOpenRemove={onOpenRemove}
-          />
+          {/* Deployz does not retry a domain in this state. Only removing it
+              and adding it again starts a new attempt. */}
+          <p className="text-sm text-muted-foreground">
+            {canManage
+              ? 'Remove this domain, then add it again to start over.'
+              : 'Ask the application owner to remove this domain and add it again.'}
+          </p>
+          {canManage ? (
+            <div>
+              <Button type="button" size="sm" variant="destructive" onClick={onOpenRemove}>
+                Remove domain
+              </Button>
+            </div>
+          ) : null}
         </>
       );
     }

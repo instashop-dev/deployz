@@ -267,6 +267,21 @@ export function isAppOwnedStartupFailure(
   );
 }
 
+/**
+ * The §61 codes whose fix is on the Configuration screen (mirrors copy-map
+ * verbatim). The deployment page offers the Configuration action after a
+ * failure only for these codes.
+ */
+export const CONFIGURATION_FAILURE_CODES = [
+  'CONTAINER_START_FAILED',
+  'MISSING_SECRET',
+] as const satisfies readonly FailureCode[];
+
+/** True when a failure code is fixed on the Configuration screen. */
+export function isConfigurationFailure(code: string): boolean {
+  return (CONFIGURATION_FAILURE_CODES as readonly string[]).includes(code);
+}
+
 /** §65 headline for a failed first install whose app could not start. */
 export const STARTUP_FAILURE_TITLE = "Application couldn't start";
 
