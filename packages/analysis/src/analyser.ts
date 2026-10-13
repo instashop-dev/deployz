@@ -35,6 +35,8 @@ import {
   hasPreDeployMigration,
   isRuntimeSourcePath,
   detectDockerfileMissingCopySources,
+  dockerfileSelectionTied,
+  pathInRuntimeImage,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -172,6 +174,19 @@ function buildRedisFinding(redis: RedisRequirement): DetectorFinding {
   };
 }
 
+// Node job libraries and `worker_threads` run inside the web process by default. A repository
+// whose only worker evidence is one of these needs no separate worker process; a declared
+// worker process, a queue worker command or a Compose worker service still does.
+const IN_PROCESS_WORKER_PATTERNS: ReadonlySet<string> = new Set([
+  'bull',
+  'bullmq',
+  'agenda',
+  'bree',
+  'pg-boss',
+  'graphile-worker',
+  'worker_threads',
+]);
+
 /**
  * Build a flat metadata record from findings.
  * Maps detector names to their detected values for easy JSONB storage and querying.
@@ -222,6 +237,7 @@ function buildMetadata(
       case 'worker':
         meta['hasWorkerProcesses'] = f.detected;
         if (f.detected && f.value) meta['workerPatterns'] = f.value;
+        meta['workerNeedsProcess'] = Array.isArray(f.value) && f.value.some((pattern) => !IN_PROCESS_WORKER_PATTERNS.has(pattern));
         break;
       case 's3':
         meta['usesS3'] = f.detected;
@@ -370,10 +386,13 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // command. It is shown in the readiness finding for the vendor to accept
   // as the migration command, never written into the manifest.
   if (metadata['migrationMode'] === 'unknown') {
-    const manage = Object.entries(tree).find(
-      ([path, content]) => /(?:^|\/)manage\.py$/.test(path) && /DJANGO_SETTINGS_MODULE/.test(content ?? ''),
-    );
-    if (manage) metadata['suggestedMigrationCommand'] = `python ${manage[0]} migrate --noinput`;
+    // The path is the one in the runtime image (`COPY ./src ./` puts `src/manage.py` at `manage.py`);
+    // a manage.py the image never copies gives no suggestion.
+    const manage = Object.entries(tree)
+      .filter(([path, content]) => /(?:^|\/)manage\.py$/.test(path) && /DJANGO_SETTINGS_MODULE/.test(content ?? ''))
+      .map(([path]) => pathInRuntimeImage(tree, path))
+      .find((path) => path !== null);
+    if (manage) metadata['suggestedMigrationCommand'] = `python ${manage} migrate --noinput`;
   }
 
   // §11.4 — the full unsupported-reason list the manifest gate turns into
@@ -444,6 +463,9 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // read-model over the env-var model — never feeds back into a verdict.
   metadata['infrastructureBindings'] = deriveInfrastructureBindings(tree, result);
   metadata['dockerfileMissingSources'] = detectDockerfileMissingCopySources(tree);
+  // The Dockerfiles that no ranking signal tells apart from the selected one: the pick is a guess.
+  const tiedDockerfiles = dockerfileSelectionTied(tree);
+  if (tiedDockerfiles) metadata['dockerfileSelectionTied'] = tiedDockerfiles;
   // A standard database name written in a runtime file (a Go `case "DATABASE_URL":`,
   // a compose `environment:` entry) is evidence that the app reads it, even
   // when the read shape is not one the env-var model parses.
@@ -457,9 +479,9 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 
 /**
  * Derive the `databaseState` metadata value from the detector findings and
- * §10 rejections. PostgreSQL and (Phase 4B) MySQL take priority over an
- * unsupported DB; a required MySQL wins over an unrequired PostgreSQL
- * library, the same engine choice the manifest makes. Only a rejection
+ * §10 rejections. The required engine comes first, in the manifest's order (PostgreSQL,
+ * then MySQL); an unsupported database outranks a PostgreSQL driver that nothing
+ * requires (a SQLite app with `drizzle-orm`). Only a rejection
  * whose dependency is an actual DATABASE
  * token (§10) counts here — an architecture/cloud/cache rejection (§11.4)
  * means the app is unsupported but is not a "database" verdict, and
@@ -471,14 +493,14 @@ function deriveDatabaseState(
   postgresRequired: boolean,
   mysqlRequired: boolean,
 ): DatabaseState {
-  if (mysqlRequired && !postgresRequired) return 'mysql';
-  const postgres = findings.find((f) => f.detector === 'postgresql')?.detected === true;
-  if (postgres) return 'postgres';
+  if (postgresRequired) return 'postgres';
+  if (mysqlRequired) return 'mysql';
 
   const unsupportedDb = rejections.some(
     (r) => r.detected && r.dependency !== 'redis-unsupported' && DATABASE_REJECTION_TOKENS.has(r.dependency),
   );
   if (unsupportedDb) return 'unsupported';
 
-  return 'none';
+  const postgres = findings.find((f) => f.detector === 'postgresql')?.detected === true;
+  return postgres ? 'postgres' : 'none';
 }
