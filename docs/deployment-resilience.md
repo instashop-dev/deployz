@@ -684,11 +684,26 @@ group and subnet it pins, so the stack first lands on `DELETE_FAILED` —
 expected pacing (45+ minutes of CloudFormation retrying), not a failure.
 The relay lists the `DELETE_FAILED` resources and re-issues
 `delete-stack` with `RetainResources`, repeating the pass on each poll
-until the stack reaches `DELETE_COMPLETE`. The deployment then settles
+until the stack reaches `DELETE_COMPLETE`. Only the RDS instance and the
+network it pins (DB subnet group, security group, subnet, VPC — and the
+network only while a database is blocked or already retained) may be
+retained. Any other `DELETE_FAILED` resource is a real failure:
+`STACK_DELETE_FAILED` naming its logical id, type and reason, nothing retained. The deployment then settles
 `DELETED` — truthfully: the application, network and cache are gone; the
 database, its credential secrets and the bucket are deliberately retained
 (no final snapshot is ever taken), clearly visible, and removable by
 PURGE.
+
+After a DEPLOY_RELEASE, ROLLBACK or CONFIG_UPDATE has settled
+successfully, the relay deregisters old task-definition revisions it
+registered (best effort, at most 10 per invocation, never failing the
+command). It touches only families its own stack created and only when the
+family carries the installation suffix (shared v2-1/v2-2 families are
+skipped). It keeps the stack-created revision, every revision a service
+deployment uses, the target and previous revisions of the command, and the
+newest 3 revisions of each family as rollback headroom. It needs
+`ecs:ListTaskDefinitions` and `ecs:DeregisterTaskDefinition` on the relay
+role; without them it silently does nothing.
 
 PURGE is the second, explicit half. It deletes the retained data — every
 retained RDS instance (PostgreSQL or MySQL; deletion protection off,

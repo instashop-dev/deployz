@@ -779,6 +779,83 @@ describe('CONFIG_UPDATE settlement — success only after every rollout complete
   });
 });
 
+describe('CONFIG_UPDATE — superseded task-definition revision cleanup', () => {
+  const FAMILY_PREFIX = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppWebinsttest';
+  const command = {
+    id: 'job-config',
+    deploymentId: 'dep-1',
+    type: 'CONFIG_UPDATE' as const,
+    idempotencyKey: 'dep-1:CONFIG_UPDATE:job-config',
+    payload: { changedKeys: ['LOG_LEVEL'] },
+  };
+  const entries: EffectiveConfigEntry[] = [{ key: 'LOG_LEVEL', isSecret: false, value: 'debug', source: 'vendor' }];
+
+  function stack(rollout: 'COMPLETED' | 'ROLLED_BACK') {
+    const base = cfnWithService({ withConfigSecret: true });
+    const owned = {
+      logicalId: 'WebTaskDefinition',
+      type: 'AWS::ECS::TaskDefinition',
+      status: 'CREATE_COMPLETE',
+      physicalId: `${FAMILY_PREFIX}:1`,
+    };
+    const deregistered: string[] = [];
+    const ecs = {
+      ...ecsWith({ desiredCount: 2, rollout: { state: rollout } }),
+      async listTaskDefinitions() {
+        return { taskDefinitionArns: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `${FAMILY_PREFIX}:${n}`) };
+      },
+      async deregisterTaskDefinition(input: { taskDefinition: string }) {
+        deregistered.push(input.taskDefinition);
+      },
+    };
+    return {
+      deregistered,
+      deps: {
+        cfn: {
+          ...base,
+          async describeStack() {
+            return {
+              found: true as const,
+              stack: {
+                stackName: 'deployz-app',
+                status: 'CREATE_COMPLETE',
+                tags: { 'deployz:installation': 'inst-test' },
+                stackId: 'stack-id-deployz-app',
+              },
+            };
+          },
+          async listStackResources(name: string, token?: string) {
+            const page = await base.listStackResources!(name, token);
+            return page === null ? null : { resources: [...page.resources, owned] };
+          },
+        },
+        ecs,
+        secrets: fakeSecretsWriter(),
+        fetchEffectiveConfig: async () => entries,
+        stackName: 'deployz-app',
+        installationId: 'inst-test',
+        ...rolloutDeps(),
+      },
+    };
+  }
+
+  it('deregisters only eligible old revisions once the rollout settled successfully', async () => {
+    const { deps, deregistered } = stack('COMPLETED');
+    await createConfigUpdateExecutor(deps)(command);
+    const [result] = await createConfigUpdateResumer(deps)();
+    expect(result?.success).toBe(true);
+    expect(deregistered).toEqual([2, 3, 4, 5].map((n) => `${FAMILY_PREFIX}:${n}`));
+  });
+
+  it('deregisters nothing when the rollout failed', async () => {
+    const { deps, deregistered } = stack('ROLLED_BACK');
+    await createConfigUpdateExecutor(deps)(command);
+    const [result] = await createConfigUpdateResumer(deps)();
+    expect(result?.success).toBe(false);
+    expect(deregistered).toEqual([]);
+  });
+});
+
 describe('unappliedConfigurationKeys', () => {
   function definition(
     environment: { name: string; value: string }[],
