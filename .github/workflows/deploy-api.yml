@@ -284,6 +284,18 @@ jobs:
       - name: Build workspace packages
         run: pnpm build
 
+      # The connector build id is a hash of the bootstrap template, so it
+      # changes only when the connector changes. The API learns it only when
+      # the template is republished below: an API that knew an id with no
+      # published template behind it would offer customers a dead link.
+      - name: Compute the connector build id
+        if: ${{ vars.BOOTSTRAP_REPUBLISH == 'on' }}
+        run: |
+          set -euo pipefail
+          id=$(pnpm --filter @deployz/cdk run --silent bootstrap:build-id)
+          echo "Connector build id: ${id}"
+          echo "BOOTSTRAP_BUILD_ID=${id}" >> "$GITHUB_ENV"
+
       - name: Deploy the control-plane stack
         working-directory: packages/cdk
         run: |

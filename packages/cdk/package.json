@@ -17,6 +17,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "synth:bootstrap": "node scripts/synth-bootstrap.mjs",
     "cdk": "cdk",
+    "bootstrap:build-id": "node scripts/bootstrap-build-id.mjs",
     "publish:bootstrap": "node scripts/publish-bootstrap.mjs",
     "audit:deployment": "node scripts/audit-deployment.mjs"
   },

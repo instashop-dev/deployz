@@ -199,13 +199,26 @@ function timeout, so a crashed invocation does not block the relay for
 long. The install-id function, its provider function and the relay function
 keep their logs for one week.
 
-The API offers a customer-approved connector update when `BOOTSTRAP_BUILD_ID` (the
-build id `publish:bootstrap` prints) is set on the API Lambda and a deployment's
-connector reports another build, or reports no release evidence. The offer
-links the existing stack in the CloudFormation console and the immutable
-template at `bootstrap/v1/versions/<buildId>/bootstrap-template-v1.json`;
-Deployz still cannot update the stack itself. Without `BOOTSTRAP_BUILD_ID` only
-the missing-evidence case is offered, with the fixed latest template.
+The connector build id is the first 12 hex characters of the SHA-256 of the
+bootstrap template (synthesized with the placeholder id `dev`). The template
+holds the content-addressed relay asset hash, so the id changes only when the
+connector changes, not on each commit. `pnpm --filter @deployz/cdk run --silent
+bootstrap:build-id` prints it. `BOOTSTRAP_BUILD_ID` overrides it.
+
+When `BOOTSTRAP_REPUBLISH` is `on`, `deploy-api.yml` computes the id once
+before the API deploy and exports it as `BOOTSTRAP_BUILD_ID` to the CDK deploy
+(API Lambda environment) and to the later republish step, which publishes the
+immutable template at `bootstrap/v1/versions/<buildId>/bootstrap-template-v1.json`.
+When `BOOTSTRAP_REPUBLISH` is off, CI does not set `BOOTSTRAP_BUILD_ID`, so
+the API cannot name a versioned template that was not published.
+
+The API offers a customer-approved connector update when `BOOTSTRAP_BUILD_ID`
+is set and a deployment's connector reports another build, or reports no
+release evidence. The offer links the existing stack in the CloudFormation
+console and the versioned template; Deployz still cannot update the stack
+itself. Without `BOOTSTRAP_BUILD_ID` only the missing-evidence case is offered,
+with the fixed latest template. If the republish step fails after the API
+deploy, run the workflow again to publish the template.
 
 Until `BOOTSTRAP_TEMPLATE_URL` is set, the API returns no Quick Create URL
 and the install page says no template has been published. A Region that is

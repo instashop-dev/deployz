@@ -57,12 +57,11 @@
  *                         control plane stack (read via CloudFormation).
  *   API_URL               control-plane URL baked into every link.
  *   BOOTSTRAP_BUILD_ID    build identity the relay reports and the immutable
- *                         template copy is keyed by. Defaults to the short
- *                         source commit (`-dirty` with local changes).
+ *                         template copy is keyed by. Defaults to the content
+ *                         hash of the template (`bootstrap:build-id`).
  *   AWS_REGION            region of the legacy bucket.
  */
 import { CloudFormationClient, ListExportsCommand } from '@aws-sdk/client-cloudformation';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,6 +72,7 @@ import {
   createRealS3Client,
   parsePublishRegions,
   publishBootstrapToAllRegions,
+  resolveBootstrapBuildId,
   synthesizeBootstrapStack,
 } from '../dist/quick-create/publish.js';
 
@@ -106,22 +106,11 @@ async function resolveBucket() {
   );
 }
 
-/**
- * The build identity the relay reports and the immutable template is keyed
- * by: BOOTSTRAP_BUILD_ID, else the short source commit (`-dirty` when the
- * working tree has changes, so a local build never claims a clean commit).
- */
-function resolveBuildId() {
-  if (process.env.BOOTSTRAP_BUILD_ID) return process.env.BOOTSTRAP_BUILD_ID;
-  const sha = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { encoding: 'utf8' }).trim();
-  const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim() !== '';
-  return dirty ? `${sha}-dirty` : sha;
-}
-
 const bucket = await resolveBucket();
 const outdir = mkdtempSync(join(tmpdir(), 'deployz-bootstrap-'));
 
-const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, buildId: resolveBuildId() });
+const buildId = await resolveBootstrapBuildId({ outdir, controlPlaneUrl });
+const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, buildId });
 
 // One real S3 client + verifier per region (each bound to that region's
 // endpoint), assets built once and reused everywhere. When
