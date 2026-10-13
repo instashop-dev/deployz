@@ -54,6 +54,8 @@ export interface DefaultHttpsFixtureProvider {
    *  simulated deployments against one shared server, so unscoped failures
    *  would bleed across parallel workers). Consumed FIFO per operation. */
   queueFailures(count: number, code: FixtureDnsFailureCode, deploymentId?: string): void;
+  /** Drop every unconsumed scripted failure scoped to `deploymentId`. */
+  clearFailures(deploymentId: string): void;
   /** How many scripted failures remain unconsumed. */
   remainingFailures(): number;
   /** Plant a raw record, bypassing the namespace guard (simulates leftovers). */
@@ -193,6 +195,11 @@ export function createDefaultHttpsFixtureProvider(apex: string, prefix = 'd-'): 
     queueFailures: (count, code, deploymentId) => {
       for (let i = 0; i < count; i += 1) {
         failureQueue.push(deploymentId === undefined ? { code } : { deploymentId, code });
+      }
+    },
+    clearFailures: (deploymentId) => {
+      for (let i = failureQueue.length - 1; i >= 0; i -= 1) {
+        if (failureQueue[i]!.deploymentId === deploymentId) failureQueue.splice(i, 1);
       }
     },
     remainingFailures: () => failureQueue.length,

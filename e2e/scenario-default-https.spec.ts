@@ -489,15 +489,26 @@ test.describe('default-https-i permanent failure and retry', () => {
     test.setTimeout(120_000);
     const { deploymentId } = deployzInstall;
 
-    // The default-HTTPS machine budgets MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES=5
-    // configure attempts. Queue enough unavailable failures to exhaust it.
-    // Each unavailable write consumes one budget slot.
-    await queueDnsFailures(request, deploymentId, 'unavailable', 5);
+    // The machine's budget is elapsed time (30 minutes). Keep every write
+    // failing, wait until the budget has started, then age it past the limit.
+    await queueDnsFailures(request, deploymentId, 'unavailable', 100_000);
+    await expect
+      .poll(async () => (await getDeployment(request, deploymentId)).defaultHttps?.configureAttempts ?? 0, {
+        timeout: 40_000,
+        message: 'waiting for the configure budget to start',
+      })
+      .toBeGreaterThan(1);
 
-    // The machine tries to configure, fails each time, and hits ERROR.
+    // The machine tries to configure, fails each time, and hits ERROR. The
+    // aging repeats because a heartbeat pass can overwrite it.
     await expect
       .poll(
-        async () => (await getDeployment(request, deploymentId)).defaultHttps?.status ?? 'absent',
+        async () => {
+          await request.post(`${API_URL}/internal/fixture/default-https-budget`, {
+            data: { deploymentId, ageMs: 31 * 60_000 },
+          });
+          return (await getDeployment(request, deploymentId)).defaultHttps?.status ?? 'absent';
+        },
         { timeout: 40_000, message: 'waiting for default-HTTPS to reach ERROR after budget exhaustion' },
       )
       .toBe('ERROR');
@@ -515,6 +526,12 @@ test.describe('default-https-i permanent failure and retry', () => {
     // No INSTALL/DESTROY was re-triggered — ERROR is a DNS-only state.
     const types = (stillErrored.jobs ?? []).map((j: { type: string }) => j.type);
     expect(types.filter((t: string) => t === 'INSTALL')).toHaveLength(1);
+
+    // Stop the scripted failures so the retry can succeed.
+    const cleared = await request.post(`${API_URL}/internal/fixture/default-https-budget`, {
+      data: { deploymentId, clear: true },
+    });
+    expect(cleared.ok()).toBeTruthy();
 
     // Vendor retry route resets the machine to PENDING + fresh budget.
     const retryResp = await request.post(

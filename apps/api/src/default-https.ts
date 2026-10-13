@@ -506,6 +506,9 @@ export interface DefaultHttpsDeps {
   probeHttps: (hostname: string) => Promise<HttpsProbeResult>;
   /** Clock seam (epoch ms); tests inject it. Defaults to `Date.now`. */
   now?: () => number;
+  /** Least time between two DNS attempts. Production keeps the default; only
+   *  the simulated E2E fixture lowers it. */
+  minAttemptIntervalMs?: number;
 }
 
 const EVER_INSTALLED_STATES = new Set<string>(['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE']);
@@ -637,7 +640,8 @@ export async function runDefaultHttpsCheck(
         // At most one attempt per interval, however often the relay checks in.
         if (
           working.lastDnsCheckAt &&
-          now() - Date.parse(working.lastDnsCheckAt) < DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS
+          now() - Date.parse(working.lastDnsCheckAt) <
+            (deps.minAttemptIntervalMs ?? DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS)
         ) {
           return;
         }

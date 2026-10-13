@@ -172,7 +172,7 @@ describe('bootstrap permissions ↔ deployed template', () => {
       expect(types).toContain(type);
     }
     const schedule = resources[logicalId('RelaySchedule', 'AWS::Events::Rule')]!;
-    expect(schedule.Properties.ScheduleExpression).toBe('rate(5 minutes)');
+    expect(schedule.Properties.ScheduleExpression).toBe('rate(1 minute)');
     const retention = resources[logicalId('RelayFunctionLogRetention', 'Custom::LogRetention')]!;
     expect(retention.Properties.RetentionInDays).toBe(7);
   });
