@@ -1,21 +1,21 @@
 {
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "total": 123,
   "analysed": 123,
   "failed": 0,
   "fullMatch": 5,
-  "verdictMatch": 89,
-  "verdictAccuracy": 72.4,
-  "falseAcceptances": 11,
+  "verdictMatch": 93,
+  "verdictAccuracy": 75.6,
+  "falseAcceptances": 7,
   "falseRejections": 11,
   "configurationMismatches": 12,
   "factMismatches": {
     "appRoot": 12,
-    "compatibility": 34,
+    "compatibility": 30,
     "dockerfilePath": 17,
     "healthPath": 44,
-    "migration": 98,
+    "migration": 99,
     "port": 17,
     "postgres": 17,
     "redis": 11,
@@ -24,8 +24,8 @@
     "worker": 31
   },
   "byFindingType": {
-    "ANALYSIS_BUG": 74,
-    "ANALYSIS_MISSING_SIGNAL": 167,
+    "ANALYSIS_BUG": 75,
+    "ANALYSIS_MISSING_SIGNAL": 163,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
@@ -764,13 +764,13 @@
     "improvement": {
       "total": 83,
       "analysed": 83,
-      "verdictMatch": 60,
+      "verdictMatch": 62,
       "fullMatch": 3
     },
     "unseen": {
       "total": 20,
       "analysed": 20,
-      "verdictMatch": 13,
+      "verdictMatch": 15,
       "fullMatch": 2
     },
     "unseen2": {
@@ -784,7 +784,7 @@
     "boundary": {
       "total": 24,
       "analysed": 24,
-      "verdictMatch": 20,
+      "verdictMatch": 21,
       "fullMatch": 2
     },
     "messy": {
@@ -796,7 +796,7 @@
     "realistic": {
       "total": 72,
       "analysed": 72,
-      "verdictMatch": 46,
+      "verdictMatch": 49,
       "fullMatch": 2
     }
   }

@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 14,
     "entries": 218,
@@ -29,7 +29,8 @@
     "port": 9000,
     "healthPath": "/actuator/health",
     "unsupported": [
-      "kafka"
+      "kafka",
+      "no-buildable-dockerfile"
     ]
   },
   "status": "analysed",
@@ -58,13 +59,16 @@
     "externalServices": [],
     "requiredEnvVars": [],
     "unsupported": [
-      "kafka"
+      "kafka",
+      "no-buildable-dockerfile"
     ],
     "readinessFindings": [
       "unsupported-message-queue",
+      "unsupported-no-dockerfile",
       "health-check"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "dockerfile-missing-sources",
       "health-path-required",
@@ -137,10 +141,12 @@
     {
       "fact": "unsupported",
       "expected": [
-        "kafka"
+        "kafka",
+        "no-buildable-dockerfile"
       ],
       "actual": [
-        "kafka"
+        "kafka",
+        "no-buildable-dockerfile"
       ],
       "match": true
     }

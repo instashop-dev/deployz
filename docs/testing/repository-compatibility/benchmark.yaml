@@ -54,6 +54,8 @@ findings:
   - { id: COMP-045, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
   - { id: COMP-046, type: ANALYSIS_BUG, facts: [compatibility] }
   - { id: COMP-047, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
+  - { id: COMP-048, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
+  - { id: COMP-049, type: ANALYSIS_BUG, facts: [migration] }
 
 repositories:
   - id: repo-001
@@ -291,7 +293,7 @@ repositories:
     cohort: realistic
     set: improvement
     expected:
-      compatibility: NEEDS_CONFIGURATION
+      compatibility: NOT_COMPATIBLE
       runtime: [node]
       monorepo: false
       postgres: false
@@ -301,11 +303,12 @@ repositories:
       migration: false
       appRoot: .
       port: 5006
-      unsupported: []
+      unsupported:
+        - no-buildable-dockerfile
     customer_realism: high
     difficulty: 1
     notes:
-      - "No Dockerfile anywhere (Procfile web: node index.js, package.json start: node index.js) -> NEEDS_CONFIGURATION."
+      - "No Dockerfile anywhere (Procfile web: node index.js, package.json start: node index.js) -> NOT_COMPATIBLE, unsupported no-buildable-dockerfile (Stage A re-baseline, analysis v52: MVP scope \"Needs a Dockerfile that builds a production image\"; 0 Dockerfile paths in the full 27-entry tree)."
       - "index.js: process.env.PORT || 5006; a single GET / route; dependencies express + ejs only. No health route."
 
   - id: repo-010
@@ -607,7 +610,7 @@ repositories:
     cohort: realistic
     set: improvement
     expected:
-      compatibility: NEEDS_CONFIGURATION
+      compatibility: NOT_COMPATIBLE
       runtime:
         - node
       monorepo: false
@@ -618,7 +621,8 @@ repositories:
       migration: true
       port: 3000
       healthPath: /api/health
-      unsupported: []
+      unsupported:
+        - no-buildable-dockerfile
     customer_realism: high
     difficulty: 4
     findings: [COMP-015, COMP-030]
@@ -633,6 +637,7 @@ repositories:
       - "Health: pages/api/health.ts runs `prisma.$queryRaw\\`SELECT 1\\`` and returns 200/500 JSON -> /api/health."
       - "Port: no explicit PORT config found in code; taken from the Next.js `next start` framework default (3000), not from an explicit env default -> weaker evidence than the other four repos in this batch."
       - "Root package.json has no `workspaces` field -> monorepo: false. Root Pipfile/Pipfile.lock (tinybird-cli) is an unrelated dev/analytics CLI tool, not part of the deployed app."
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": no Dockerfile path exists in the full tree (2381 entries) -> NOT_COMPATIBLE, unsupported no-buildable-dockerfile."
   - id: repo-021
     repository: directus/directus
     commit: ea25ba63db11d4e25c0b1a4e5b8926a64dadbfee
@@ -679,7 +684,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-026, COMP-011, COMP-012, COMP-028, COMP-005]
+    findings: [COMP-026, COMP-011, COMP-012, COMP-028, COMP-005, COMP-049]
     notes: []
   - id: repo-023
     repository: requarks/wiki
@@ -703,7 +708,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 2
-    findings: [COMP-024, COMP-014, COMP-020, COMP-027]
+    findings: [COMP-024, COMP-014, COMP-020, COMP-027, COMP-048]
     notes: []
   - id: repo-024
     repository: calcom/cal.diy
@@ -1000,6 +1005,7 @@ repositories:
       healthPath: /
       unsupported:
         - local-filesystem
+        - multi-process-image
     customer_realism: high
     difficulty: 4
     findings: [COMP-011, COMP-015, COMP-014, COMP-039]
@@ -1012,6 +1018,7 @@ repositories:
       - "Storage: STORAGES['default'] is 'django.core.files.storage.FileSystemStorage' (settings/__init__.py); no boto3/django-storages/S3 code anywhere in pyproject.toml or the tree. Documents (the archived files) are paperless-ngx's core product data, persisted under /usr/src/paperless/media and /consume with no object-storage alternative -> unsupported: [local-filesystem] -> NOT_COMPATIBLE, overriding the secret-key NEEDS_CONFIGURATION."
       - "Health: the Dockerfile HEALTHCHECK curls root '/'; there is also an authenticated API status endpoint (src/paperless/urls.py: re_path('^status/', SystemStatusView) under the api/ prefix) but the container's own healthcheck is the root path, so healthPath: /."
       - docker/compose/docker-compose.postgres.yml (reference compose) confirms one webserver app container plus db (postgres) and broker (valkey/redis) sidecars -- not a second APPLICATION container, so no docker-compose-multi-service issue; the mariadb/sqlite compose variants are alternative examples, not additional services.
+      - "Stage A re-baseline (analysis v52), MVP scope non-goal \"several supervised processes (s6-overlay, supervisord)\": the root Dockerfile is an s6-overlay image whose rootfs runs svc-webserver, svc-worker, svc-scheduler and svc-consumer in one container -> unsupported also gains multi-process-image; verdict unchanged."
   - id: repo-034
     repository: CTFd/CTFd
     commit: 91ced62d44d3ec3142a0948ee96ed19947cfc979
@@ -1353,6 +1360,7 @@ repositories:
       healthPath: /health
       unsupported:
         - local-filesystem
+        - no-buildable-dockerfile
     customer_realism: high
     difficulty: 3
     findings: [COMP-025, COMP-029, COMP-011, COMP-014, COMP-005]
@@ -1364,6 +1372,7 @@ repositories:
       - "config/queue.php 'default' => env('QUEUE_CONNECTION','sync') -> jobs run in-process; no worker/horizon dependency in composer.json -> worker: false."
       - "Health: routes/web.php -> Route::group(['namespace'=>'...System'], fn => Route::get('health', HealthcheckController@check)) with no prefix -> GET /health, which does `User::count()` as a DB sanity check (app/Http/Controllers/System/HealthcheckController.php)."
       - "Migrations: standard Laravel `php artisan migrate --force` (non-interactive) applies the migrations/ directory -> migration: true."
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": no Dockerfile path exists in the full tree (3063 entries) -> unsupported also gains no-buildable-dockerfile; verdict unchanged."
   - id: repo-045
     repository: monicahq/monica
     commit: e08e91734170b6bbd582cb578532c3948196124e
@@ -1702,7 +1711,7 @@ repositories:
     cohort: messy
     set: improvement
     expected:
-      compatibility: NEEDS_CONFIGURATION
+      compatibility: NOT_COMPATIBLE
       runtime:
         - node
       monorepo: true
@@ -1714,7 +1723,8 @@ repositories:
       appRoot: packages/nocodb
       port: 8080
       healthPath: /api/v1/health
-      unsupported: []
+      unsupported:
+        - no-buildable-dockerfile
     customer_realism: high
     difficulty: 3
     findings: [COMP-010, COMP-011, COMP-014, COMP-020]
@@ -1727,6 +1737,7 @@ repositories:
       - "Storage: package.json dependencies include `@aws-sdk/client-s3`/`@aws-sdk/lib-storage`; default attachment storage is local disk under the mounted data dir (`nocodb_data:/usr/app/data` in every compose example) with S3 selectable via config -> storage: true per the local-disk-default-with-S3-option rule."
       - "Migration: packages/nocodb/src/providers/init-meta-service.provider.ts runs meta-db migrations automatically on boot (this is the well-documented zero-downtime auto-migrate behavior); no explicit CLI flag needed -> migration: true."
       - "Unsure: exact required/optional status of NC_AUTH_JWT_SECRET (packages/nocodb/src/utils/nc-config/NcConfig.ts passes `secret: process.env.NC_AUTH_JWT_SECRET`) — didn't fully trace whether an unset secret gets an auto-generated fallback (common in NocoDB's zero-config quickstart) or fails hard; did not change the verdict since NEEDS_CONFIGURATION already holds on the Dockerfile + DB-selector grounds regardless."
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": no Dockerfile path exists in the full tree (5255 entries; only compose files and packages/nocodb/docker/*.sh) -> NOT_COMPATIBLE, unsupported no-buildable-dockerfile."
   - id: repo-056
     repository: gristlabs/grist-core
     commit: a914d9f60319b6b53193b200696152ce6a7fa8a5
@@ -1869,7 +1880,7 @@ repositories:
     cohort: messy
     set: improvement
     expected:
-      compatibility: NEEDS_CONFIGURATION
+      compatibility: NOT_COMPATIBLE
       runtime:
         - php
       monorepo: false
@@ -1881,7 +1892,8 @@ repositories:
       appRoot: .
       dockerfilePath: docker/php/Dockerfile
       port: 8000
-      unsupported: []
+      unsupported:
+        - no-buildable-dockerfile
     customer_realism: medium
     difficulty: 4
     findings: [COMP-024, COMP-011, COMP-015, COMP-014, COMP-030]
@@ -1895,6 +1907,7 @@ repositories:
       - "Migration: scripts/update.sh runs `php bin/console doctrine:migrations:migrate --no-interaction --env=$ENV` - a textbook deploy-safe non-interactive migration command. migration: true. Not run automatically by the dev Dockerfile's entrypoint.sh (which only does envsubst on a php.ini template and execs the CMD) - a vendor would need to run it as part of deploy configuration, consistent with the NEEDS_CONFIGURATION call."
       - No health-check route or Dockerfile HEALTHCHECK found anywhere in the tree (searched for 'health' case-insensitively across all paths). healthPath omitted.
       - 'Port: CMD binds 0.0.0.0:8000; compose.yaml maps "${PORT:-8000}:8000". No EXPOSE directive in the Dockerfile itself.'
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": the only Dockerfile, docker/php/Dockerfile, is a development image (xdebug and blackfire installed, no application COPY, bind-mounted by compose.yaml, CMD runs the --env=dev server) -> NOT_COMPATIBLE, unsupported no-buildable-dockerfile."
   - id: repo-061
     repository: logto-io/logto
     commit: 157dd491f4d1a7a83a68ffee14cbb1262d57fc4d
@@ -2062,6 +2075,7 @@ repositories:
       healthPath: /api/health
       unsupported:
         - sqlite
+        - multi-process-image
     customer_realism: high
     difficulty: 5
     findings: [COMP-011, COMP-015, COMP-005]
@@ -2069,6 +2083,7 @@ repositories:
       - "SQLite is the sole database: packages/db/drizzle.config.ts dialect sqlite, packages/db/drizzle.ts imports better-sqlite3; no PostgreSQL option anywhere -> NOT_COMPATIBLE [sqlite]."
       - docker/Dockerfile (context repository root, target aio per docker/docker-compose.build.yml) bundles web + workers + migration under s6-overlay in ONE container; separate web/workers targets are a legacy option. EXPOSE 3000, HEALTHCHECK wget http://127.0.0.1:3000/api/health.
       - "Workers (apps/workers, liteque SQLite-backed queue) -> worker: true, no separate process required. ASSET_STORE_S3_* offers S3 next to the local asset dir -> storage: true. REDIS_URL optional (rate limiting only). NEXTAUTH_SECRET required (moot)."
+      - "Stage A re-baseline (analysis v52), MVP scope non-goal \"several supervised processes (s6-overlay, supervisord)\": the aio target of docker/Dockerfile runs svc-web and svc-workers (plus init-db-migration) under s6-overlay in one container -> unsupported also gains multi-process-image; verdict unchanged."
   - id: repo-067
     repository: formbricks/formbricks
     commit: 8c3b9ec793b3775a69afa119a68934fe84ddc21e
@@ -2141,6 +2156,7 @@ repositories:
       unsupported:
         - background-worker
         - docker-compose-multi-service
+        - multi-process-image
     customer_realism: high
     difficulty: 2
     findings: [COMP-015, COMP-028]
@@ -2152,6 +2168,7 @@ repositories:
       - "APP_SECRET and ENCRYPTION_KEY are passed through from .env with no non-empty default in docker-compose.yml (`APP_SECRET: ${APP_SECRET:-}`); packages/twenty-server/.env.example ships `APP_SECRET=replace_me_with_a_random_string` as a placeholder, not a real default -> would also independently justify NEEDS_CONFIGURATION were the worker not already a hard rejection."
       - Health path confirmed both by the compose healthcheck (`curl --fail http://localhost:3000/healthz`) and PORT default in packages/twenty-server/.env.example (`# PORT=3000`, and NODE_PORT=3000 set explicitly in compose).
       - Very large monorepo (packages/twenty-front, twenty-server, twenty-shared, twenty-emails, twenty-ui, twenty-website, twenty-docs, twenty-cli, twenty-sdk, twenty-apps/* example integrations, ...); only twenty-server + twenty-front are built into the production image.
+      - "Stage A re-baseline (analysis v52), MVP scope non-goal \"several supervised processes (s6-overlay, supervisord)\": the last stage of packages/twenty-docker/twenty/Dockerfile (the default build) is twenty-app-dev, an s6-overlay image running postgres, redis, twenty-server and twenty-worker in one container -> unsupported also gains multi-process-image; verdict unchanged."
   - id: repo-070
     repository: LemmyNet/lemmy
     commit: 439734dd638a2c06a2f907beab7dcf4646e88f86
@@ -2266,6 +2283,7 @@ repositories:
       healthPath: /actuator/health
       unsupported:
         - kafka
+        - no-buildable-dockerfile
     customer_realism: medium
     difficulty: 2
     findings: [COMP-005, COMP-040]
@@ -2275,6 +2293,7 @@ repositories:
       - "management.endpoints.web.base-path: /actuator (management.server.port: 9000, same port) -> healthPath: /actuator/health; src/main/java/kafdrop/config/HealthCheckConfiguration.java also exposes a JMX-based health attribute, not HTTP."
       - pom.xml (Maven) confirms Java/Spring Boot; no persistent database, cache, queue, or file-storage dependency of its own -> postgres/redis/worker/storage/migration all false; the sole blocker is the Kafka broker dependency.
       - chart/ (Helm) and docker-compose/kafka-kafdrop/docker-compose.yaml are deployment/dev tooling only, not evidence against the single-container Dockerfile build.
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": the only Dockerfile, src/main/docker/Dockerfile, runs `ADD maven/ /kafdrop/` and no maven/ path exists in the tree (a build output), so it cannot build from the repository -> unsupported also gains no-buildable-dockerfile; verdict unchanged."
   - id: repo-074
     repository: dani-garcia/vaultwarden
     commit: a6c3bd6d1826fb527822df4a2655f34fd440d7d4
@@ -2756,6 +2775,7 @@ repositories:
       migration: true
       unsupported:
         - background-worker
+        - no-buildable-dockerfile
     customer_realism: high
     difficulty: 3
     findings: [COMP-015, COMP-014]
@@ -2767,6 +2787,7 @@ repositories:
       - "Storage: netbox/netbox/settings.py:225-360 supports STORAGES/STORAGE_BACKEND including 'swift.storage.SwiftStorage' and django-storages S3 backends as configuration-only alternatives to the local MEDIA_ROOT default -> storage: true."
       - "Migration: standard Django 'manage.py migrate', referenced throughout docs/installation/3-netbox.md and docs/installation/upgrading.md -> migration: true."
       - "worker: true is descriptive here (background-job code exists) but is ALSO the compatibility-driving fact via unsupported: [background-worker], since NetBox's own documentation treats the worker as mandatory rather than optional."
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": no Dockerfile path exists in the full tree (2665 entries) -> unsupported also gains no-buildable-dockerfile; verdict unchanged."
   - id: repo-089
     repository: Stirling-Tools/Stirling-PDF
     commit: 153da239c3751f1d94591f9d80ac667cdf83156b
@@ -2900,6 +2921,7 @@ repositories:
       healthPath: /
       unsupported:
         - local-filesystem
+        - no-buildable-dockerfile
     customer_realism: medium
     difficulty: 3
     findings: [COMP-025, COMP-015, COMP-014, COMP-005]
@@ -2907,6 +2929,7 @@ repositories:
       - No Dockerfile or compose file anywhere (465 blobs); Docker packaging lives in thelounge/thelounge-docker. dockerfilePath and port omitted (defaults/config.js documents port 9000).
       - All durable state is local disk under $THELOUNGE_HOME (server/config.ts getUsersPath/getUserLogsPath/getStoragePath/getFileUploadPath; defaults/config.js messageStorage sqlite+text); no object-storage option exists in any dependency -> local-filesystem, the intrinsic blocker beyond the missing Dockerfile.
       - "server/storageCleaner.ts runs an in-process retention ticker -> worker: true, no separate process. `node index storage migrate` is a non-interactive migration -> migration: true. Only GET / is registered, no health route -> healthPath /."
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": no Dockerfile path exists in the full tree (465 entries) -> unsupported also gains no-buildable-dockerfile; verdict unchanged."
   - id: repo-094
     repository: homarr-labs/homarr
     commit: cb0fec088f8cbdde40adffe8ab556c638c57e138
@@ -3089,6 +3112,7 @@ repositories:
       healthPath: /status
       unsupported:
         - mysql
+        - no-buildable-dockerfile
     customer_realism: high
     difficulty: 2
     findings: [COMP-037, COMP-026, COMP-014, COMP-030, COMP-005]
@@ -3101,6 +3125,7 @@ repositories:
       - "Storage: app/Config/filesystems.php — 'default' => env('STORAGE_TYPE', 'local'), with local 'images'/'attachments' disks plus an 's3' driver entry -> local-disk default with an S3 option -> storage: true."
       - "Migration: standard Laravel 'php artisan migrate' (artisan present at root, database/migrations exists) -> migration: true."
       - "No queue/worker library in composer.json (no horizon, no queue driver beyond Laravel's default sync); Redis appears only as an optional cache/session backend in app/Config/database.php ('redis' key, gated by REDIS_SERVERS) -> redis: false, worker: false."
+      - "Stage A re-baseline (analysis v52), MVP scope \"Needs a Dockerfile that builds a production image\": the only Dockerfiles, dev/docker/Dockerfile and dev/docker/db-testing/Dockerfile, are development images (xdebug, /app bind mount, dev Compose) -> unsupported also gains no-buildable-dockerfile; verdict unchanged."
   - id: repo-100
     repository: penpot/penpot
     commit: 034707a9d7932de9889e3a93478735890d1fc881
@@ -3608,7 +3633,7 @@ repositories:
     cohort: realistic
     set: improvement
     expected:
-      compatibility: NEEDS_CONFIGURATION
+      compatibility: NOT_COMPATIBLE
       runtime: [node]
       monorepo: true
       postgres: false
@@ -3620,13 +3645,15 @@ repositories:
       dockerfilePath: Dockerfile
       port: 3000
       healthPath: /health/ready
-      unsupported: []
+      unsupported:
+        - multi-process-image
     customer_realism: high
     difficulty: 4
     notes:
       - "AWS Gate C (Phase 4) qualification repository. One Dockerfile/image (s6-overlay ENTRYPOINT /init) runs the Fastify API (serves the Vite dashboard) and a BullMQ/ffmpeg worker; HOVOD_ROLE=api|worker|allinone selects the processes (docker/rootfs/etc/s6-overlay/scripts/hovod-stage2-hook). docker-compose.yml / docker-compose.prod.yml split api and worker by environment only, with no command:."
       - "MySQL, not PostgreSQL: packages/db depends on drizzle-orm + mysql2, compose runs mysql:8.4, DATABASE_URL is mysql://. Redis is BullMQ only (REDIS_URL). S3 via @aws-sdk/client-s3 with REQUIRED static S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (apps/api/src/s3.ts, apps/worker/src/s3.ts) — no default credential chain."
       - "Migrations are plain SQL applied by the API at boot (apps/api/src/index.ts runMigrations before listen, advisory-locked) — no separate migration command. Health: /health/live (no dependency) and /health/ready (SELECT 1) on PORT 3000. Required with no default: JWT_SECRET (>=32), S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_BASE_URL (apps/api/src/env.ts)."
+      - "Stage A re-baseline (analysis v52), MVP scope non-goal \"several supervised processes (s6-overlay, supervisord)\": the Dockerfile is an s6-overlay image (HOVOD_ROLE=allinone) running api, worker, mariadb and redis in one container -> NOT_COMPATIBLE, unsupported multi-process-image."
 
   - id: repo-300
     repository: instashop-dev/deployz-phase5-canary

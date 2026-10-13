@@ -6,15 +6,15 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 154,
     "entries": 278,
     "truncated": false
   },
   "expected": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "NOT_COMPATIBLE",
     "runtime": [
       "node"
     ],
@@ -28,14 +28,16 @@
     "dockerfilePath": "Dockerfile",
     "port": 3000,
     "healthPath": "/health/ready",
-    "unsupported": []
+    "unsupported": [
+      "multi-process-image"
+    ]
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -70,12 +72,16 @@
       "S3_SECRET_ACCESS_KEY",
       "STRIPE_SECRET_KEY"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "multi-process-image"
+    ],
     "readinessFindings": [
+      "unsupported-multi-service",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
+      "unsupported",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
@@ -86,8 +92,8 @@
   "comparisons": [
     {
       "fact": "compatibility",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
       "match": true
     },
     {
@@ -149,8 +155,12 @@
     },
     {
       "fact": "unsupported",
-      "expected": [],
-      "actual": [],
+      "expected": [
+        "multi-process-image"
+      ],
+      "actual": [
+        "multi-process-image"
+      ],
       "match": true
     }
   ],

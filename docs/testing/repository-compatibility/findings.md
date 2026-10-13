@@ -1434,3 +1434,25 @@ cleaner verdict signal but a noisier fact signal.
 - Regression: `packages/analysis/test/repository-ai.test.ts` (fixtures only).
 - Verification: fixtures and one live gateway probe on a fixture; the effect on the real repositories is for the next compat run.
 - Status: fixed (parse errors); timeouts open
+
+### COMP-048 — A production Dockerfile under a `dev/` directory is treated as a development Dockerfile
+
+- Repositories: repo-023 (requarks/wiki).
+- Type: ANALYSIS_BUG
+- Expected: NEEDS_CONFIGURATION, `unsupported: []` (a production image is available)
+- Actual: NOT_COMPATIBLE with `no-buildable-dockerfile` (analysis version 52)
+- Evidence: all four Dockerfiles (`dev/build/Dockerfile`, `dev/build-arm/Dockerfile`, `dev/containers/Dockerfile`, `dev/openshift/Dockerfile`) sit under `dev/`, and `DEV_ONLY_DOCKERFILE_REGEX` in `detectUnbuildableDockerfile` rejects every path with a `dev/` segment. `dev/build/Dockerfile` is the release image: a multi-stage build that compiles the assets from the repository (`yarn build`), has a `Release` stage, `EXPOSE 3000` and `CMD ["node", "--no-deprecation", "server"]`. Only `dev/containers/Dockerfile` is a development image (it says "DO NOT USE IN PRODUCTION"). The directory name alone is not proof of a development image.
+- Customer relevance: medium — a repository that keeps its release Dockerfile in a `dev/` tooling directory gets a hard rejection instead of a normal import.
+- Recommended action: decide development-only status from the Dockerfile content (a "do not use in production" header, no `CMD` that starts the application), and use the path only when no other signal exists. Rerun repo-023.
+- Status: open
+
+### COMP-049 — A migration whose development script needs a development-only tool leaves no migration command
+
+- Repositories: repo-022 (ToolJet/ToolJet).
+- Type: ANALYSIS_BUG
+- Expected: `migration: true`
+- Actual: `migration: false`, command `null`, readiness finding `migration-command-needs-input` (analysis version 52). At version 43 the command was `npm --prefix server run db:migrate`.
+- Evidence: `server/package.json` `db:migrate` runs `ts-node ... typeorm migration:run`. `ts-node` is a development tool, so rejecting that script is correct (COMP-046). The same file also has `db:migrate:prod`, which runs `node ./node_modules/typeorm/cli.js migration:run --dataSource dist/src/migration-helpers/db-migrations-datasource.js` on the compiled output, and the root `package.json` forwards it. The repository therefore needs a migration and a runnable command exists, but the analyser selects none, so the customer must type one.
+- Customer relevance: low — only the migration fact changes. The verdict is unchanged because the repository is rejected for other reasons.
+- Recommended action: prefer a `:prod` variant of a migration script when the plain script needs a development-only tool. Rerun repo-022.
+- Status: open

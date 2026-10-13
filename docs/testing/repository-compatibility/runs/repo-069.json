@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 222,
     "entries": 37910,
@@ -30,15 +30,16 @@
     "healthPath": "/healthz",
     "unsupported": [
       "background-worker",
-      "docker-compose-multi-service"
+      "docker-compose-multi-service",
+      "multi-process-image"
     ]
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "packages/twenty-docker/twenty/Dockerfile",
@@ -66,13 +67,16 @@
       "TWENTY_API_URL"
     ],
     "unsupported": [
-      "background-worker"
+      "background-worker",
+      "multi-process-image"
     ],
     "readinessFindings": [
+      "unsupported-multi-service",
       "database-migrations",
       "worker-process"
     ],
     "gateFindings": [
+      "unsupported",
       "required-env-vars-missing",
       "migration-command-missing",
       "deployment-files-ignored"
@@ -85,9 +89,8 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -148,26 +151,18 @@
       "fact": "unsupported",
       "expected": [
         "background-worker",
-        "docker-compose-multi-service"
+        "docker-compose-multi-service",
+        "multi-process-image"
       ],
       "actual": [
-        "background-worker"
+        "background-worker",
+        "multi-process-image"
       ],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-015",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -180,10 +175,12 @@
       "kind": "fact",
       "expected": [
         "background-worker",
-        "docker-compose-multi-service"
+        "docker-compose-multi-service",
+        "multi-process-image"
       ],
       "actual": [
-        "background-worker"
+        "background-worker",
+        "multi-process-image"
       ],
       "finding": {
         "id": "COMP-015",

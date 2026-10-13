@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 229,
     "entries": 3615,

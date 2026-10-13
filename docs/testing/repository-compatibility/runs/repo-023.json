@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
-  "analysisVersion": 43,
+  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
+  "analysisVersion": 52,
   "tree": {
     "files": 201,
     "entries": 1085,
@@ -63,13 +63,16 @@
       "DB_TYPE"
     ],
     "unsupported": [
-      "local-filesystem"
+      "local-filesystem",
+      "no-buildable-dockerfile"
     ],
     "readinessFindings": [
+      "unsupported-no-dockerfile",
       "local-file-storage",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -145,7 +148,8 @@
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "local-filesystem"
+        "local-filesystem",
+        "no-buildable-dockerfile"
       ],
       "match": false,
       "kind": "fact"
@@ -177,7 +181,8 @@
       "kind": "fact",
       "expected": [],
       "actual": [
-        "local-filesystem"
+        "local-filesystem",
+        "no-buildable-dockerfile"
       ],
       "finding": {
         "id": "COMP-024",
