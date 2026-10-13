@@ -67,8 +67,8 @@ export const slowProvision: ScenarioDefinition = {
     { afterMs: 3_655, atVirtualMs: 905_000, logicalResourceId: 'ApplicationTargetGroup', resourceType: 'AWS::ElasticLoadBalancingV2::TargetGroup', status: 'CREATE_IN_PROGRESS' },
     { afterMs: 3_700, atVirtualMs: 910_000, logicalResourceId: 'ApplicationLoadBalancer', resourceType: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
     { afterMs: 3_705, atVirtualMs: 910_000, logicalResourceId: 'ApplicationTargetGroup', resourceType: 'AWS::ElasticLoadBalancingV2::TargetGroup', status: 'CREATE_COMPLETE' },
-    { afterMs: 3_710, atVirtualMs: 915_000, logicalResourceId: 'ApplicationService', resourceType: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
-    { afterMs: 3_900, atVirtualMs: 940_000, logicalResourceId: 'ApplicationService', resourceType: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+    { afterMs: 3_710, atVirtualMs: 915_000, logicalResourceId: 'WebService', resourceType: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
+    { afterMs: 3_900, atVirtualMs: 940_000, logicalResourceId: 'WebService', resourceType: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
     { afterMs: 3_950, atVirtualMs: 945_000, logicalResourceId: '__stack__', resourceType: 'AWS::CloudFormation::Stack', status: 'CREATE_COMPLETE' },
   ],
 };
