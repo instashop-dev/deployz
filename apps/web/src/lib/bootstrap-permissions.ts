@@ -74,6 +74,7 @@ const STATEMENT_LABELS: Record<string, string> = {
   ProvisionerCacheDescribe: 'Read cache configuration',
   RelayDeployObserve: 'Observe and stop application tasks',
   RelayDeployRegister: 'Register new task definitions',
+  RelayDeregisterRevisions: 'Remove old application task-definition revisions after a successful update',
   RelayMigrationRun: 'Run one-off tasks, such as database migrations',
   RelayDeployPassRole: 'Give application roles to ECS',
   RelayPurgeStorage: 'Find and empty storage buckets when retained data is deleted',

@@ -760,7 +760,9 @@
                 "ecs:ListTasks",
                 "ecs:DescribeTasks",
                 "ecs:DescribeTaskDefinition",
-                "ecs:StopTask"
+                "ecs:StopTask",
+                "ecs:ListTaskDefinitions",
+                "ecs:DeregisterTaskDefinition"
               ],
               "Effect": "Allow",
               "Resource": "*"
@@ -1139,7 +1141,8 @@
                 "ecs:ListTasks",
                 "ecs:DescribeTasks",
                 "ecs:DescribeTaskDefinition",
-                "ecs:StopTask"
+                "ecs:StopTask",
+                "ecs:ListTaskDefinitions"
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -1465,6 +1468,31 @@
                 ]
               },
               "Sid": "RelayPendingCommandState"
+            },
+            {
+              "Action": "ecs:DeregisterTaskDefinition",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":ecs:",
+                    {
+                      "Ref": "AWS::Region"
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId"
+                    },
+                    ":task-definition/DeployzApp*:*"
+                  ]
+                ]
+              },
+              "Sid": "RelayDeregisterRevisions"
             }
           ],
           "Version": "2012-10-17"
@@ -1892,7 +1920,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "12a115d932974a8f7214f4f586221da877bf6a9c3d440d76b36f81eb475f153f.zip"
+          "S3Key": "89bdb5b612b542d319a0d0c6ee576cdccacd09fca37c4131f025a167b364701f.zip"
         },
         "Environment": {
           "Variables": {

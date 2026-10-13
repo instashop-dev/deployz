@@ -353,6 +353,9 @@ const PHASE_4_DEPLOY_OBSERVE_ACTIONS = [
   // tag condition); folded into this statement rather than a new one to
   // stay under the managed-policy size quota.
   'ecs:StopTask',
+  // Revision cleanup lists a family's ACTIVE revisions. ListTaskDefinitions
+  // is a list action with no resource-level scoping; read-only.
+  'ecs:ListTaskDefinitions',
 ] as const;
 
 /**
@@ -1199,6 +1202,22 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // Revision cleanup deregisters superseded revisions of the application's
+    // own task families. DeregisterTaskDefinition does not evaluate tags, so
+    // the grant is scoped by ARN to the DeployzApp* families instead.
+    const phase4DeregisterRevisions = new PolicyStatement({
+      sid: 'RelayDeregisterRevisions',
+      effect: Effect.ALLOW,
+      actions: ['ecs:DeregisterTaskDefinition'],
+      resources: [
+        Stack.of(this).formatArn({
+          service: 'ecs',
+          resource: 'task-definition',
+          resourceName: 'DeployzApp*:*',
+        }),
+      ],
+    });
+
     const phase4MigrationRun = new PolicyStatement({
       sid: 'RelayMigrationRun',
       effect: Effect.ALLOW,
@@ -1288,7 +1307,18 @@ export class BootstrapStack extends Stack {
         phase1LogWrite,
         phase1SecretAccess,
         phase2RelayState,
-        ...phase2Statements,
+        // The boundary is at the policy-size quota, so it folds the
+        // revision deregistration into the observe statement. The relay
+        // role's own inline grant stays scoped to DeployzApp* families.
+        ...phase2Statements.map((statement) =>
+          statement === phase4DeployObserve
+            ? new PolicyStatement({
+                effect: Effect.ALLOW,
+                actions: [...PHASE_4_DEPLOY_OBSERVE_ACTIONS, 'ecs:DeregisterTaskDefinition'],
+                resources: ['*'],
+              })
+            : statement,
+        ),
       ].map(withoutSid),
     });
 
@@ -1313,6 +1343,7 @@ export class BootstrapStack extends Stack {
     this.relayRole.addToPolicy(phase1SecretAccess);
     this.relayRole.addToPolicy(phase2VerifyStack);
     this.relayRole.addToPolicy(phase2RelayState);
+    this.relayRole.addToPolicy(phase4DeregisterRevisions);
 
     // The provisioner policy used to be created and attached to nothing, on
     // the theory that the control plane would attach it after the relay's

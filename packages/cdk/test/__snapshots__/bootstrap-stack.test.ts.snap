@@ -791,6 +791,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "ecs:DescribeTasks",
                 "ecs:DescribeTaskDefinition",
                 "ecs:StopTask",
+                "ecs:ListTaskDefinitions",
+                "ecs:DeregisterTaskDefinition",
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -1538,6 +1540,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "ecs:DescribeTasks",
                 "ecs:DescribeTaskDefinition",
                 "ecs:StopTask",
+                "ecs:ListTaskDefinitions",
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -2000,6 +2003,31 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 ],
               },
               "Sid": "RelayPendingCommandState",
+            },
+            {
+              "Action": "ecs:DeregisterTaskDefinition",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":ecs:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":task-definition/DeployzApp*:*",
+                  ],
+                ],
+              },
+              "Sid": "RelayDeregisterRevisions",
             },
           ],
           "Version": "2012-10-17",

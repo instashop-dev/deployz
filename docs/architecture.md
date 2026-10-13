@@ -409,7 +409,11 @@ currently completed by the web app; see
   `deployz:installation` tag, with documented condition-free exceptions for
   actions AWS cannot tag-condition (reads, S3 bucket actions,
   `GetRandomPassword`, log retention, task-definition deregistration,
-  ElastiCache replication-group lifecycle, `ecs:RunTask`). The bootstrap
+  ElastiCache replication-group lifecycle, `ecs:RunTask`,
+  `ecs:ListTaskDefinitions`). The relay role's
+  `ecs:DeregisterTaskDefinition` is scoped by ARN to `DeployzApp*` task
+  definitions (the boundary carries it as a wildcard to stay under the
+  policy-size quota). The bootstrap
   stack attaches the provisioner policy at install; nothing is attached
   later. The relay reads and writes its own credential secret by that
   secret's ARN only. It reads and writes other secret values only on secrets
