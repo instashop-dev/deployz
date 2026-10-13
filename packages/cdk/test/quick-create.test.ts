@@ -560,6 +560,39 @@ describe('quick-create', () => {
       }
     });
 
+    it('publishes an immutable template copy keyed by the build id', async () => {
+      const { s3For, uploads } = makeS3Harness();
+
+      const results = await publishBootstrapToAllRegions(
+        s3For,
+        () => passingVerifier(),
+        { ...synth, buildId: 'abc123def456' },
+        { keyPrefix, controlPlaneUrl, regions: ['us-east-1'] },
+        async () => new Uint8Array([0x1f, 0x8b]),
+      );
+
+      const [result] = results;
+      expect(result?.versionedTemplateKey).toBe(
+        `${keyPrefix}/versions/abc123def456/bootstrap-template-v1.json`,
+      );
+      expect(result?.versionedTemplateUrl).toBe(
+        `https://deployz-templates-us-east-1.s3.us-east-1.amazonaws.com/${result?.versionedTemplateKey}`,
+      );
+      // Latest-key template, versioned copy and the asset.
+      expect(uploads.get('us-east-1')).toHaveLength(3);
+    });
+
+    it('rejects a build id that is not safe in an S3 key', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-qc-'));
+      try {
+        await expect(synthesizeBootstrapStack({ outdir, buildId: '../evil' })).rejects.toThrow(
+          /Invalid build id/,
+        );
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
     it('rewrites the us-east-2 template to reference ONLY the us-east-2 bucket', async () => {
       const { s3For, uploads } = makeS3Harness();
       const verifierFor = () => passingVerifier();

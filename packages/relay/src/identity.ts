@@ -43,7 +43,7 @@ export function readRelayIdentity(context?: {
 }): Partial<RelayIdentity> {
   const identity: Partial<RelayIdentity> = {
     relayVersion: RELAY_VERSION,
-    bootstrapVersion: process.env['DEPLOYZ_BOOTSTRAP_VERSION'] ?? null,
+    bootstrapVersion: process.env['DEPLOYZ_BOOTSTRAP_VERSION'] || null,
     capabilities: RELAY_CAPABILITIES,
   };
   const accountId = context?.invokedFunctionArn
