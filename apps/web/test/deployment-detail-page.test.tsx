@@ -72,6 +72,8 @@ function detail(failureCode?: string): FleetDeploymentDetail {
     deploymentStatus: {
       health: { status: 'HEALTHY', layers: {} },
       aws: { stackStatus: null },
+      servingRelease: { releaseId: null, confirmedAt: null, confirmed: false },
+      connector: { upgradeRequired: false, reason: null, updateAvailable: false, updateUrl: null, updateTemplateUrl: null },
       url: null,
       failure: failureCode
         ? { code: failureCode, component: null, reference: 'ref-1', message: 'It failed.', awsStatus: null }
