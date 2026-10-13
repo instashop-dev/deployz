@@ -7,6 +7,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
+import { healthyReleaseEvidence, webOnlySpec } from './release-evidence-fixture.js';
 import { hashRelayToken } from './relay-store.js';
 import { buildServer } from './server.js';
 
@@ -25,6 +26,7 @@ describe('billing lifecycle', () => {
   let organizationId: string;
   let applicationId: string;
   let customerId: string;
+  const spec = webOnlySpec();
 
   beforeAll(async () => {
     client = new PGlite();
@@ -93,6 +95,7 @@ describe('billing lifecycle', () => {
         relayTokenHash: hashRelayToken(token),
         relayStatus: 'CONNECTED',
         healthStatus: 'UNKNOWN',
+        specV2: spec as unknown as Record<string, unknown>,
         ...overrides,
       })
       .returning();
@@ -109,7 +112,11 @@ describe('billing lifecycle', () => {
       method: 'POST',
       url: '/api/relay/health',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      payload: JSON.stringify({ installationId, observedState: {}, healthStatus: 'HEALTHY' }),
+      payload: JSON.stringify({
+        installationId,
+        observedState: { releaseEvidence: healthyReleaseEvidence(spec, 'sha256:' + 'a'.repeat(64)) },
+        healthStatus: 'HEALTHY',
+      }),
     });
   }
 

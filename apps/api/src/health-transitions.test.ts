@@ -6,14 +6,63 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import {
+  workloadServicesFromSpec,
+  type DeploymentManifest,
+  type DeploymentSpecV2,
+  type ReleaseEvidence,
+} from '@deployz/contracts';
+
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { hashRelayToken } from './relay-store.js';
 import { buildServer } from './server.js';
 
 // Task 3.4: health CHANGES produce one matching event each — degraded,
 // unhealthy, recovered — and a newly failed ECS rollout records exactly one
-// ecs.rollout_failed. Unchanged heartbeats produce no events.
+// ecs.rollout_failed. Unchanged heartbeats produce no events. Readiness
+// transitions (FAILED/INSTALLING → HEALTHY) need release evidence that passes;
+// a relay healthStatus alone never earns them.
 describe('health transition events', () => {
+  const MANIFEST: DeploymentManifest = {
+    schemaVersion: 1,
+    application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
+    build: { command: null, context: '.' },
+    web: { command: 'npm start', port: 3000 },
+    health: { path: '/health' },
+    database: { postgres: false },
+    redis: { required: false, envBindings: [] },
+    storage: { required: false, envBindings: [] },
+    migration: { command: null },
+    worker: { command: null },
+    environment: { variables: [] },
+    externalServices: [],
+    unsupported: [],
+  };
+  const spec: DeploymentSpecV2 = compileDeploymentIntent({ manifest: MANIFEST, region: 'us-east-1' }).spec;
+  const DIGEST = 'sha256:' + 'a'.repeat(64);
+
+  function evidence(patch: (value: ReleaseEvidence) => void = () => {}): ReleaseEvidence {
+    const at = new Date().toISOString();
+    const value: ReleaseEvidence = {
+      version: 1,
+      observedAt: at,
+      services: workloadServicesFromSpec(spec)!.map((workload) => ({
+        workloadId: workload.id,
+        serviceLogicalId: workload.serviceLogicalId,
+        observed: true,
+        desiredCount: 1,
+        runningCount: 1,
+        rolloutState: 'COMPLETED',
+        runningDigests: [DIGEST],
+        targets: { healthy: 1, unhealthy: 0, pending: 0, unknown: 0 },
+      })),
+      httpProbe: { ok: true, status: 200, checkedAt: at },
+    };
+    patch(value);
+    return value;
+  }
+
   let client: PGlite | undefined;
   let db: Db;
   let auth: Auth;
@@ -50,6 +99,7 @@ describe('health transition events', () => {
     token: string,
     healthStatus: string,
     rolloutState?: string,
+    releaseEvidence?: ReleaseEvidence,
   ): Promise<void> {
     const response = await app.inject({
       method: 'POST',
@@ -57,7 +107,10 @@ describe('health transition events', () => {
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       payload: JSON.stringify({
         installationId,
-        observedState: rolloutState ? { deploymentRolloutState: rolloutState } : {},
+        observedState: {
+          ...(rolloutState ? { deploymentRolloutState: rolloutState } : {}),
+          ...(releaseEvidence ? { releaseEvidence } : {}),
+        },
         healthStatus,
         components: { application: healthStatus },
       }),
@@ -155,9 +208,26 @@ describe('health transition events', () => {
       relayStatus: 'CONNECTED',
       healthStatus: 'HEALTHY',
       observedState: {},
+      specV2: spec as unknown as Record<string, unknown>,
     });
 
     await heartbeat(installationId, token, 'HEALTHY');
+    const [withoutEvidence] = await db
+      .select({ state: schema.deployments.state })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installationId, installationId));
+    expect(withoutEvidence?.state).toBe('FAILED');
+
+    await heartbeat(installationId, token, 'HEALTHY', undefined, evidence((value) => {
+      value.httpProbe = { ok: false, status: 503, checkedAt: value.observedAt };
+    }));
+    const [failedProbe] = await db
+      .select({ state: schema.deployments.state })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installationId, installationId));
+    expect(failedProbe?.state).toBe('FAILED');
+
+    await heartbeat(installationId, token, 'HEALTHY', undefined, evidence());
 
     const [row] = await db
       .select({ state: schema.deployments.state })
@@ -167,6 +237,84 @@ describe('health transition events', () => {
     expect((await events(installationId)).map((e) => e.eventType)).toContain(
       'deployment.state_recovered',
     );
+  });
+
+  it('verifies an installed INSTALLING deployment HEALTHY only on passing release evidence', async () => {
+    const token = 'tok-' + crypto.randomUUID();
+    const installationId = 'inst-' + crypto.randomUUID();
+    const [row] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        installationId,
+        enrollmentCode: crypto.randomUUID(),
+        enrollmentUsedAt: new Date(),
+        relayTokenHash: hashRelayToken(token),
+        relayStatus: 'CONNECTED',
+        healthStatus: 'UNKNOWN',
+        observedState: {},
+        specV2: spec as unknown as Record<string, unknown>,
+      })
+      .returning();
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: row!.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${row!.id}:INSTALL`,
+      finishedAt: new Date(),
+    });
+    const stateOf = async () =>
+      (await db.select({ state: schema.deployments.state }).from(schema.deployments).where(eq(schema.deployments.id, row!.id)))[0]
+        ?.state;
+
+    await heartbeat(installationId, token, 'HEALTHY');
+    expect(await stateOf()).toBe('INSTALLING');
+    await heartbeat(installationId, token, 'HEALTHY', undefined, evidence((value) => {
+      value.services[0]!.runningCount = 0;
+    }));
+    expect(await stateOf()).toBe('INSTALLING');
+    await heartbeat(installationId, token, 'HEALTHY', undefined, evidence());
+    expect(await stateOf()).toBe('HEALTHY');
+  });
+
+  it('records no outage event while every workload is intentionally at zero tasks', async () => {
+    const seeded = await seedDeployment('HEALTHY');
+    await db
+      .update(schema.deployments)
+      .set({ specV2: spec as unknown as Record<string, unknown> })
+      .where(eq(schema.deployments.installationId, seeded.installationId));
+
+    await heartbeat(seeded.installationId, seeded.token, 'UNHEALTHY', undefined, evidence((value) => {
+      for (const service of value.services) {
+        service.desiredCount = 0;
+        service.runningCount = 0;
+        service.runningDigests = [];
+        service.targets = { healthy: 0, unhealthy: 0, pending: 0, unknown: 0 };
+      }
+    }));
+    expect((await events(seeded.installationId)).map((e) => e.eventType)).not.toContain('health.unhealthy');
+    const [row] = await db
+      .select({ observedState: schema.deployments.observedState })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installationId, seeded.installationId));
+    expect((row!.observedState as { releaseVerdict: { notStarted: boolean } }).releaseVerdict.notStarted).toBe(true);
+  });
+
+  it('still records an outage event when tasks are missing without being scaled to zero', async () => {
+    const seeded = await seedDeployment('HEALTHY');
+    await db
+      .update(schema.deployments)
+      .set({ specV2: spec as unknown as Record<string, unknown> })
+      .where(eq(schema.deployments.installationId, seeded.installationId));
+
+    await heartbeat(seeded.installationId, seeded.token, 'UNHEALTHY', undefined, evidence((value) => {
+      value.services[0]!.runningCount = 0;
+    }));
+    expect((await events(seeded.installationId)).map((e) => e.eventType)).toContain('health.unhealthy');
   });
 
   it('keeps a FAILED never-installed deployment FAILED on a healthy heartbeat', async () => {

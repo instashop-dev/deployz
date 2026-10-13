@@ -36,11 +36,21 @@ known state, and provides a deterministic path forward.
   state; relay loss is `relayStatus`, not a lifecycle state.
 - **Release** (`releases` row) — an immutable version/build.
   `currentReleaseId` points at the release that is really running, and only
-  the heartbeat's digest reconciliation advances it — and only when that
-  heartbeat shows the new digest running (every ECS service that has a
-  running task must run the same digest; if they differ, no digest is
-  reported), rollout COMPLETED, full task
-  counts, healthy ALB targets and a successful HTTP probe.
+  the heartbeat's digest reconciliation advances it. The control plane
+  decides from that heartbeat's own `observedState.releaseEvidence`
+  (`evaluateReleaseEvidence`), never from stored state: every workload the
+  frozen spec requires must be observed with rollout COMPLETED, full and
+  non-zero task counts and one image digest, the public workload needs
+  healthy ALB targets, and the public HTTP probe must succeed. Evidence that
+  is missing, stale or older than the last accepted evidence promotes nothing.
+  The promotion transaction locks the deployment row and re-checks for an
+  active mutating job, so a job cannot be overrun.
+  `currentReleaseConfirmedAt` records the evidence that confirmed the current
+  release (a first promotion or a re-confirmation of the same digest). The
+  derived `servingRelease` is confirmed only while no deploy, rollback or
+  restart settled after that evidence, so a failed update never leaves the
+  previous release shown as confirmed until fresh evidence re-confirms it.
+  `deployment.reconciled` carries `kind: 'initial' | 'drift'`.
   A SUCCEEDED DEPLOY_RELEASE/ROLLBACK job result alone never advances the
   pointer, so after any failure it still names what is really running. There
   is no separate lastHealthyRelease column because `currentReleaseId` IS that
@@ -758,8 +768,15 @@ CloudFormation success alone never marks a deployment healthy: INSTALL
 success leaves the deployment INSTALLING, and only the relay's runtime
 health verification (ECS running counts + ALB target health, reported via
 heartbeat) advances it to HEALTHY. The derived customer/vendor stage shows
-READY only with confirmed health plus an https URL. A missing required
-infrastructure component is reported, never repaired automatically.
+READY only with confirmed health, passing release evidence and an https
+URL. The INSTALLING to HEALTHY and FAILED to HEALTHY transitions need the
+same passing evidence; the relay's `healthStatus` alone never earns them. A
+connector that sends no `releaseEvidence` cannot promote or verify
+readiness, and the status reports `connector.upgradeRequired`. When every
+expected workload is intentionally at zero tasks (a configured first start
+still waiting), `health.notStarted` is set and no outage event is recorded.
+A missing required infrastructure component is reported, never repaired
+automatically.
 
 ## The trust boundary shapes everything
 

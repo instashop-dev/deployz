@@ -16,6 +16,7 @@ import {
   requiredAwsResources,
   resolveDeploymentFootprint,
   toPlanAwsResource,
+  workloadServicesFromSpec,
 } from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -23,7 +24,7 @@ import * as schema from '@deployz/db/schema';
 import { ANALYSIS_VERSION } from './analysis.js';
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
-import { readStoredManifest } from './manifest.js';
+import { readStoredDeploymentSpec, readStoredManifest } from './manifest.js';
 import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
 import { ApiError } from './errors.js';
@@ -151,6 +152,26 @@ async function insertDeployableRelease(
     releaseStatus: 'READY',
     imageDigest: `151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:${'c'.repeat(64)}`,
   });
+}
+
+/** The relay's complete healthy release evidence for a deployment's frozen spec, running `digest`. */
+function healthyReleaseEvidence(deployment: typeof schema.deployments.$inferSelect, digest: string) {
+  const at = new Date().toISOString();
+  return {
+    version: 1,
+    observedAt: at,
+    services: workloadServicesFromSpec(readStoredDeploymentSpec(deployment.specV2)!)!.map((workload) => ({
+      workloadId: workload.id,
+      serviceLogicalId: workload.serviceLogicalId,
+      observed: true,
+      desiredCount: 1,
+      runningCount: 1,
+      rolloutState: 'COMPLETED',
+      runningDigests: [digest],
+      targets: workload.id === 'web' ? { healthy: 1, unhealthy: 0, pending: 0, unknown: 0 } : null,
+    })),
+    httpProbe: { ok: true, status: 200, checkedAt: at },
+  };
 }
 
 async function insertDeployment(
@@ -1871,7 +1892,11 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     await postJson(
       app,
       '/api/relay/health',
-      { installationId, healthStatus: 'HEALTHY' },
+      {
+        installationId,
+        healthStatus: 'HEALTHY',
+        observedState: { releaseEvidence: healthyReleaseEvidence(fresh, 'sha256:' + '1'.repeat(64)) },
+      },
       { authorization: `Bearer ${token}` },
     );
 
@@ -1936,12 +1961,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
         healthStatus: 'HEALTHY',
         runningImageDigest: digest,
         observedState: {
-          deploymentRolloutState: 'COMPLETED',
-          desiredCount: 1,
-          runningCount: 1,
-          unhealthyTargetCount: 0,
-          pendingTargetCount: 0,
-          unknownTargetCount: 0,
+          releaseEvidence: healthyReleaseEvidence(fresh, digest),
           httpProbe: {
             ok: true,
             statusCode: 200,
@@ -2004,9 +2024,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
         healthStatus: 'HEALTHY',
         runningImageDigest: digest,
         observedState: {
-          deploymentRolloutState: 'COMPLETED',
-          desiredCount: 1,
-          runningCount: 1,
+          releaseEvidence: healthyReleaseEvidence(fresh, digest),
           httpProbe: { ok: true, statusCode: 200, latencyMs: 12, checkedAt: new Date().toISOString() },
         },
       },

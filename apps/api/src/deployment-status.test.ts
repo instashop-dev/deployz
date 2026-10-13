@@ -34,7 +34,9 @@ function makeDeployment(overrides: Partial<DerivationDeployment> = {}): Derivati
     relayBoundAt: null,
     lastHealthAt: null,
     currentReleaseId: null,
-    observedState: null,
+    currentReleaseConfirmedAt: null,
+    // The heartbeat route stamps this verdict from the release evidence; READY needs it to pass.
+    observedState: { releaseVerdict: { pass: true, reason: null, notStarted: false } },
     updatedAt: NOW,
     installStartedAt: null,
     stepTimings: null,
@@ -1751,5 +1753,84 @@ describe('endpointHttpsState — infrastructure secure endpoint truth', () => {
     for (const state of ['SETTING_UP', 'WAITING_FOR_CERTIFICATE', 'ACTIVATING'] as const) {
       expect(endpointStatusForHttpsState(state)).toBe('provisioning');
     }
+  });
+});
+
+describe('deriveDeploymentStatus — release evidence', () => {
+  const healthy = {
+    state: 'HEALTHY',
+    healthStatus: 'HEALTHY',
+    relayStatus: 'CONNECTED',
+  } as const;
+  const verdict = (pass: boolean, reason: string | null = null, notStarted = false) => ({
+    releaseVerdict: { pass, reason, notStarted },
+  });
+
+  it('a healthy relay report without passing evidence is VERIFYING, never READY', () => {
+    for (const observedState of [verdict(false, 'PROBE_FAILED'), verdict(false, 'EVIDENCE_MISSING'), {}]) {
+      const status = derive({
+        deployment: makeDeployment({ ...healthy, observedState }),
+        jobs: [makeJob()],
+        appUrl: 'https://app.example.com',
+      });
+      expect(status.stage).toBe('VERIFYING');
+    }
+  });
+
+  it('flags a connector whose heartbeat carries no release evidence', () => {
+    const missing = derive({
+      deployment: makeDeployment({ ...healthy, observedState: verdict(false, 'EVIDENCE_MISSING') }),
+    });
+    expect(missing.connector).toEqual({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' });
+    const failing = derive({
+      deployment: makeDeployment({ ...healthy, observedState: verdict(false, 'PROBE_FAILED') }),
+    });
+    expect(failing.connector).toEqual({ upgradeRequired: false, reason: null });
+  });
+
+  it('reports an intentional zero-task state as not started', () => {
+    const status = derive({
+      deployment: makeDeployment({ ...healthy, observedState: verdict(false, 'WORKLOAD_NOT_STARTED', true) }),
+    });
+    expect(status.health.notStarted).toBe(true);
+  });
+
+  it('confirms the serving release until a deploy, rollback or restart settles after the evidence', () => {
+    const confirmedAt = new Date('2026-08-31T11:00:00.000Z');
+    const deployment = makeDeployment({
+      ...healthy,
+      currentReleaseId: 'release-1',
+      currentReleaseConfirmedAt: confirmedAt,
+    });
+    expect(derive({ deployment, jobs: [makeJob()] }).servingRelease).toEqual({
+      releaseId: 'release-1',
+      confirmedAt: confirmedAt.toISOString(),
+      confirmed: true,
+    });
+
+    const failedRollback = makeJob({
+      type: 'ROLLBACK',
+      state: 'FAILED',
+      finishedAt: new Date('2026-08-31T11:30:00.000Z'),
+    });
+    const afterFailure = derive({ deployment, jobs: [makeJob(), failedRollback] });
+    expect(afterFailure.servingRelease).toEqual({ releaseId: 'release-1', confirmedAt: null, confirmed: false });
+    // The operation failure, the runtime health and the serving confirmation stay separate facts.
+    expect(afterFailure.failure).not.toBeNull();
+    expect(afterFailure.health.status).toBe('HEALTHY');
+
+    const reconfirmed = derive({
+      deployment: { ...deployment, currentReleaseConfirmedAt: new Date('2026-08-31T11:45:00.000Z') },
+      jobs: [makeJob(), failedRollback],
+    });
+    expect(reconfirmed.servingRelease.confirmed).toBe(true);
+  });
+
+  it('has no confirmed release before one is promoted', () => {
+    expect(derive({ deployment: makeDeployment({ ...healthy }) }).servingRelease).toEqual({
+      releaseId: null,
+      confirmedAt: null,
+      confirmed: false,
+    });
   });
 });
