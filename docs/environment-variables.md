@@ -172,8 +172,11 @@ frozen manifest.
   the app reads `SPRING_DATASOURCE_*`). A config-file read without a default
   is required only for a secret name. JDBC names (`*_DATASOURCE_URL`,
   `*_JDBC_URL`) get a JDBC URL. A Redis name that ends in `REDIS_URL`,
-  `REDIS_URI`, `REDIS_DSN`, `REDIS_HOST` or `REDIS_PORT` is bound only when
-  Redis is required. `REDIS_PASSWORD` is never bound.
+  `REDIS_URI`, `REDIS_DSN`, `REDIS_HOST` or `REDIS_PORT`, or a prefixed name
+  that ends in `_REDIS` (`PAPERLESS_REDIS`, a URL), is bound only when Redis
+  is required. A name with a switch word (`ENABLE`, `USE`, `WITH`, `HAS`,
+  `DISABLE`, `NO`, `SKIP`) is never a binding. `REDIS_PASSWORD` is never
+  bound.
 - **Selectors must be set.** A selector is an env variable that picks the
   database engine (`DB_TYPE`, `DATABASE_CLIENT`, `DB_CONNECTION`,
   `*_DBENGINE`, `<APP>_DRIVER` with an engine default) or the file storage
