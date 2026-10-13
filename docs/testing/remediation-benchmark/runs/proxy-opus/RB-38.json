@@ -1,0 +1,4 @@
+{"items": [
+{"id": "unsupported-multi-service", "guidance": "Read deploy/supervisord.conf and record the command of each of the two programs. If one runs the web server and the other runs node dist/worker.js, set the Dockerfile CMD to the web command only and confirm that the declared worker matches the second program. If the second program is a proxy that only forwards requests, report that it is not needed; keep supervisord.conf for other installs."},
+{"id": "database-migrations", "guidance": "Search the source and both supervisord program commands for a migration step, SQL files, or a startup function that creates tables through pg. Report the file if the web or worker start applies the schema, or the exact node command of a standalone migrate script. Otherwise report that the app has no migration mechanism."}
+]}

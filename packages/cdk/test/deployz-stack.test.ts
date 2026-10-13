@@ -373,6 +373,25 @@ describe('DeployzStack', () => {
     });
   });
 
+  // The fix-instructions model settings, including the rollback switch, must
+  // reach the API Lambda or production silently keeps its previous model.
+  describe('fix-instructions model env keys', () => {
+    const KEYS = ['FIX_INSTRUCTIONS_AI_PROVIDER', 'FIX_INSTRUCTIONS_AI_MODEL', 'OPENROUTER_API_KEY', 'OPENROUTER_BASE_URL'];
+
+    it('passes every fix-instructions model key into the API Lambda environment when set', () => {
+      for (const key of KEYS) process.env[key] = `test-value-${key}`;
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        const expected = Object.fromEntries(KEYS.map((key) => [key, `test-value-${key}`]));
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          Environment: Match.objectLike({ Variables: Match.objectLike(expected) }),
+        });
+      } finally {
+        for (const key of KEYS) delete process.env[key];
+      }
+    });
+  });
+
   // Phase 15 — static verification that the control plane's Lambda
   // environment allowlist (collectEnvVars in deployz-stack.ts) carries the
   // four Cloudflare config keys the default-HTTPS flow needs in production.

@@ -161,6 +161,9 @@ export type {
   FixInstructionsFacts,
   FixInstructionsContext,
   FixInstructionsAiOutput,
+  RemediationClass,
+  RemediationConfidence,
+  RemediationItem,
 } from './fix-instructions.js';
 export {
   FIX_INSTRUCTIONS_GUARDRAIL,
@@ -168,10 +171,13 @@ export {
   FIX_INSTRUCTIONS_MAX_PROMPT_TOKENS,
   FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS,
   FIX_INSTRUCTIONS_TIMEOUT_MS,
+  FIX_INSTRUCTIONS_VERSION,
   buildFixInstructionsAiPrompt,
   assembleFixInstructions,
   fixInstructionsAiSchema,
   generateFixInstructions,
+  isSafeGuidance,
+  planRemediation,
   summariseEnvRequirements,
 } from './fix-instructions.js';
 
@@ -190,6 +196,7 @@ export type {
 } from './ai-gateway.js';
 export {
   AiGatewayNotAvailableError,
+  AiModelMismatchError,
   DEFAULT_TIMEOUT_MS,
   MAX_OUTPUT_TOKENS,
   MAX_PROMPT_TOKENS,

@@ -1,0 +1,4 @@
+{"items": [
+{"id": "database-migrations", "guidance": "Check the source and the compiled dist entry points for SQL migration files or a schema setup function that runs through pg before the server or worker starts. Report that file, or the exact node command for a standalone migrate script in dist. If neither exists, report that."},
+{"id": "future-check", "guidance": ""}
+]}

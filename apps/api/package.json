@@ -28,6 +28,10 @@
       "types": "./dist/ai-config.d.ts",
       "import": "./dist/ai-config.js"
     },
+    "./fix-instructions": {
+      "types": "./dist/fix-instructions.d.ts",
+      "import": "./dist/fix-instructions.js"
+    },
     "./github": {
       "types": "./dist/github.d.ts",
       "import": "./dist/github.js"

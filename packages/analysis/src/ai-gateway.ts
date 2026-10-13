@@ -80,6 +80,8 @@ export interface TokenUsage {
   readonly promptTokens: number;
   /** Tokens produced by the completion. */
   readonly completionTokens: number;
+  /** The request's cost in USD, when the provider reports it (OpenRouter does). */
+  readonly costUsd?: number | undefined;
 }
 
 /** The gateway's raw response: the model's output plus its token usage. */
@@ -91,6 +93,8 @@ export interface AiGatewayResponse {
   readonly object: unknown;
   /** Token usage reported by the gateway. */
   readonly usage: TokenUsage;
+  /** The model that served the request, as the provider reports it. */
+  readonly model?: string | undefined;
 }
 
 /** Per-request options the caller may hand the gateway. */
@@ -112,7 +116,8 @@ export interface AiGenerateOptions {
   readonly maxOutputTokens?: number | undefined;
   /**
    * `false` switches a hybrid reasoning model's thinking off (Workers AI's
-   * `chat_template_kwargs.thinking`). Measured live with
+   * `chat_template_kwargs.thinking`). Through OpenRouter it asks for low
+   * reasoning effort instead: Claude Opus 5.5 cannot switch thinking off. Measured live with
    * `@cf/deepseek-ai/deepseek-v4-flash`: the fix-instructions prompt spent
    * ~4000 tokens of `reasoning_content` before any JSON, so it exhausted a
    * 2500-token completion cap every attempt and took ~35s per attempt. Off,
@@ -153,6 +158,18 @@ export class SpendLimitExceededError extends Error {
         `(prompt + completion) against a ${limit}-token budget.`,
     );
     this.name = 'SpendLimitExceededError';
+  }
+}
+
+/**
+ * Thrown when the provider answered with another model than the configured
+ * one. A silent substitution would make the model setting meaningless, so
+ * the answer is discarded and never retried.
+ */
+export class AiModelMismatchError extends Error {
+  constructor(configured: string, served: string) {
+    super(`AI provider served "${served}" instead of the configured model "${configured}".`);
+    this.name = 'AiModelMismatchError';
   }
 }
 
@@ -241,6 +258,14 @@ function isRetryableError(error: unknown, abortSignal: AbortSignal | undefined):
  */
 export interface AiGatewayConfig {
   /**
+   * Which OpenAI-compatible endpoint `baseUrl` is. Omitted means the
+   * Cloudflare AI Gateway `/compat` endpoint. `openrouter` is OpenRouter's
+   * API (`https://openrouter.ai/api/v1`): every request then requires a
+   * provider that supports structured output, reports its cost, and must be
+   * answered by exactly the configured model.
+   */
+  readonly provider?: 'cloudflare-ai-gateway' | 'openrouter' | undefined;
+  /**
    * The unified `/compat` endpoint, e.g.
    * `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/compat`.
    * The AI SDK appends `/chat/completions`, so any such suffix is stripped.
@@ -296,8 +321,9 @@ export function createAiGateway(
   }
 
   const baseURL = config.baseUrl.replace(/\/chat\/completions\/?$/, '');
+  const openRouter = config.provider === 'openrouter';
   const provider = createOpenAICompatible({
-    name: 'cloudflare-ai-gateway',
+    name: openRouter ? 'openrouter' : 'cloudflare-ai-gateway',
     baseURL,
     apiKey: config.providerApiKey,
     // Only sent when the gateway is authenticated — see `gatewayToken`.
@@ -309,6 +335,20 @@ export function createAiGateway(
     // Zod schema would then be a post-hoc rejection instead of a constraint the
     // model was held to, and every malformed field would cost a wasted call.
     supportsStructuredOutputs: true,
+    // OpenRouter reports the request's cost in `usage.cost` (USD).
+    ...(openRouter
+      ? {
+          metadataExtractor: {
+            async extractMetadata({ parsedBody }: { parsedBody: unknown }) {
+              const cost = (parsedBody as { usage?: { cost?: unknown } } | null)?.usage?.cost;
+              return typeof cost === 'number' ? { openrouter: { costUsd: cost } } : undefined;
+            },
+            createStreamExtractor() {
+              return { processChunk() {}, buildMetadata: () => undefined };
+            },
+          },
+        }
+      : {}),
     ...(fetchFn ? { fetch: fetchFn } : {}),
   });
 
@@ -326,15 +366,17 @@ export function createAiGateway(
 
       // Emits the ONE observability line the spec requires, after the final
       // attempt (success or failure). Never logs prompt/response content.
-      const emit = (ok: boolean, attempts: number, usage?: TokenUsage): void => {
+      const emit = (ok: boolean, attempts: number, usage?: TokenUsage, servedModel?: string): void => {
         console.log(
           JSON.stringify({
             ai: label,
             model: config.model,
+            ...(servedModel ? { servedModel } : {}),
             latencyMs: Date.now() - start,
             attempts,
             ok,
             ...(usage ? { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens } : {}),
+            ...(usage?.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
           }),
         );
       };
@@ -357,7 +399,7 @@ export function createAiGateway(
             : (attemptTimeout ?? options.abortSignal);
 
         try {
-          const { object, usage } = await generateObject({
+          const { object, usage, response, providerMetadata } = await generateObject({
             model: provider(config.model),
             schema,
             prompt,
@@ -370,18 +412,40 @@ export function createAiGateway(
             // Spread verbatim into the request body by the openai-compatible
             // provider (keyed by the camel-cased provider name) — it forwards
             // any key that is not one of its own.
-            ...(options.reasoning === false
-              ? { providerOptions: { cloudflareAiGateway: { chat_template_kwargs: { thinking: false } } } }
-              : {}),
+            ...(openRouter
+              ? {
+                  providerOptions: {
+                    openrouter: {
+                      provider: { require_parameters: true },
+                      usage: { include: true },
+                      ...(options.reasoning === false ? { reasoning: { effort: 'low' } } : {}),
+                    },
+                  },
+                }
+              : options.reasoning === false
+                ? { providerOptions: { cloudflareAiGateway: { chat_template_kwargs: { thinking: false } } } }
+                : {}),
           });
 
+          const costUsd = providerMetadata?.['openrouter']?.['costUsd'];
           const tokenUsage: TokenUsage = {
             promptTokens: usage.inputTokens ?? 0,
             completionTokens: usage.outputTokens ?? 0,
+            ...(typeof costUsd === 'number' ? { costUsd } : {}),
           };
-          emit(true, attempt, tokenUsage);
-          return { object, usage: tokenUsage };
+          const servedModel = response.modelId;
+          // OpenRouter names the model it served, without a routing variant
+          // (`:nitro`); anything but the configured model or a dated version
+          // of it is a substitution.
+          const configuredModel = config.model.replace(/:[\w-]+$/, '');
+          if (openRouter && servedModel !== configuredModel && !servedModel.startsWith(`${configuredModel}-`)) {
+            emit(false, attempt, tokenUsage, servedModel);
+            throw new AiModelMismatchError(config.model, servedModel);
+          }
+          emit(true, attempt, tokenUsage, servedModel);
+          return { object, usage: tokenUsage, model: servedModel };
         } catch (error) {
+          if (error instanceof AiModelMismatchError) throw error;
           // A stalled attempt that hit its own timeout is transient; only
           // the caller's own abort ends the loop.
           const attemptTimedOut = attemptTimeout?.aborted === true && options.abortSignal?.aborted !== true;

@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   AiGatewayNotAvailableError,
+  AiModelMismatchError,
   MAX_OUTPUT_TOKENS,
   MAX_PROMPT_TOKENS,
   MAX_TOTAL_TOKENS,
@@ -224,6 +225,102 @@ describe('createAiGateway — endpoint and model', () => {
     await gateway.generate('prompt', schema);
 
     expect(recorded[0]?.body.chat_template_kwargs).toBeUndefined();
+  });
+});
+
+// ==========================================================================
+// OpenRouter — structured output required, cost reported, model verified
+// ==========================================================================
+
+describe('createAiGateway — OpenRouter', () => {
+  const openRouter: AiGatewayConfig = {
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'anthropic/claude-opus-5.5',
+    providerApiKey: 'or-key-ccc',
+  };
+
+  /** A fetch stub answering as OpenRouter does: the served model and the cost in usage. */
+  function openRouterFetch(recorded: RecordedRequest[], servedModel: string): typeof fetch {
+    return (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers: Record<string, string> = {};
+      new Headers(init?.headers).forEach((value, key) => {
+        headers[key.toLowerCase()] = value;
+      });
+      recorded.push({ url: String(input), headers, body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> });
+      return new Response(
+        JSON.stringify({
+          id: 'gen-test',
+          object: 'chat.completion',
+          created: 0,
+          model: servedModel,
+          choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(modelOutput) }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, cost: 0.0108 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+  }
+
+  it('posts to OpenRouter with the model id, the bearer key, and no gateway header', async () => {
+    const recorded: RecordedRequest[] = [];
+    await createAiGateway(openRouter, openRouterFetch(recorded, 'anthropic/claude-opus-5.5')).generate('prompt', schema);
+
+    expect(recorded[0]?.url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(recorded[0]?.body.model).toBe('anthropic/claude-opus-5.5');
+    expect(recorded[0]?.headers['authorization']).toBe('Bearer or-key-ccc');
+    expect(recorded[0]?.headers).not.toHaveProperty('cf-aig-authorization');
+  });
+
+  it('requires a provider that honours the json_schema response format, and asks for the cost', async () => {
+    const recorded: RecordedRequest[] = [];
+    await createAiGateway(openRouter, openRouterFetch(recorded, 'anthropic/claude-opus-5.5')).generate('prompt', schema);
+
+    expect(recorded[0]?.body.response_format).toMatchObject({ type: 'json_schema' });
+    expect(recorded[0]?.body.provider).toEqual({ require_parameters: true });
+    expect(recorded[0]?.body.usage).toEqual({ include: true });
+  });
+
+  it('asks for low reasoning effort instead of switching thinking off', async () => {
+    const recorded: RecordedRequest[] = [];
+    await createAiGateway(openRouter, openRouterFetch(recorded, 'anthropic/claude-opus-5.5'))
+      .generate('prompt', schema, { reasoning: false });
+
+    expect(recorded[0]?.body.reasoning).toEqual({ effort: 'low' });
+    expect(recorded[0]?.body.chat_template_kwargs).toBeUndefined();
+  });
+
+  it('reports the served model, the token usage, and the cost', async () => {
+    const response = await createAiGateway(openRouter, openRouterFetch([], 'anthropic/claude-opus-5.5'))
+      .generate('prompt', schema);
+
+    expect(response.model).toBe('anthropic/claude-opus-5.5');
+    expect(response.usage).toEqual({ promptTokens: 1200, completionTokens: 300, costUsd: 0.0108 });
+  });
+
+  it('accepts a dated variant of the configured model', async () => {
+    const response = await createAiGateway(openRouter, openRouterFetch([], 'anthropic/claude-opus-5.5-20260901'))
+      .generate('prompt', schema);
+
+    expect(response.model).toBe('anthropic/claude-opus-5.5-20260901');
+  });
+
+  it('accepts the base model for a configured routing variant', async () => {
+    const response = await createAiGateway({ ...openRouter, model: 'anthropic/claude-opus-5.5:nitro' }, openRouterFetch([], 'anthropic/claude-opus-5.5'))
+      .generate('prompt', schema);
+
+    expect(response.model).toBe('anthropic/claude-opus-5.5');
+  });
+
+  it('rejects an answer from another model and never retries it', async () => {
+    const recorded: RecordedRequest[] = [];
+    const gateway = createAiGateway(openRouter, openRouterFetch(recorded, 'anthropic/claude-sonnet-5.5'), {
+      maxAttempts: 3,
+      sleep: async () => {},
+    });
+
+    await expect(gateway.generate('prompt', schema)).rejects.toBeInstanceOf(AiModelMismatchError);
+    expect(recorded).toHaveLength(1);
   });
 });
 

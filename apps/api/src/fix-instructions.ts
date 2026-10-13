@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  FIX_INSTRUCTIONS_VERSION,
   reconcileReadiness,
   summariseEnvRequirements,
   type FixInstructionsContext,
@@ -80,14 +81,20 @@ export interface CachedFixInstructions {
 }
 
 /**
- * The cache key for one generation: the analysed commit, the analysis
- * version, every fact, and every finding's id, evidence and confidence. Any
- * change in what the document would be built from changes the key, so a
- * cached document is only ever reused for the same repository state and the
- * same findings.
+ * The cache key for one generation: the generator version and model, the
+ * analysed commit, the analysis version, every fact, and every finding's id,
+ * evidence and confidence. Any change in what the document would be built
+ * from — or by — changes the key, so a cached document is only ever reused
+ * for the same repository state, the same findings and the same generator.
  */
-export function fixInstructionsCacheKey(context: FixInstructionsContext, analysisVersion: unknown): string {
+export function fixInstructionsCacheKey(
+  context: FixInstructionsContext,
+  analysisVersion: unknown,
+  model: string,
+): string {
   const material = JSON.stringify({
+    generator: FIX_INSTRUCTIONS_VERSION,
+    model,
     commitSha: context.commitSha,
     analysisVersion: typeof analysisVersion === 'number' ? analysisVersion : null,
     facts: context.facts,
@@ -126,6 +133,9 @@ export function buildFixInstructionsContext(
   if (!report || report.findings.length === 0) return null;
 
   const redis = metadata?.['redis'] as { required?: unknown } | undefined;
+  const workers = metadata?.['resolvedWorkerCommands'];
+  const vendorOverrides = metadata?.['vendorOverrides'];
+  const migrationDecided = Array.isArray(vendorOverrides) && vendorOverrides.includes('migrationCommand');
 
   return {
     repoFullName: application.repoFullName,
@@ -135,16 +145,27 @@ export function buildFixInstructionsContext(
       framework: asString(metadata?.['framework']),
       packageManager: asString(metadata?.['packageManager']),
       buildCommand: firstString(metadata?.['buildCommands']),
-      startCommand: firstString(metadata?.['startupCommands']),
+      startCommand: firstString(metadata?.['startupCommands'])?.replace(/^(?:CMD|ENTRYPOINT):\s*/, '') ?? null,
       port:
         application.containerPort !== null
           ? String(application.containerPort)
           : asString(metadata?.['port']),
       dockerfilePath: asString(metadata?.['dockerfilePath']),
-      database: metadata?.['usesPostgresql'] === true ? 'postgres' : 'none',
+      database:
+        metadata?.['usesPostgresql'] === true ? 'postgres' : metadata?.['usesMysql'] === true ? 'mysql' : 'none',
       migrationCommand: application.migrationCommand,
+      suggestedMigrationCommand:
+        application.migrationCommand === null && !migrationDecided
+          ? asString(metadata?.['suggestedMigrationCommand'])
+          : null,
       healthPath: application.healthPath,
+      healthPathSetByVendor: Array.isArray(vendorOverrides) && vendorOverrides.includes('healthPath'),
       redisRequired: application.redisRequired || redis?.required === true,
+      workerCommands: Array.isArray(workers)
+        ? workers
+            .map((worker) => (worker as { command?: unknown } | null)?.command)
+            .filter((command): command is string => typeof command === 'string' && command.length > 0)
+        : [],
       workingDirectory: asString(metadata?.['workingDirectory']),
       envRequirements: summariseEnvRequirements(metadata?.['envVarModel']),
     },

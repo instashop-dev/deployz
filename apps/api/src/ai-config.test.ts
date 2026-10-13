@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { AI_MODEL_DEFAULT, resolveAiGatewayConfig } from './ai-config.js';
+import {
+  AI_MODEL_DEFAULT,
+  FIX_INSTRUCTIONS_MODEL_DEFAULT,
+  OPENROUTER_BASE_URL_DEFAULT,
+  describeFixInstructionsAiConfig,
+  resolveAiGatewayConfig,
+} from './ai-config.js';
 
 const complete = {
   AI_GATEWAY_BASE_URL: 'https://gateway.ai.cloudflare.com/v1/acct/gw/compat',
@@ -78,5 +84,66 @@ describe('resolveAiGatewayConfig', () => {
     });
 
     expect(reused).toBeUndefined();
+  });
+});
+
+describe('describeFixInstructionsAiConfig', () => {
+  it('defaults to Claude Opus 5.5 on OpenRouter', () => {
+    expect(describeFixInstructionsAiConfig({ OPENROUTER_API_KEY: 'or-key' })).toEqual({
+      provider: 'openrouter',
+      config: {
+        provider: 'openrouter',
+        baseUrl: OPENROUTER_BASE_URL_DEFAULT,
+        providerApiKey: 'or-key',
+        model: FIX_INSTRUCTIONS_MODEL_DEFAULT,
+      },
+      problem: undefined,
+    });
+    expect(FIX_INSTRUCTIONS_MODEL_DEFAULT).toBe('anthropic/claude-opus-5.5');
+  });
+
+  it('uses FIX_INSTRUCTIONS_AI_MODEL and OPENROUTER_BASE_URL when set', () => {
+    const { config } = describeFixInstructionsAiConfig({
+      OPENROUTER_API_KEY: 'or-key',
+      OPENROUTER_BASE_URL: 'https://gateway.example/openrouter',
+      FIX_INSTRUCTIONS_AI_MODEL: 'anthropic/claude-sonnet-5.5',
+    });
+
+    expect(config?.baseUrl).toBe('https://gateway.example/openrouter');
+    expect(config?.model).toBe('anthropic/claude-sonnet-5.5');
+  });
+
+  // No silent fallback: OpenRouter without its key never answers from the
+  // shared gateway's model, even when that gateway is configured.
+  it('stays unconfigured without OPENROUTER_API_KEY, even with the shared gateway set', () => {
+    expect(describeFixInstructionsAiConfig(complete)).toEqual({
+      provider: 'openrouter',
+      config: undefined,
+      problem: 'missing-openrouter-key',
+    });
+  });
+
+  it('rolls back to the shared gateway and its own model, ignoring the OpenRouter model id', () => {
+    const { provider, config } = describeFixInstructionsAiConfig({
+      ...complete,
+      FIX_INSTRUCTIONS_AI_PROVIDER: 'gateway',
+      FIX_INSTRUCTIONS_AI_MODEL: 'anthropic/claude-opus-5.5',
+      OPENROUTER_API_KEY: 'or-key',
+    });
+
+    expect(provider).toBe('gateway');
+    expect(config).toEqual(resolveAiGatewayConfig(complete));
+    expect(config?.model).toBe(AI_MODEL_DEFAULT);
+  });
+
+  it('reports a rollback without a shared gateway as unconfigured', () => {
+    expect(describeFixInstructionsAiConfig({ FIX_INSTRUCTIONS_AI_PROVIDER: 'gateway' }).problem).toBe('missing-gateway');
+  });
+
+  it('rejects an unknown provider instead of guessing one', () => {
+    const result = describeFixInstructionsAiConfig({ FIX_INSTRUCTIONS_AI_PROVIDER: 'openai', OPENROUTER_API_KEY: 'or-key' });
+
+    expect(result.config).toBeUndefined();
+    expect(result.problem).toBe('invalid-provider');
   });
 });

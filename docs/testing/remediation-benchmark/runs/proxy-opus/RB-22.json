@@ -1,0 +1,4 @@
+{"items": [
+{"id": "unsupported-no-dockerfile", "guidance": "Base the image on an official Node image, copy package.json and any lockfile first, install with npm ci --omit=dev (npm install --omit=dev if no lockfile exists), then copy the source; add a build step only if package.json defines a build script. Add EXPOSE 5006 and use node index.js as the command. Deployz sets PORT at runtime, so confirm index.js reads PORT and listens on it."},
+{"id": "health-check", "guidance": "Check the Express routes in index.js for an existing lightweight path before adding one. If you add one, register an app.get handler for /health that sends status 200 near the top of index.js, before static, view, or redirect middleware that could intercept it."}
+]}

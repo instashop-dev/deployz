@@ -1,0 +1,414 @@
+{
+  "id": "repo-041",
+  "repository": "coder/coder",
+  "commit": "07f9018c617af5c15bffaf25fefdb64c1490f471",
+  "analysisVersion": 52,
+  "source": {
+    "repoFullName": "coder/coder",
+    "containerPort": 7080,
+    "healthPath": null,
+    "migrationCommand": null,
+    "redisRequired": false,
+    "workerCommand": null,
+    "detectedMetadata": {
+      "aiAnalysis": {
+        "warnings": [
+          "AI analysis unavailable"
+        ],
+        "unresolved": [
+          "multiple-dockerfiles",
+          "monorepo-target"
+        ]
+      },
+      "ambiguities": [
+        {
+          "kind": "DOCKERFILE_TARGET",
+          "detail": "The repository contains more than one Dockerfile candidate; which one builds the application image is unresolved."
+        },
+        {
+          "kind": "DOCKERFILE_TARGET",
+          "detail": "No root Dockerfile or start script identifies which workspace package to deploy."
+        },
+        {
+          "kind": "HEALTH_PATH",
+          "detail": "No health check route or container health check was found; a default /health path would be assumed."
+        },
+        {
+          "kind": "MIGRATION_STRATEGY",
+          "detail": "A PostgreSQL or MySQL database is required but no migration command was detected."
+        },
+        {
+          "kind": "STORAGE_BINDING",
+          "detail": "Object storage usage was detected but no bucket environment variable is declared or read."
+        }
+      ],
+      "analysisCommitSha": "07f9018c617af5c15bffaf25fefdb64c1490f471",
+      "analysisVersion": 52,
+      "asyncQuestions": [],
+      "asyncQueues": [],
+      "asyncScheduledJobs": [],
+      "bindAddress": null,
+      "bindsLocalhost": false,
+      "copiesGitDirectory": false,
+      "databaseNamesMentioned": [],
+      "databaseState": "postgres",
+      "dockerfileMissingSources": [
+        "coder"
+      ],
+      "dockerfilePath": "scripts/Dockerfile",
+      "envVarModel": [
+        {
+          "key": "BROWSER",
+          "secret": false,
+          "source": [
+            "read in cli/login.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "CLIDOCGEN_CONFIG_DIRECTORY",
+          "secret": false,
+          "source": [
+            "read in cli/config/file.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "CODER",
+          "secret": false,
+          "source": [
+            "read in cli/support.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "CODER_GO_TRACE",
+          "secret": false,
+          "source": [
+            "read in cli/root.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "DB_DUMP_CONNECTION_URL",
+          "secret": false,
+          "source": [
+            "read in coderd/database/gen/dump/main.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "EMBEDDED_PG_CACHE_DIR",
+          "secret": false,
+          "source": [
+            "read in cli/server.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "GIT_SSH_COMMAND",
+          "secret": false,
+          "source": [
+            "read in cli/dotfiles.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "GOTRACEBACK",
+          "secret": false,
+          "source": [
+            "read in cli/root.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "HOME",
+          "secret": false,
+          "source": [
+            "read in cli/exp_mcp.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PATH",
+          "secret": false,
+          "source": [
+            "read in agent/agent.go",
+            "read in cli/agent.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "SSH_AUTH_SOCK",
+          "secret": false,
+          "source": [
+            "read in cli/ssh.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "SYSTEM_PROMPT",
+          "secret": false,
+          "source": [
+            "read in cli/exp_mcp.go"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        }
+      ],
+      "externalServiceRequirements": [
+        {
+          "service": "openai",
+          "evidence": [
+            "openai (go.mod)"
+          ]
+        }
+      ],
+      "externalServices": [
+        "openai"
+      ],
+      "framework": "express",
+      "hasBuildCommand": false,
+      "hasDockerfile": true,
+      "hasEnvVars": false,
+      "hasExternalServices": true,
+      "hasHealthEndpoint": false,
+      "hasMigrationCommand": false,
+      "hasStartupCommand": true,
+      "hasWorkerProcesses": false,
+      "healthMode": "vendor_required",
+      "healthPath": null,
+      "ignoredDeploymentFiles": [],
+      "infrastructureBindings": [
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "url",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_URL"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "host",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_HOST"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "port",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_PORT"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "database",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_NAME"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "username",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_USER"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "password",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_PASSWORD"
+        },
+        {
+          "source": "explicit",
+          "resource": "s3",
+          "semantic": "bucket",
+          "confidence": "high",
+          "applicationVariable": "AWS_S3_BUCKET"
+        },
+        {
+          "source": "explicit",
+          "resource": "s3",
+          "semantic": "bucket",
+          "confidence": "high",
+          "applicationVariable": "S3_BUCKET"
+        },
+        {
+          "source": "explicit",
+          "resource": "s3",
+          "semantic": "bucket",
+          "confidence": "high",
+          "applicationVariable": "STORAGE_BUCKET"
+        }
+      ],
+      "migrationMode": "unknown",
+      "mysql": {
+        "detected": false,
+        "evidence": [],
+        "required": false
+      },
+      "packageManager": null,
+      "port": "7080",
+      "portConfidence": "high",
+      "portSource": "compose",
+      "postgres": {
+        "evidence": [
+          "lib/pq driver declared",
+          "postgres connection URL in source",
+          "docker-compose service using a PostgreSQL/PostGIS image (postgres:17) in compose.yaml"
+        ],
+        "required": true
+      },
+      "postgresqlDrivers": [
+        "lib/pq",
+        "postgres connection URL"
+      ],
+      "readiness": {
+        "state": "NEEDS_CHANGES",
+        "passed": [
+          {
+            "id": "dockerfile",
+            "label": "Container setup found"
+          },
+          {
+            "id": "framework",
+            "label": "Framework detected"
+          },
+          {
+            "id": "port",
+            "label": "Application port detected"
+          },
+          {
+            "id": "postgresql",
+            "label": "PostgreSQL database detected — Deployz provides a managed database"
+          },
+          {
+            "id": "s3",
+            "label": "Object storage usage detected"
+          },
+          {
+            "id": "startup-command",
+            "label": "Start command found"
+          },
+          {
+            "id": "external-services",
+            "label": "External service integrations detected"
+          },
+          {
+            "id": "runtime",
+            "label": "Runtime detected"
+          }
+        ],
+        "summary": "This app needs changes before Deployz can deploy it.",
+        "findings": [
+          {
+            "id": "unsupported-architecture",
+            "title": "Runs its own infrastructure",
+            "blocking": true,
+            "category": "architecture",
+            "severity": "required",
+            "confidence": "confirmed",
+            "whyItMatters": "Deployz provisions one container per application with managed database, cache, and storage. Extra infrastructure the app expects would not exist at runtime.",
+            "suggestedOutcome": "Remove the third-party infrastructure and keep only the application code. Deployz provides the hosting, database, cache, and storage.",
+            "technicalEvidence": "Unsupported infrastructure: Terraform configuration is present (dogfood/main.tf, dogfood/vscode-coder/main.tf, dogfood/coder-envbuilder/main.tf). Deployz provisions infrastructure itself and cannot run alongside customer IaC.",
+            "plainEnglishExplanation": "This app depends on infrastructure that Deployz does not host or manage (its own deployment tooling, cloud platform files, or cluster setup)."
+          },
+          {
+            "id": "health-check",
+            "title": "Give Deployz a way to check your app",
+            "blocking": false,
+            "category": "health",
+            "severity": "required",
+            "confidence": "likely",
+            "whyItMatters": "During every deployment, Deployz waits for your app to report healthy before sending traffic to it. Without a health signal, a broken deploy cannot be detected or rolled back.",
+            "suggestedOutcome": "Expose a lightweight route (for example /health) that returns success once the app is ready, and reference it from the container health check.",
+            "technicalEvidence": "No health endpoint or container health check was found (no /health-style route, no HEALTHCHECK instruction).",
+            "plainEnglishExplanation": "Deployz needs a reliable way to know when your app is running and ready."
+          },
+          {
+            "id": "database-migrations",
+            "title": "Give Deployz a way to update your database",
+            "blocking": false,
+            "category": "database",
+            "severity": "recommended",
+            "confidence": "likely",
+            "whyItMatters": "Deployz runs your migration command automatically on every deploy, so each customer database always matches the code that talks to it.",
+            "suggestedOutcome": "Add a script that applies database migrations non-interactively (for example a \"db:migrate\" entry in package.json).",
+            "technicalEvidence": "A PostgreSQL library is present (lib/pq, postgres connection URL) but no migration script was found in any package.json.",
+            "plainEnglishExplanation": "This app uses a database, but Deployz could not find a command that updates the database structure during deploys."
+          }
+        ],
+        "requiredCount": 2,
+        "recommendedCount": 1
+      },
+      "redis": {
+        "evidence": [],
+        "purposes": [
+          "unknown"
+        ],
+        "required": false,
+        "confidence": "low",
+        "compatibility": {
+          "supported": true
+        },
+        "connectionEnvVars": []
+      },
+      "resolvedWorkerCommand": null,
+      "resolvedWorkerCommands": null,
+      "runtime": "go",
+      "s3Indicators": [
+        "aws-sdk-go-v2 service/s3"
+      ],
+      "startupCommands": [
+        "ENTRYPOINT: [ \"/opt/coder\", \"server\" ]"
+      ],
+      "unsupportedReasons": [
+        "Unsupported infrastructure: Terraform configuration is present (dogfood/main.tf, dogfood/vscode-coder/main.tf, dogfood/coder-envbuilder/main.tf). Deployz provisions infrastructure itself and cannot run alongside customer IaC."
+      ],
+      "usesLocalFilesystem": false,
+      "usesMysql": false,
+      "usesPostgresql": true,
+      "usesRedis": false,
+      "usesS3": true,
+      "vendorOverrides": []
+    }
+  }
+}

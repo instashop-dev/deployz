@@ -1,0 +1,4 @@
+{"items": [
+{"id": "localhost-binding", "guidance": "Both evidence files are under desktop/, which by its name may be a desktop app wrapper and not the Go server that the Dockerfile builds. Check whether the Dockerfile builds or runs anything from desktop/; if it does not, report that and leave those files as they are. For the Go server, check its interface setting (a config key or environment variable) and confirm it listens on all interfaces on port 3456."},
+{"id": "database-migrations", "guidance": "In this Go app, look for a migration package or directory (for example one built on xormigrate, golang-migrate, or goose) and for code called during server start that runs it. If the server binary applies migrations at start, report that file. If the binary has a migrate subcommand, report the exact command with the binary path used in the image."}
+]}

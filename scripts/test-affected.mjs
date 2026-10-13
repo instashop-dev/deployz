@@ -100,7 +100,11 @@ const RELAY_AWS_INTERFACE = new Set([
 
 // scripts/<dir> Vitest projects (root vitest.config.ts) — the project name is
 // the directory name.
-const SCRIPT_PROJECTS = ['version-canary', 'repository-compatibility', 'repository-deployment', 'jev-eval'];
+const SCRIPT_PROJECTS = ['version-canary', 'repository-compatibility', 'repository-deployment', 'jev-eval', 'remediation-benchmark'];
+
+// The fix-instructions generator is graded by the remediation benchmark's
+// release gate (an API change already runs every project).
+const REMEDIATION_GENERATOR = /^packages\/analysis\/src\/fix-instructions\.ts$/;
 
 const CANARY_STATELESS = 'pnpm e2e:canary:versions profile --profile stateless';
 const CANARY_CORE = 'pnpm e2e:canary:versions core';
@@ -217,6 +221,8 @@ function classify(f, layers, graph) {
     critical('unknown workspace package (full regression)');
     return;
   }
+
+  if (REMEDIATION_GENERATOR.test(f)) layers.unitProjects.add('remediation-benchmark');
 
   if (pkgName) {
     layers.changedPackages.add(pkgName);
@@ -347,7 +353,7 @@ export function planFromFiles(files, options = {}) {
   for (const f of list) {
     // The benchmark corpora and finding registries under docs/testing are
     // read by the harness tests, so they are test data, not documentation.
-    const harnessData = /^docs\/testing\/(repository-compatibility|repository-deployment)\//.exec(f);
+    const harnessData = /^docs\/testing\/(repository-compatibility|repository-deployment|remediation-benchmark)\//.exec(f);
     if (harnessData) {
       docOnly = false;
       layers.unitProjects.add(harnessData[1]);

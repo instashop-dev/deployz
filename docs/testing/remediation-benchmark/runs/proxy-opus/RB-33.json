@@ -1,0 +1,5 @@
+{"items": [
+{"id": "health-check", "guidance": "Check the Express routes for an existing health or status route first. If you add one, register the GET /health handler in the app setup before the routers, passport or other auth, and any custom-domain redirect, and do not check Kafka, Redis, or the database inside it."},
+{"id": "worker-command", "guidance": "Find the Bull queue definitions and the code that calls process on them, and check whether the file that npm start runs loads them or whether a separate file starts them. Report the exact command of any separate worker file. Also report the Redis settings that Bull reads, because the facts list no Redis that Deployz provides."},
+{"id": "unsupported-message-queue", "guidance": "Search for kafkajs imports and check whether the producer or consumer is created on the server start path or only when KAFKA_BROKERS or a feature setting is present. Report the files that create the Kafka client, whether startup fails without KAFKA_BROKERS, and any setting that switches the integration off, with its value."}
+]}

@@ -10,12 +10,15 @@ import {
 import {
   FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS,
   FIX_INSTRUCTIONS_GUARDRAIL,
+  FIX_INSTRUCTIONS_MAX_GUIDANCE_CHARS,
   FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS,
   FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS,
   FIX_INSTRUCTIONS_TIMEOUT_MS,
   assembleFixInstructions,
   buildFixInstructionsAiPrompt,
   generateFixInstructions,
+  isSafeGuidance,
+  planRemediation,
   summariseEnvRequirements,
   type FixInstructionsAiOutput,
   type FixInstructionsContext,
@@ -27,72 +30,50 @@ import type { ReadinessFinding } from '../src/readiness-report.js';
 // Fixtures
 // ==========================================================================
 
-const postgresFacts: FixInstructionsFacts = {
+const facts: FixInstructionsFacts = {
   runtime: 'node',
   framework: 'express',
   packageManager: 'pnpm',
   buildCommand: 'pnpm build',
   startCommand: 'node dist/index.js',
   port: '3000',
-  dockerfilePath: null,
+  dockerfilePath: 'Dockerfile',
   database: 'postgres',
   migrationCommand: null,
-  healthPath: '/health',
+  suggestedMigrationCommand: null,
+  healthPath: null,
+  healthPathSetByVendor: false,
   redisRequired: false,
+  workerCommands: [],
   workingDirectory: null,
   envRequirements: null,
 };
 
-const noDbFacts: FixInstructionsFacts = {
-  ...postgresFacts,
-  database: 'none',
-};
+function finding(id: string, overrides: Partial<ReadinessFinding> = {}): ReadinessFinding {
+  return {
+    id,
+    category: 'test',
+    title: `Title of ${id}`,
+    severity: 'required',
+    blocking: false,
+    plainEnglishExplanation: `Explanation of ${id}.`,
+    whyItMatters: 'It matters.',
+    technicalEvidence: `Evidence for ${id}.`,
+    suggestedOutcome: `Outcome for ${id}.`,
+    confidence: 'confirmed',
+    ...overrides,
+  };
+}
 
-/** Required + fixable finding (container-setup). */
-const containerFinding: ReadinessFinding = {
-  id: 'container-setup',
-  category: 'container',
-  title: "Deployz doesn't know how to start your app",
-  severity: 'required',
-  blocking: false,
-  plainEnglishExplanation: 'Deployz could not determine how to package and start this application.',
-  whyItMatters: 'Deployz builds and runs your app in its own container for every customer.',
-  technicalEvidence: 'No Dockerfile was found in the repository.',
-  suggestedOutcome: 'Add container build instructions (a Dockerfile) that install, build, and start the app.',
-  confidence: 'confirmed',
-};
+function context(findings: ReadinessFinding[], factOverrides: Partial<FixInstructionsFacts> = {}): FixInstructionsContext {
+  return { repoFullName: 'acme/widget-api', commitSha: 'abc123def456', facts: { ...facts, ...factOverrides }, findings };
+}
 
-/** Recommended finding (database-migrations, unknown mode). */
-const migrationFinding: ReadinessFinding = {
-  id: 'database-migrations',
-  category: 'database',
-  title: 'Give Deployz a way to update your database',
-  severity: 'recommended',
-  blocking: false,
-  plainEnglishExplanation:
-    'This app uses a database, but Deployz could not find a command that updates the database structure during deploys.',
-  whyItMatters: 'Deployz runs your migration command automatically on every deploy.',
-  technicalEvidence:
-    'A PostgreSQL library is present (pg) but no migration script was found in any package.json.',
-  suggestedOutcome: 'Add a script that applies database migrations non-interactively.',
-  confidence: 'likely',
-};
+const NO_AI: FixInstructionsAiOutput = { items: [] };
 
-/** Informational finding (migrations run at startup — nothing to do). */
-const informationalFinding: ReadinessFinding = {
-  ...migrationFinding,
-  title: 'Database migrations run when the application starts',
-  technicalEvidence: 'Migrations run at startup: migrate on boot (src/index.ts).',
-  suggestedOutcome: 'No action needed — migrations run on application startup.',
-  confidence: 'likely',
-};
-
-const baseContext: FixInstructionsContext = {
-  repoFullName: 'acme/widget-api',
-  commitSha: 'abc123def456',
-  facts: postgresFacts,
-  findings: [containerFinding, migrationFinding],
-};
+function classOf(ctx: FixInstructionsContext, id: string): string | undefined {
+  return planRemediation(ctx).find((item) => item.findingIds.includes(id))?.classification;
+}
 
 function fixtureGateway(response: AiGatewayResponse): AiGateway {
   return { async generate() { return response; } };
@@ -164,76 +145,304 @@ describe('summariseEnvRequirements', () => {
 });
 
 // ==========================================================================
+// planRemediation — classification, merging, ordering
+// ==========================================================================
+
+describe('planRemediation — classification', () => {
+  it.each([
+    ['container-setup', 'CONFIGURATION_FIX'],
+    ['unsupported-no-dockerfile', 'CONFIGURATION_FIX'],
+    ['build-context-git-metadata', 'CONFIGURATION_FIX'],
+    ['start-command-missing', 'CONFIGURATION_FIX'],
+    ['port-unresolved', 'CONFIGURATION_FIX'],
+    ['health-check', 'APPLICATION_FIX'],
+    ['local-file-storage', 'APPLICATION_FIX'],
+    ['unsupported-persistent-volume', 'APPLICATION_FIX'],
+    ['database-migrations', 'CONFIGURATION_FIX'],
+    ['migration-command-needs-input', 'NEEDS_INPUT'],
+    ['worker-command', 'NEEDS_INPUT'],
+    ['async-question-queue-orders', 'NEEDS_INPUT'],
+    ['unsupported-database-mariadb', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-database-sqlite', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-database-mongo', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-database-elasticsearch', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-database-other', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-redis-setup', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-message-queue', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-gpu', 'DEPLOYZ_LIMITATION'],
+    ['unsupported-architecture', 'UNSUPPORTED'],
+    ['some-future-finding', 'NEEDS_INPUT'],
+  ])('%s → %s', (id, expected) => {
+    expect(classOf(context([finding(id)]), id)).toBe(expected);
+  });
+
+  // Regression: informational findings ("No change needed — Deployz will
+  // start the worker…") reached the prompt as blockers, because only the
+  // "No action needed" wording was filtered.
+  it.each([
+    finding('worker-process', { severity: 'recommended', suggestedOutcome: 'No change needed — Deployz will start the worker process alongside your app.' }),
+    finding('async-workloads', { severity: 'recommended', suggestedOutcome: 'No action needed — Deployz provisions the queues.' }),
+    finding('database-migrations', { severity: 'recommended', suggestedOutcome: 'No action needed — migrations run on application startup.' }),
+  ])('$id with a no-change outcome is ALREADY_SUPPORTED', (informational) => {
+    expect(classOf(context([informational]), informational.id)).toBe('ALREADY_SUPPORTED');
+  });
+
+  it('splits a supervisor image (configuration) from independent compose services (limitation)', () => {
+    const supervisor = finding('unsupported-multi-service', {
+      technicalEvidence: 'Unsupported container setup: Dockerfile runs supervisord with 3 programs (supervisord.conf) in one container.',
+    });
+    const compose = finding('unsupported-multi-service', {
+      technicalEvidence: 'Unsupported architecture: docker-compose.yml defines 2 application services (web, api).',
+    });
+    expect(classOf(context([supervisor]), 'unsupported-multi-service')).toBe('CONFIGURATION_FIX');
+    expect(classOf(context([compose]), 'unsupported-multi-service')).toBe('DEPLOYZ_LIMITATION');
+  });
+
+  it('treats a bind address set in configuration as a configuration fix', () => {
+    const configured = finding('localhost-binding', { technicalEvidence: 'Server binds only to a loopback address: Dockerfile CMD gunicorn --bind 127.0.0.1:8000' });
+    const inCode = finding('localhost-binding', { technicalEvidence: "Server binds only to a loopback address: src/server.ts app.listen(3000, '127.0.0.1')" });
+    expect(classOf(context([configured]), 'localhost-binding')).toBe('CONFIGURATION_FIX');
+    expect(classOf(context([inCode]), 'localhost-binding')).toBe('APPLICATION_FIX');
+  });
+
+  it('treats a health path the vendor set as already supported, so no route is added', () => {
+    const plan = planRemediation(context([finding('health-check', { confidence: 'likely' })], { healthPath: '/api/status', healthPathSetByVendor: true }));
+    expect(plan[0]!.classification).toBe('ALREADY_SUPPORTED');
+    expect(plan[0]!.evidence[0]).toContain('`/api/status`');
+  });
+
+  // Review: an earlier analysis's detected path stays in the column after the
+  // route is removed; only a vendor-owned path means "set in Deployz".
+  it('does not trust a detected health path that the finding contradicts', () => {
+    const plan = planRemediation(context([finding('health-check', { confidence: 'likely' })], { healthPath: '/healthz' }));
+    expect(plan[0]!.classification).toBe('APPLICATION_FIX');
+  });
+
+  // Holdout regression (CTFd): "server host set to a loopback address" in
+  // Python source matched a case-insensitive HOST and read as configuration.
+  it('reads HOST as a variable name only, never the word "host"', () => {
+    const word = finding('localhost-binding', { technicalEvidence: 'Server binds only to a loopback address: server host set to a loopback address (serve.py)' });
+    const variable = finding('localhost-binding', { technicalEvidence: 'Server binds only to a loopback address: APP_HOST defaults to 127.0.0.1 (src/config.ts)' });
+    expect(classOf(context([word]), 'localhost-binding')).toBe('APPLICATION_FIX');
+    expect(classOf(context([variable]), 'localhost-binding')).toBe('CONFIGURATION_FIX');
+  });
+
+  it('asks the vendor when the database itself is unconfirmed', () => {
+    const unconfirmed = finding('database-migrations', { severity: 'recommended', confidence: 'needs_confirmation' });
+    expect(classOf(context([unconfirmed]), 'database-migrations')).toBe('NEEDS_INPUT');
+  });
+
+  it('reads a compose "service" that is only a managed database as configuration', () => {
+    const managed = finding('unsupported-multi-service', {
+      technicalEvidence: 'Unsupported architecture: docker-compose.yml defines 2 application services (lobe, postgresql). Deployz runs ONE web process per deployment plus declared background workers.',
+    });
+    expect(classOf(context([managed]), 'unsupported-multi-service')).toBe('CONFIGURATION_FIX');
+  });
+
+  it('resolves a suggested migration command through the Deployz settings, not a new script', () => {
+    const plan = planRemediation(
+      context([finding('database-migrations', { severity: 'recommended' })], { suggestedMigrationCommand: 'python manage.py migrate --noinput' }),
+    );
+    expect(plan[0]!.classification).toBe('CONFIGURATION_FIX');
+    expect(plan[0]!.settings.join(' ')).toContain('python manage.py migrate --noinput');
+    expect(plan[0]!.actions.join(' ')).not.toMatch(/add a (?:package )?script/i);
+  });
+
+  it('maps finding confidence and never raises it above the finding', () => {
+    const plan = planRemediation(context([
+      finding('health-check', { confidence: 'likely' }),
+      finding('worker-command', { confidence: 'needs_confirmation', severity: 'recommended' }),
+      finding('port-unresolved', { confidence: 'confirmed' }),
+    ]));
+    const byId = new Map(plan.map((item) => [item.id, item.confidence]));
+    expect(byId.get('health-check')).toBe('medium');
+    expect(byId.get('worker-command')).toBe('low');
+    expect(byId.get('port-unresolved')).toBe('high');
+  });
+});
+
+describe('planRemediation — merging and ordering', () => {
+  // Regression: "add a migration script" and "a migration script exists but
+  // the image cannot run it" reached the agent as two contradicting blockers.
+  it('merges the generic migration finding into the migration question', () => {
+    const plan = planRemediation(context([
+      finding('migration-command-needs-input', { confidence: 'needs_confirmation' }),
+      finding('database-migrations', { severity: 'recommended', confidence: 'likely' }),
+    ]));
+    expect(plan).toHaveLength(1);
+    expect(plan[0]!.findingIds).toEqual(['migration-command-needs-input', 'database-migrations']);
+    expect(plan[0]!.classification).toBe('NEEDS_INPUT');
+    expect(plan[0]!.evidence).toHaveLength(2);
+  });
+
+  // Review: a supervisor image and independent compose services share the
+  // finding id but need different remediations.
+  it('keeps a supervisor image and independent compose services as two items', () => {
+    const plan = planRemediation(context([
+      finding('unsupported-multi-service', { technicalEvidence: 'Unsupported architecture: docker-compose.yml defines 2 application services (web, api).' }),
+      finding('unsupported-multi-service', { technicalEvidence: 'Unsupported container setup: Dockerfile runs supervisord with 2 programs (supervisord.conf) in one container.' }),
+    ]));
+    expect(plan.map((item) => item.classification).sort()).toEqual(['CONFIGURATION_FIX', 'DEPLOYZ_LIMITATION']);
+  });
+
+  it('drops an exact duplicate finding', () => {
+    expect(planRemediation(context([finding('health-check'), finding('health-check')]))).toHaveLength(1);
+  });
+
+  it('orders by dependency: packaging, start, port, binding, health, storage, data, workers, limitations', () => {
+    const ids = planRemediation(context([
+      finding('unsupported-architecture'),
+      finding('worker-command', { severity: 'recommended' }),
+      finding('database-migrations', { severity: 'recommended' }),
+      finding('health-check'),
+      finding('local-file-storage'),
+      finding('localhost-binding'),
+      finding('port-unresolved'),
+      finding('start-command-missing'),
+    ])).map((item) => item.id);
+    expect(ids).toEqual([
+      'start-command-missing', 'port-unresolved', 'localhost-binding', 'health-check',
+      'local-file-storage', 'database-migrations', 'worker-command', 'unsupported-architecture',
+    ]);
+  });
+
+  it('lists the files named in the evidence', () => {
+    const plan = planRemediation(context([
+      finding('local-file-storage', { technicalEvidence: 'Persistent local filesystem operations detected: src/uploads/store.ts, config/storage.yml.' }),
+    ]));
+    expect(plan[0]!.files).toEqual(expect.arrayContaining(['src/uploads/store.ts', 'config/storage.yml']));
+  });
+
+  it('never lists a package name or a word pair as a file', () => {
+    const plan = planRemediation(context([
+      finding('unsupported-database-elasticsearch', { technicalEvidence: 'Unsupported search engine: @elastic/elasticsearch, and ELASTIC_URL is required. Deployz does not support Elasticsearch/OpenSearch.' }),
+    ]));
+    expect(plan[0]!.files).toEqual([]);
+  });
+});
+
+// ==========================================================================
+// Safety: the deterministic plan never prescribes an unsafe change
+// ==========================================================================
+
+const ALL_IDS = [
+  'container-setup', 'unsupported-no-dockerfile', 'build-context-git-metadata', 'unsupported-multi-service',
+  'start-command-missing', 'port-unresolved', 'localhost-binding', 'health-check', 'local-file-storage',
+  'unsupported-persistent-volume', 'unsupported-database-sqlite', 'unsupported-database-mariadb',
+  'unsupported-database-mongo', 'unsupported-database-elasticsearch', 'unsupported-database-other',
+  'unsupported-redis-setup', 'migration-command-needs-input', 'database-migrations', 'worker-command',
+  'unsupported-message-queue', 'async-question-x', 'unsupported-gpu', 'unsupported-architecture',
+];
+
+describe('planRemediation — safety', () => {
+  const plan = planRemediation(context(ALL_IDS.map((id) => finding(id))));
+  const actionText = plan.flatMap((item) => [...item.actions, ...item.settings]).join('\n');
+
+  // Regressions from the previous generator's per-blocker steps.
+  it.each([
+    [/process background jobs inside the web process/i],
+    [/move the worker processing into the web process/i],
+    [/remove the job-runner code/i],
+    [/replace the queue with (?:jobs|background jobs)/i],
+    [/remove the self-managed infrastructure files/i],
+    [/one container per deployment/i],
+    [/hosts PostgreSQL only/i],
+  ])('no action says %s', (pattern) => {
+    expect(actionText).not.toMatch(pattern);
+  });
+
+  it('every non-supported item has at least one action, constraint-free items excepted, and a completion criterion', () => {
+    for (const item of plan) {
+      expect(item.actions.length, item.id).toBeGreaterThan(0);
+      expect(item.doneWhen.length, item.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('decision items only verify and report: they never tell the agent to rewrite the data layer', () => {
+    for (const item of plan.filter((entry) => ['DEPLOYZ_LIMITATION', 'UNSUPPORTED', 'NEEDS_INPUT'].includes(entry.classification))) {
+      expect(item.actions.join(' '), item.id).not.toMatch(/\b(?:migrate the data layer|(?<!not )rewrite|replace \w+ with)\b/i);
+      expect(item.actions.join(' ').toLowerCase(), item.id).toMatch(/report/);
+    }
+  });
+
+  // Execution regressions (netbox, no Dockerfile): the agent defaulted the
+  // allowed hosts to `*`, dropped the frozen lockfile install, and packaged a
+  // Django app without the nginx that served its static files.
+  it.each(['container-setup', 'unsupported-no-dockerfile'])('%s keeps security defaults closed and static files served', (id) => {
+    const item = planRemediation(context([finding(id)]))[0]!;
+    expect(item.constraints.join(' ')).toContain('no wildcard allowed hosts');
+    expect(item.actions.join(' ')).toContain('serve them itself');
+  });
+
+  it.each(['container-setup', 'unsupported-no-dockerfile'])('%s installs from the lockfile in frozen mode', (id) => {
+    expect(planRemediation(context([finding(id)]))[0]!.actions.join(' ')).toContain('do not drop the frozen flag');
+  });
+
+  it('protects separate workers wherever workers are involved', () => {
+    const worker = plan.find((item) => item.id === 'worker-command')!;
+    expect(worker.constraints.join(' ')).toContain('Do not move the worker into the web process');
+    expect(worker.actions.join(' ')).toContain('Procfile');
+  });
+});
+
+describe('isSafeGuidance', () => {
+  it.each([
+    'Delete the worker entry point and run jobs in the web process.',
+    'Move the BullMQ worker into the web server process.',
+    'Disable CSRF protection for the health route.',
+    'Hardcode the API key in config.ts for now.',
+    'Wrap the startup in try/catch and swallow all errors.',
+    'Start the container with npm run dev.',
+    'Skip tests to speed up the build.',
+    'Use the key AKIAABCDEFGHIJKLMNOP for S3.',
+  ])('rejects: %s', (guidance) => {
+    expect(isSafeGuidance(guidance)).toBe(false);
+  });
+
+  it('rejects empty and overlong guidance', () => {
+    expect(isSafeGuidance('   ')).toBe(false);
+    expect(isSafeGuidance('a'.repeat(FIX_INSTRUCTIONS_MAX_GUIDANCE_CHARS + 1))).toBe(false);
+  });
+
+  it.each([
+    'Express registers routes in order: add GET /health before the session middleware in src/app.ts if that file creates the app.',
+    'If the app uses Knex, `npx knex migrate:latest` is the non-interactive migration command.',
+    'For gunicorn, set --bind 0.0.0.0:$PORT in the Dockerfile CMD.',
+  ])('accepts: %s', (guidance) => {
+    expect(isSafeGuidance(guidance)).toBe(true);
+  });
+});
+
+// ==========================================================================
 // buildFixInstructionsAiPrompt
 // ==========================================================================
 
 describe('buildFixInstructionsAiPrompt', () => {
-  it('contains the detected facts relevant to the blockers', () => {
-    const prompt = buildFixInstructionsAiPrompt(baseContext);
-    expect(prompt).toContain('express');
-    expect(prompt).toContain('pnpm');
-    expect(prompt).toContain('pnpm build');
-    expect(prompt).toContain('node dist/index.js');
-    expect(prompt).toContain('3000');
-    expect(prompt).toContain('PostgreSQL');
+  const ctx = context([
+    finding('health-check', { technicalEvidence: 'No health endpoint was found (no /health-style route).' }),
+    finding('worker-process', { severity: 'recommended', suggestedOutcome: 'No change needed — Deployz will start the worker process alongside your app.' }),
+  ]);
+  const prompt = buildFixInstructionsAiPrompt(ctx);
+
+  it('carries the facts, the plan item, its class and its evidence', () => {
+    expect(prompt).toContain('- Framework: express');
+    expect(prompt).toContain('- id: health-check');
+    expect(prompt).toContain('class: APPLICATION_FIX');
+    expect(prompt).toContain('No health endpoint was found');
   });
 
-  it('contains every blocker id, its accurate name, and its evidence', () => {
-    const prompt = buildFixInstructionsAiPrompt(baseContext);
-    expect(prompt).toContain('id: container-setup');
-    expect(prompt).toContain('name: Container packaging missing');
-    expect(prompt).toContain('No Dockerfile was found in the repository.');
-    expect(prompt).toContain('id: database-migrations');
-    expect(prompt).toContain(
-      'A PostgreSQL library is present (pg) but no migration script was found in any package.json.',
-    );
+  it('never asks for guidance on already-supported items', () => {
+    expect(prompt).not.toContain('- id: worker-process');
   });
 
-  it('carries the coding-agent rules (serving, invented details, scope, infrastructure, ambiguity)', () => {
-    const prompt = buildFixInstructionsAiPrompt(baseContext);
-    expect(prompt).toContain('Do not require a Dockerfile HEALTHCHECK');
-    expect(prompt).toContain('Corepack applies to pnpm and yarn only, never npm');
-    expect(prompt).toContain('never invent repository details');
-    expect(prompt).toContain('npm run preview');
-    expect(prompt).toContain('Never mention readiness endpoints');
-    expect(prompt).toContain('Terraform, Kubernetes');
-    expect(prompt).toContain('ambiguity instead of guessing');
-  });
-
-  it('embeds the deterministic steps and demands an empty generalNotes array', () => {
-    const prompt = buildFixInstructionsAiPrompt(baseContext);
-    expect(prompt).toContain('deterministic steps already given to the agent:');
-    expect(prompt).toContain('Check existing deployment files first');
-    expect(prompt).toContain('return generalNotes as an empty array');
-    expect(prompt).toContain('never restate, summarize, or contradict them');
-  });
-
-  it('bounds the guidance length so the completion fits the synchronous request budget', () => {
-    // Measured live against deepseek-v4-flash with thinking off: unbounded
-    // guidance for four findings took ~27s (1179 completion tokens); bounded
-    // to three sentences it took 8-9s (~430 tokens). The route has under 30s
-    // end to end, so the bound is load-bearing.
-    const prompt = buildFixInstructionsAiPrompt(baseContext);
-    expect(prompt).toContain('at most three sentences');
+  it('states the safety rules and the bounded output shape', () => {
+    expect(prompt).toContain('Never suggest deleting working code, moving a worker into the web process');
+    expect(prompt).toContain('{"items": [{"id": string, "guidance": string}]}');
+    expect(prompt).toContain('70 words');
   });
 
   it('does not contain repository file contents', () => {
-    const prompt = buildFixInstructionsAiPrompt(baseContext);
-    // FixInstructionsContext carries only structured facts and finding
-    // evidence — never raw source. Guard against a regression that starts
-    // embedding actual file bodies (import statements, code fences, etc).
-    expect(prompt).not.toContain('```');
-    expect(prompt).not.toContain('import express');
-    expect(prompt).not.toContain('app.listen(');
-  });
-
-  it('skips informational findings whose outcome requires no action', () => {
-    const prompt = buildFixInstructionsAiPrompt({
-      ...baseContext,
-      findings: [containerFinding, informationalFinding],
-    });
-    expect(prompt).toContain('id: container-setup');
-    expect(prompt).not.toContain('Migrations run at startup');
+    expect(prompt).not.toMatch(/```/);
   });
 });
 
@@ -242,318 +451,86 @@ describe('buildFixInstructionsAiPrompt', () => {
 // ==========================================================================
 
 describe('assembleFixInstructions', () => {
-  const aiOutput: FixInstructionsAiOutput = {
-    perFinding: [{ id: 'container-setup', guidance: 'Add a multi-stage Dockerfile that builds and runs the app.' }],
-    generalNotes: ['Double-check the Node version pinned in the Dockerfile matches CI.'],
-  };
+  const ctx = context([
+    finding('unsupported-database-mongo', { blocking: true, technicalEvidence: 'Unsupported database dependency: mongoose, and MONGO_URL is required.' }),
+    finding('health-check', { confidence: 'likely' }),
+    finding('worker-process', { severity: 'recommended', technicalEvidence: 'Procfile declares worker.', suggestedOutcome: 'No change needed — Deployz will start the worker process alongside your app.' }),
+  ], { workerCommands: ['node worker.js'] });
 
-  it('contains the guardrail verbatim', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
+  it('contains the guardrail and the sections in order', () => {
+    const doc = assembleFixInstructions(ctx, NO_AI);
     expect(doc).toContain(FIX_INSTRUCTIONS_GUARDRAIL);
+    const order = ['## Context', '## Fixes, in order', '## Vendor decisions', '## Already supported — keep as is', '## Rules for every change', '## Validation', '## Completion report']
+      .map((heading) => doc.indexOf(heading));
+    expect(order.every((position) => position >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it('is structured around the six required sections in order', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
-    const sections = [
-      '## Repository facts',
-      '## Blocking issues',
-      '## Required outcome',
-      '## Implementation guidance',
-      '## Validation',
-      '## Completion report',
-    ];
-    let cursor = 0;
-    for (const section of sections) {
-      const at = doc.indexOf(section);
-      expect(at).toBeGreaterThan(-1);
-      expect(at).toBeGreaterThan(cursor);
-      cursor = at;
-    }
+  it('renders class, confidence, evidence, actions, constraints and completion criteria per item', () => {
+    const doc = assembleFixInstructions(ctx, NO_AI);
+    expect(doc).toContain('- Class: APPLICATION_FIX — application code change');
+    expect(doc).toContain('- Confidence: medium — verify first');
+    expect(doc).toContain('- Evidence: Evidence for health-check.');
+    expect(doc).toContain('- Done when:');
+    expect(doc).toContain('Do not add a Dockerfile HEALTHCHECK');
+    expect(doc).not.toContain('reference it from the container health check');
   });
 
-  it('names blockers accurately instead of the plain-English UI titles', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('**Container packaging missing**');
-    expect(doc).toContain('**Database migration command missing** (recommended)');
-    expect(doc).not.toContain("Deployz doesn't know how to start your app");
-    expect(doc).not.toContain('Give Deployz a way to update your database');
+  it('warns that the fixes alone do not make the app deployable when a blocking decision exists', () => {
+    expect(assembleFixInstructions(ctx, NO_AI)).toContain('A blocking vendor decision is listed under "Vendor decisions"');
+    expect(assembleFixInstructions(context([finding('health-check')]), NO_AI)).not.toContain('A blocking vendor decision');
   });
 
-  it('grounds each blocker in evidence and a required outcome', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('Evidence: No Dockerfile was found in the repository.');
-    expect(doc).toContain(
-      'Container packaging missing: Add container build instructions (a Dockerfile) that install, build, and start the app.',
-    );
+  it('keeps declared workers as their own process', () => {
+    const doc = assembleFixInstructions(ctx, NO_AI);
+    expect(doc).toContain('- Declared workers: `node worker.js`');
+    expect(doc).toContain('Keep every declared worker as its own process');
+    expect(doc).not.toMatch(/### \d+\. .*worker/i);
   });
 
-  it('adds a verify note only for non-confirmed blockers', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('verify first: static analysis can miss an existing solution');
-    expect(doc).not.toContain('confirm this applies before changing anything');
-
-    const ambiguous = assembleFixInstructions(
-      { ...baseContext, findings: [{ ...containerFinding, confidence: 'needs_confirmation' }] },
-      { perFinding: [], generalNotes: [] },
-    );
-    expect(ambiguous).toContain('confirm this applies before changing anything');
+  it('renders safe AI guidance under its item and drops unsafe, unknown or overlong guidance', () => {
+    const doc = assembleFixInstructions(ctx, {
+      items: [
+        { id: 'health-check', guidance: 'Register GET /health before the auth middleware.' },
+        { id: 'unsupported-database-mongo', guidance: 'Remove the auth middleware so the probe passes.' },
+        { id: 'not-an-item', guidance: 'Stray advice.' },
+        { id: 'worker-process', guidance: 'x'.repeat(FIX_INSTRUCTIONS_MAX_GUIDANCE_CHARS + 1) },
+      ],
+    });
+    expect(doc).toContain('  - Repository detail: Register GET /health before the auth middleware.');
+    expect(doc).not.toContain('Remove the auth middleware');
+    expect(doc).not.toContain('Stray advice.');
   });
 
-  it('carries deterministic guidance and embeds AI guidance under the same blocker', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('Check existing deployment files first');
-    expect(doc).toContain('Add a multi-stage Dockerfile that builds and runs the app.');
+  it('names the managed database engine and only relevant capabilities', () => {
+    const mysql = assembleFixInstructions(context([finding('database-migrations', { severity: 'recommended' })], { database: 'mysql' }), NO_AI);
+    expect(mysql).toContain('(this app: MySQL)');
+    expect(mysql).toContain('disposable local database');
+    expect(mysql).not.toContain('S3 bucket');
+
+    const storage = assembleFixInstructions(context([finding('local-file-storage')], { database: 'none' }), NO_AI);
+    expect(storage).toContain('`STORAGE_BUCKET`');
+    expect(storage).toContain('access keys are never needed');
+    expect(storage).not.toContain('Managed PostgreSQL');
   });
 
-  it('never renders AI generalNotes (the scope-creep channel stays closed)', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).not.toContain('Notes:');
-    expect(doc).not.toContain('Double-check the Node version');
-  });
-
-  it('remains a complete document when perFinding is empty', () => {
-    const emptyAi: FixInstructionsAiOutput = { perFinding: [], generalNotes: [] };
-    const doc = assembleFixInstructions(baseContext, emptyAi);
-
-    expect(doc).toContain('Check existing deployment files first');
-    expect(doc).toContain(FIX_INSTRUCTIONS_GUARDRAIL);
-    expect(doc).toContain('**Container packaging missing**');
-    expect(doc).toContain('## Validation');
-    expect(doc).toContain('## Completion report');
-  });
-
-  it('omits informational findings that require no action', () => {
-    const doc = assembleFixInstructions(
-      { ...baseContext, findings: [containerFinding, informationalFinding] },
-      aiOutput,
-    );
-    expect(doc).not.toContain('No action needed');
-    expect(doc).not.toContain('Migrations run at startup');
-  });
-
-  it('renders only detected facts the included blockers justify', () => {
-    const doc = assembleFixInstructions(
-      { ...baseContext, findings: [containerFinding], facts: { ...noDbFacts, migrationCommand: null } },
-      aiOutput,
-    );
-    // Packaging-relevant facts are in…
-    expect(doc).toContain('- Runtime:');
-    expect(doc).toContain('- Package manager: pnpm');
-    // …and unrequested or undetected ones stay out.
-    expect(doc).not.toContain('Migration command');
-    expect(doc).not.toContain('not detected');
-  });
-
-  it('includes the disposable-database validation line only for the migration blocker', () => {
-    const withMigration = assembleFixInstructions(baseContext, aiOutput);
-    expect(withMigration).toContain('disposable local database only');
-
-    const containerOnly = assembleFixInstructions(
-      { ...baseContext, findings: [containerFinding] },
-      aiOutput,
-    );
-    expect(containerOnly).not.toContain('disposable local database only');
-  });
-
-  it('contains a completion-report section', () => {
-    const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('## Completion report');
+  it('marks recommended items and keeps the completion report honest', () => {
+    const doc = assembleFixInstructions(context([finding('worker-command', { severity: 'recommended' })]), NO_AI);
+    expect(doc).toMatch(/### 1\. .* \(recommended\)/);
     expect(doc).toContain('do not claim success for steps not run');
-  });
-});
-
-// ==========================================================================
-// Representative repository shapes
-// ==========================================================================
-
-describe('assembleFixInstructions — representative repository shapes', () => {
-  const emptyAi: FixInstructionsAiOutput = { perFinding: [], generalNotes: [] };
-
-  it('missing container packaging: names the blocker and pins the detected toolchain', () => {
-    const doc = assembleFixInstructions(
-      { ...baseContext, facts: postgresFacts, findings: [containerFinding] },
-      emptyAi,
-    );
-    expect(doc).toContain('**Container packaging missing**');
-    expect(doc).toContain('(`pnpm`, via Corepack when package.json declares `packageManager`)');
-    expect(doc).toContain('(`pnpm build`)');
-    expect(doc).toContain('with `node dist/index.js`');
-    expect(doc).toContain('- Build the container image when Docker is available.');
+    expect(doc).toContain('A successful build alone does not prove a fix');
   });
 
-  it('missing readiness endpoint: reuse first, smallest route second, no Dockerfile HEALTHCHECK', () => {
-    const healthFinding: ReadinessFinding = {
-      id: 'health-check',
-      category: 'health',
-      title: 'Give Deployz a way to check your app',
-      severity: 'required',
-      blocking: false,
-      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
-      whyItMatters: 'Deployz waits for a health signal during deployments.',
-      technicalEvidence: 'No health endpoint or container health check was found.',
-      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
-      confidence: 'likely',
-    };
+  it('renders only the env-var names, under the packaging item', () => {
     const doc = assembleFixInstructions(
-      { ...baseContext, facts: noDbFacts, findings: [healthFinding] },
-      emptyAi,
-    );
-    expect(doc).toContain('**Readiness endpoint missing**');
-    expect(doc).toContain('reuse a suitable one instead of adding a new route');
-    expect(doc).toContain('no redirect, no auth, no expensive work');
-    expect(doc).toContain('A Dockerfile HEALTHCHECK instruction is not required');
-    expect(doc).toContain('confirm a direct HTTP 2xx response with no redirect');
-  });
-
-  it('existing valid Dockerfile: treated as evidence, referenced by name', () => {
-    const startFinding: ReadinessFinding = {
-      id: 'start-command-missing',
-      category: 'container',
-      title: 'Tell Deployz how to start your app',
-      severity: 'required',
-      blocking: false,
-      plainEnglishExplanation: 'Deployz found container instructions but no command that starts the app.',
-      whyItMatters: 'Without a start command the container exits immediately.',
-      technicalEvidence: 'The Dockerfile has no CMD or ENTRYPOINT instruction.',
-      suggestedOutcome: 'Add a CMD or ENTRYPOINT instruction to the Dockerfile.',
-      confidence: 'confirmed',
-    };
-    const doc = assembleFixInstructions(
-      {
-        ...baseContext,
-        facts: { ...postgresFacts, dockerfilePath: 'Dockerfile' },
-        findings: [startFinding],
-      },
-      emptyAi,
-    );
-    expect(doc).toContain('- Container build file: Dockerfile');
-    expect(doc).toContain('Add a CMD or ENTRYPOINT to Dockerfile');
-    expect(doc).toContain('(`node dist/index.js`)');
-  });
-
-  it('existing health endpoint: validation reuses the configured path', () => {
-    const healthFinding: ReadinessFinding = {
-      id: 'health-check',
-      category: 'health',
-      title: 'Give Deployz a way to check your app',
-      severity: 'required',
-      blocking: false,
-      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
-      whyItMatters: 'Deployz waits for a health signal during deployments.',
-      technicalEvidence: 'No health endpoint or container health check was found.',
-      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
-      confidence: 'likely',
-    };
-    const doc = assembleFixInstructions(
-      {
-        ...baseContext,
-        facts: { ...noDbFacts, healthPath: '/api/status' },
-        findings: [healthFinding],
-      },
-      emptyAi,
-    );
-    expect(doc).toContain('- Configured health path: /api/status');
-    expect(doc).toContain('(`/api/status`)');
-  });
-
-  it('monorepo workspace: build context and application directory render', () => {
-    const doc = assembleFixInstructions(
-      {
-        ...baseContext,
-        facts: { ...postgresFacts, workingDirectory: 'apps/web' },
-        findings: [containerFinding],
-      },
-      emptyAi,
-    );
-    expect(doc).toContain('- Application directory (workspace): apps/web');
-    expect(doc).toContain('with `apps/web` as the build context');
-  });
-
-  it('npm: version guidance comes from engines/.nvmrc, not Corepack', () => {
-    const doc = assembleFixInstructions(
-      { ...baseContext, facts: { ...postgresFacts, packageManager: 'npm', buildCommand: 'npm run build' } },
-      emptyAi,
-    );
-    expect(doc).toContain('match the Node and npm versions from `engines`/`.nvmrc`');
-    expect(doc).not.toContain('via Corepack');
-  });
-
-  it('no detected start command: static-output serving guidance', () => {
-    const doc = assembleFixInstructions(
-      { ...baseContext, facts: { ...postgresFacts, startCommand: null } },
-      emptyAi,
-    );
-    expect(doc).toContain('serve the built files with a production-grade static server');
-    expect(doc).toContain('never a dev or preview server');
-  });
-
-  it('unknown port: validation points at the Dockerfile as the declaration point', () => {
-    const doc = assembleFixInstructions(
-      { ...baseContext, facts: { ...postgresFacts, port: null }, findings: [containerFinding] },
-      emptyAi,
-    );
-    expect(doc).toContain('the port the Dockerfile declares');
-  });
-
-  it('build-time and runtime env requirements render separately with platform-provided names', () => {
-    const doc = assembleFixInstructions(
-      {
-        ...baseContext,
-        facts: {
-          ...postgresFacts,
-          envRequirements: {
-            buildTime: ['NPM_TOKEN'],
-            runtime: ['STRIPE_SECRET_KEY'],
-            platformInjected: ['DATABASE_URL', 'PORT'],
-          },
-        },
-        findings: [containerFinding],
-      },
-      emptyAi,
+      context([finding('container-setup')], {
+        dockerfilePath: null,
+        envRequirements: { buildTime: ['NPM_TOKEN'], runtime: ['STRIPE_KEY'], platformInjected: ['DATABASE_URL'] },
+      }),
+      NO_AI,
     );
     expect(doc).toContain('- Required at build time (names only): NPM_TOKEN');
-    expect(doc).toContain('- Required at runtime (names only): STRIPE_SECRET_KEY');
-    expect(doc).toContain('- Provided by the platform at runtime (names only): DATABASE_URL, PORT');
-  });
-
-  it('env requirements stay out when no packaging blocker justifies them', () => {
-    const healthFinding: ReadinessFinding = {
-      id: 'health-check',
-      category: 'health',
-      title: 'Give Deployz a way to check your app',
-      severity: 'required',
-      blocking: false,
-      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
-      whyItMatters: 'Deployz waits for a health signal during deployments.',
-      technicalEvidence: 'No health endpoint or container health check was found.',
-      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
-      confidence: 'likely',
-    };
-    const doc = assembleFixInstructions(
-      {
-        ...baseContext,
-        facts: {
-          ...noDbFacts,
-          envRequirements: { buildTime: ['NPM_TOKEN'], runtime: ['STRIPE_SECRET_KEY'], platformInjected: [] },
-        },
-        findings: [healthFinding],
-      },
-      emptyAi,
-    );
-    expect(doc).not.toContain('NPM_TOKEN');
-    expect(doc).not.toContain('STRIPE_SECRET_KEY');
-  });
-
-  it('ambiguous blockers instruct the agent to report instead of guess', () => {
-    const doc = assembleFixInstructions(
-      {
-        ...baseContext,
-        findings: [{ ...migrationFinding, confidence: 'needs_confirmation' }],
-      },
-      emptyAi,
-    );
-    expect(doc).toContain('confirm this applies before changing anything');
-    expect(doc).toContain('report the ambiguity instead of guessing');
+    expect(doc).toContain('- Provided by Deployz at runtime (names only): DATABASE_URL');
   });
 });
 
@@ -561,9 +538,9 @@ describe('assembleFixInstructions — representative repository shapes', () => {
 // generateFixInstructions
 // ==========================================================================
 
+const baseContext = context([finding('container-setup'), finding('database-migrations', { severity: 'recommended' })], { dockerfilePath: null });
 const validAiObject: FixInstructionsAiOutput = {
-  perFinding: [{ id: 'container-setup', guidance: 'Add a Dockerfile that builds and runs the app.' }],
-  generalNotes: [],
+  items: [{ id: 'container-setup', guidance: 'Use a multi-stage build that copies only the build output.' }],
 };
 
 describe('generateFixInstructions', () => {
@@ -579,21 +556,34 @@ describe('generateFixInstructions', () => {
     const doc = await generateFixInstructions(baseContext, gateway);
 
     expect(doc).toContain(FIX_INSTRUCTIONS_GUARDRAIL);
-    expect(doc).toContain('Add a Dockerfile that builds and runs the app.');
+    expect(doc).toContain('Use a multi-stage build that copies only the build output.');
     expect(seenOptions?.label).toBe('fix-instructions');
     expect(seenOptions?.maxOutputTokens).toBe(FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS);
     expect(seenOptions?.reasoning).toBe(false);
     expect(seenOptions?.attemptTimeoutMs).toBe(FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS);
   });
 
+  it('makes no model call when every finding is already supported', async () => {
+    const gateway: AiGateway = {
+      async generate() {
+        throw new Error('the model must not be called');
+      },
+    };
+    const informational = context([
+      finding('worker-process', { severity: 'recommended', suggestedOutcome: 'No change needed — Deployz will start the worker process alongside your app.' }),
+    ]);
+
+    const doc = await generateFixInstructions(informational, gateway);
+
+    expect(doc).toContain('## Already supported — keep as is');
+    expect(doc).not.toContain('## Fixes, in order');
+  });
+
   it('throws on a schema-violating response', async () => {
     await expect(
       generateFixInstructions(
         baseContext,
-        fixtureGateway({
-          object: { perFinding: 'nope', generalNotes: 'also nope' },
-          usage: { promptTokens: 500, completionTokens: 100 },
-        }),
+        fixtureGateway({ object: { items: 'nope', extra: true }, usage: { promptTokens: 500, completionTokens: 100 } }),
       ),
     ).rejects.toBeInstanceOf(z.ZodError);
   });
@@ -602,26 +592,12 @@ describe('generateFixInstructions', () => {
     await expect(
       generateFixInstructions(
         baseContext,
-        fixtureGateway({
-          object: validAiObject,
-          usage: { promptTokens: FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS, completionTokens: 1 },
-        }),
+        fixtureGateway({ object: validAiObject, usage: { promptTokens: FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS, completionTokens: 1 } }),
       ),
     ).rejects.toBeInstanceOf(SpendLimitExceededError);
   });
 
-  it('propagates an abort/gateway error from the gateway unchanged', async () => {
-    const abortError = new DOMException('The operation was aborted.', 'AbortError');
-    const gateway: AiGateway = {
-      async generate() {
-        throw abortError;
-      },
-    };
-
-    await expect(generateFixInstructions(baseContext, gateway)).rejects.toBe(abortError);
-  });
-
-  it('propagates a network/gateway failure unchanged', async () => {
+  it('propagates a gateway failure unchanged', async () => {
     const networkError = new Error('fetch failed');
     const gateway: AiGateway = {
       async generate() {
@@ -646,8 +622,8 @@ describe('FIX_INSTRUCTIONS_TIMEOUT_MS', () => {
     expect(FIX_INSTRUCTIONS_TIMEOUT_MS).toBeLessThan(30_000);
   });
 
-  it('leaves room for a retry after one stalled attempt', () => {
-    // Two attempts plus the gateway's 500ms retry backoff.
-    expect(2 * FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS + 500).toBeLessThan(FIX_INSTRUCTIONS_TIMEOUT_MS);
+  it('gives one attempt nearly the whole budget, so a thinking model can answer', () => {
+    expect(FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS).toBeLessThanOrEqual(FIX_INSTRUCTIONS_TIMEOUT_MS);
+    expect(FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS).toBeGreaterThanOrEqual(20_000);
   });
 });

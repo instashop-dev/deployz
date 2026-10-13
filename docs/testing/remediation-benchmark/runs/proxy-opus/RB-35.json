@@ -1,0 +1,4 @@
+{"items": [
+{"id": "unsupported-database-mariadb", "guidance": "The evidence names config/database.php, a PHP file, in a Node app that uses pg, so first check whether the deployed app reads that file at runtime or whether it is unrelated or example code. If the app uses it, check whether the same config defines a mysql connection and report the DB_CONNECTION value it accepts. Also report any MariaDB-only SQL that you find."},
+{"id": "database-migrations", "guidance": "Look in the TypeScript source for SQL migration files or a schema setup function that the web or worker entry calls through pg at startup. Report that file if one exists, or the exact compiled node command for a standalone migrate script. Otherwise report that the app has no migration mechanism."}
+]}

@@ -1,0 +1,5 @@
+{"items": [
+{"id": "health-check", "guidance": "Check the Express routes for an existing health or status route before adding one. If you add one, register the GET /health handler ahead of the session middleware, because a route after a connect-mongo session store can touch MongoDB, and ahead of passport or other auth and any custom-domain redirect."},
+{"id": "unsupported-database-mongo", "guidance": "Find where connect-mongo is imported, whether the session store reads MONGO_URL at startup, and whether any models or queries use MongoDB beyond sessions. Check whether a setting selects another session store (for example memory, Redis, or a SQL store) and report its name and value. If MONGO_URL is required on every start, report the file and line as evidence."},
+{"id": "worker-command", "guidance": "Find the Bull queue setup and its process handlers, and check whether the server entry that npm start runs loads them. Report any separate worker file with its exact node command, and report the Redis connection settings Bull reads, because the facts list no Redis from Deployz."}
+]}

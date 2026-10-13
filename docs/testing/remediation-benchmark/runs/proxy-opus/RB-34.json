@@ -1,0 +1,4 @@
+{"items": [
+{"id": "container-setup", "guidance": "Use a multi-stage build: the build stage runs npm ci and tsc, and the runtime stage runs npm ci --omit=dev and copies only dist, so dist/worker.js can also run from the same image. NPM_TOKEN is needed only at build time, so supply it as a BuildKit secret or a build argument scoped to the npm ci steps and keep it out of the final image. Confirm that dist/web.js reads PORT, and use EXPOSE 3000."},
+{"id": "database-migrations", "guidance": "Search the TypeScript source for a migrations folder, .sql files, or code that runs CREATE TABLE through pg before the web or worker entry starts. If startup applies the schema, report that file. If a separate migrate entry compiles into dist, report its exact node command from dist."}
+]}

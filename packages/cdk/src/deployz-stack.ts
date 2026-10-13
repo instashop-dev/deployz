@@ -456,6 +456,10 @@ function collectEnvVars(): Record<string, string> {
     'AI_MODEL',
     'AI_PROVIDER_API_KEY',
     'AI_GATEWAY_TOKEN',
+    'FIX_INSTRUCTIONS_AI_PROVIDER',
+    'FIX_INSTRUCTIONS_AI_MODEL',
+    'OPENROUTER_API_KEY',
+    'OPENROUTER_BASE_URL',
     // Jev shadow client — its gateway token is the shared AI_GATEWAY_TOKEN
     // above (same Cloudflare AI Gateway), so no separate JEV token var exists.
     'JEV_ENABLED',

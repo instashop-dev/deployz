@@ -1,0 +1,5 @@
+{"items": [
+{"id": "health-check", "guidance": "Check the Express route files for an existing health or status route before adding one. If you add one, register a GET /health handler in the main server file before the API routers, any passport or other auth middleware, and any custom-domain or host-check middleware, and return 200 without a database call."},
+{"id": "database-migrations", "guidance": "The detected start command already runs npm run migrate before npm start, so read that package script and report the exact command it runs (for example a knex migrate:latest call with a knexfile). Confirm that the database config selects the MySQL client and reads connection names that Deployz can set. Report that command as the release migration command."},
+{"id": "worker-command", "guidance": "Look for the Bull queue definitions and their process handlers, and check whether the file that npm start runs imports them or whether a separate worker file starts them. Report the exact production command for any separate worker file. Also report the Redis host, port, and password variable names that Bull reads, because the facts list no Redis from Deployz."}
+]}

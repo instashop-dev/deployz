@@ -484,7 +484,7 @@ export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding
         return {
           detected: true,
           dependency: 'h2',
-          reason: `Unsupported database: the embedded JVM database ${token} is declared in ${evidence[0]} with no PostgreSQL driver. Deployz hosts PostgreSQL only.`,
+          reason: `Unsupported database: the embedded JVM database ${token} is declared in ${evidence[0]} with no PostgreSQL or MySQL driver. Deployz hosts PostgreSQL and MySQL only.`,
         };
       }
     }
@@ -571,7 +571,7 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
       return {
         detected: true,
         dependency: 'sqlite',
-        reason: `Unsupported database: SQLite driver ${dep}. Deployz hosts PostgreSQL only; an embedded file database does not survive in the container model.`,
+        reason: `Unsupported database: SQLite driver ${dep}. Deployz hosts PostgreSQL and MySQL only; an embedded file database does not survive in the container model.`,
       };
     }
   }
@@ -580,14 +580,14 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
     return {
       detected: true,
       dependency: 'sqlite',
-      reason: 'Unsupported database: Prisma configured with the SQLite provider. Deployz hosts PostgreSQL only.',
+      reason: 'Unsupported database: Prisma configured with the SQLite provider. Deployz hosts PostgreSQL and MySQL only.',
     };
   }
   if (!configurable && contentMatches(tree, /(?:^|\/)go\.mod$/, /modernc\.org\/sqlite|mattn\/go-sqlite3/).length > 0) {
     return {
       detected: true,
       dependency: 'sqlite',
-      reason: 'Unsupported database: a Go SQLite driver is declared in go.mod. Deployz hosts PostgreSQL only.',
+      reason: 'Unsupported database: a Go SQLite driver is declared in go.mod. Deployz hosts PostgreSQL and MySQL only.',
     };
   }
   // A Rails `config/database.yml` whose only adapter is sqlite3 keeps the whole
@@ -600,7 +600,7 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
         return {
           detected: true,
           dependency: 'sqlite',
-          reason: `Unsupported database: ${path} configures only the sqlite3 adapter. Deployz hosts PostgreSQL only.`,
+          reason: `Unsupported database: ${path} configures only the sqlite3 adapter. Deployz hosts PostgreSQL and MySQL only.`,
         };
       }
     }
@@ -615,7 +615,7 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
         return {
           detected: true,
           dependency: 'sqlite',
-          reason: `Unsupported database: a SQLite database URL is configured in ${path}. Deployz hosts PostgreSQL only.`,
+          reason: `Unsupported database: a SQLite database URL is configured in ${path}. Deployz hosts PostgreSQL and MySQL only.`,
         };
       }
     }

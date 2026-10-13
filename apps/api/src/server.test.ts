@@ -3501,10 +3501,10 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
     const stubApp = await buildServer({
       auth,
       db,
-      aiGateway: {
+      fixInstructionsAiGateway: {
         async generate() {
           return {
-            object: { perFinding: [{ id: 'health-check', guidance: 'Add a /health route.' }], generalNotes: [] },
+            object: { items: [{ id: 'health-check', guidance: 'Add a /health route.' }] },
             usage: { promptTokens: 100, completionTokens: 50 },
           };
         },
@@ -3534,7 +3534,7 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
     const stubApp = await buildServer({
       auth,
       db,
-      aiGateway: {
+      fixInstructionsAiGateway: {
         async generate() {
           throw new Error('must not be called');
         },
@@ -3570,7 +3570,7 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
     const stubApp = await buildServer({
       auth,
       db,
-      aiGateway: {
+      fixInstructionsAiGateway: {
         async generate() {
           throw new Error('must not be called');
         },
@@ -3594,7 +3594,7 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
     const failingApp = await buildServer({
       auth,
       db,
-      aiGateway: {
+      fixInstructionsAiGateway: {
         async generate() {
           throw new Error('gateway unreachable');
         },
@@ -3626,10 +3626,10 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
     const succeedingApp = await buildServer({
       auth,
       db,
-      aiGateway: {
+      fixInstructionsAiGateway: {
         async generate() {
           return {
-            object: { perFinding: [], generalNotes: [] },
+            object: { items: [] },
             usage: { promptTokens: 10, completionTokens: 5 },
           };
         },
@@ -3647,7 +3647,7 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
     const failingApp = await buildServer({
       auth,
       db,
-      aiGateway: {
+      fixInstructionsAiGateway: {
         async generate() {
           throw new Error('gateway unreachable');
         },
@@ -6416,7 +6416,7 @@ describe('server — POST /api/applications/:id/fix-instructions (cache)', () =>
         async generate() {
           calls += 1;
           return {
-            object: { perFinding: [{ id: 'health-check', guidance: `Guidance #${calls}` }], generalNotes: [] },
+            object: { items: [{ id: 'health-check', guidance: `Guidance #${calls}` }] },
             usage: { promptTokens: 100, completionTokens: 50 },
           };
         },
@@ -6444,7 +6444,7 @@ describe('server — POST /api/applications/:id/fix-instructions (cache)', () =>
       detectedMetadata: { readiness: readinessWith([healthFinding]), analysisCommitSha: 'abc123', analysisVersion: 13 },
     });
     const counting = countingGateway();
-    const stubApp = await buildServer({ auth, db, aiGateway: counting.gateway as never });
+    const stubApp = await buildServer({ auth, db, fixInstructionsAiGateway: counting.gateway as never });
     const url = `/api/applications/${application.id}/fix-instructions`;
 
     const first = await postJson(stubApp, url, {}, { cookie: org.cookie });
@@ -6490,7 +6490,7 @@ describe('server — POST /api/applications/:id/fix-instructions (cache)', () =>
       detectedMetadata: { readiness: readinessWith([healthFinding]), analysisCommitSha: 'def456', analysisVersion: 13 },
     });
     const counting = countingGateway();
-    const okApp = await buildServer({ auth, db, aiGateway: counting.gateway as never });
+    const okApp = await buildServer({ auth, db, fixInstructionsAiGateway: counting.gateway as never });
     const url = `/api/applications/${application.id}/fix-instructions`;
     const first = (await postJson(okApp, url, {}, { cookie: org.cookie })).json() as { instructions: string };
     await okApp.close();
@@ -6498,7 +6498,7 @@ describe('server — POST /api/applications/:id/fix-instructions (cache)', () =>
     const failingApp = await buildServer({
       auth,
       db,
-      aiGateway: {
+      fixInstructionsAiGateway: {
         async generate() {
           throw new Error('gateway down');
         },
