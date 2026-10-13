@@ -94,12 +94,13 @@ export function EditDialog({
   const [value, setValue] = useState<string | number | boolean>(false);
   const [noMigration, setNoMigration] = useState(false);
 
+  // Seed once per open dialog. Status polling replaces application and readiness, which must not reset an edit in progress.
   useEffect(() => {
     if (!field) return;
     setValue(getInitialValue(field, application, readiness));
     setNoMigration(false);
     setError(null);
-  }, [field, application, readiness]);
+  }, [field]);
 
   if (!field) return null;
   const currentField = field;
