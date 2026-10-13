@@ -1,0 +1,661 @@
+{
+  "id": "repo-015",
+  "repository": "immich-app/immich",
+  "commit": "6d85f202f4e20fdcf400984bef4b890319b9c002",
+  "analysisVersion": 52,
+  "source": {
+    "repoFullName": "immich-app/immich",
+    "containerPort": 2283,
+    "healthPath": "/ping",
+    "migrationCommand": null,
+    "redisRequired": true,
+    "workerCommand": null,
+    "detectedMetadata": {
+      "aiAnalysis": {
+        "warnings": [
+          "AI analysis unavailable"
+        ],
+        "unresolved": [
+          "multiple-dockerfiles",
+          "monorepo-target"
+        ]
+      },
+      "ambiguities": [
+        {
+          "kind": "DOCKERFILE_TARGET",
+          "detail": "The repository contains more than one Dockerfile candidate; which one builds the application image is unresolved."
+        },
+        {
+          "kind": "DOCKERFILE_TARGET",
+          "detail": "No root Dockerfile or start script identifies which workspace package to deploy."
+        },
+        {
+          "kind": "MIGRATION_STRATEGY",
+          "detail": "A PostgreSQL or MySQL database is required but no migration command was detected."
+        },
+        {
+          "kind": "ARCHITECTURE_REQUIREMENT",
+          "detail": "Worker code was detected but no command resolves how a worker process starts."
+        },
+        {
+          "kind": "ARCHITECTURE_REQUIREMENT",
+          "detail": "A production Compose file declares multiple application services with no deterministic optional signal; which ones the deployment truly requires is contested."
+        }
+      ],
+      "analysisCommitSha": "6d85f202f4e20fdcf400984bef4b890319b9c002",
+      "analysisVersion": 52,
+      "asyncQuestions": [],
+      "asyncQueues": [],
+      "asyncScheduledJobs": [],
+      "bindAddress": null,
+      "bindsLocalhost": false,
+      "copiesGitDirectory": false,
+      "databaseNamesMentioned": [],
+      "databaseState": "postgres",
+      "dockerfileMissingSources": [],
+      "dockerfilePath": "machine-learning/Dockerfile",
+      "envVarModel": [
+        {
+          "key": "ANN",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "ANN_FP16_TURBO",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "ANN_TUNING_LEVEL",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "CACHE_FOLDER",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "DEVICE",
+          "secret": false,
+          "source": [
+            "docker/docker-compose.prod.yml build arg DEVICE=cpu",
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": true,
+          "confidence": "medium",
+          "classification": "customer_required"
+        },
+        {
+          "key": "HTTP_KEEPALIVE_TIMEOUT_S",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "IMMICH_HOST",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "IMMICH_LOG_LEVEL",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py",
+            "read in server/src/main.ts"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "IMMICH_MACHINE_LEARNING_ENABLED",
+          "secret": false,
+          "source": [
+            "read in server/src/dtos/config.dto.ts"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "IMMICH_MACHINE_LEARNING_URL",
+          "secret": false,
+          "source": [
+            "read in server/src/dtos/config.dto.ts"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "IMMICH_MEDIA_LOCATION",
+          "secret": false,
+          "source": [
+            "read in server/src/commands/media-location.command.ts"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "IMMICH_PORT",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "LOG_LEVELS",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "MACHINE_LEARNING_DEVICE_ID",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "MAX_BATCH_SIZE",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "MODEL_ARENA",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "MODEL_INTER_OP_THREADS",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "MODEL_INTRA_OP_THREADS",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "MODEL_TTL",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "MODEL_TTL_POLL_S",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "NO_COLOR",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "OPENVINO_PRECISION",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PRELOAD",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "REQUEST_THREADS",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "RKNN",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "RKNN_THREADS",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "ROCM_PRECISION",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "TEST_FULL",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "WORKERS",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "WORKER_TIMEOUT",
+          "secret": false,
+          "source": [
+            "read in machine-learning/immich_ml/config.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": true,
+          "confidence": "medium",
+          "classification": "customer_required"
+        }
+      ],
+      "envVars": [
+        "IMMICH_LOG_LEVEL",
+        "IMMICH_MACHINE_LEARNING_ENABLED",
+        "IMMICH_MACHINE_LEARNING_URL",
+        "IMMICH_MEDIA_LOCATION"
+      ],
+      "externalServiceRequirements": [
+        {
+          "service": "smtp",
+          "evidence": [
+            "nodemailer (package.json dependency)"
+          ]
+        }
+      ],
+      "externalServices": [
+        "smtp"
+      ],
+      "framework": "express",
+      "hasBuildCommand": false,
+      "hasDockerfile": true,
+      "hasEnvVars": true,
+      "hasExternalServices": true,
+      "hasHealthEndpoint": true,
+      "hasMigrationCommand": false,
+      "hasStartupCommand": true,
+      "hasWorkerProcesses": true,
+      "healthEndpointSources": [
+        "health route (machine-learning/immich_ml/main.py)"
+      ],
+      "healthMode": "explicit",
+      "healthPath": "/ping",
+      "ignoredDeploymentFiles": [],
+      "infrastructureBindings": [
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "url",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_URL"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "host",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_HOST"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "port",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_PORT"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "database",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_NAME"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "username",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_USER"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "password",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_PASSWORD"
+        },
+        {
+          "source": "explicit",
+          "resource": "redis",
+          "semantic": "url",
+          "confidence": "high",
+          "applicationVariable": "REDIS_URL"
+        },
+        {
+          "source": "explicit",
+          "resource": "redis",
+          "semantic": "host",
+          "confidence": "high",
+          "applicationVariable": "REDIS_HOST"
+        },
+        {
+          "source": "explicit",
+          "resource": "redis",
+          "semantic": "port",
+          "confidence": "high",
+          "applicationVariable": "REDIS_PORT"
+        }
+      ],
+      "migrationMode": "startup",
+      "migrationStartupEvidence": [
+        {
+          "source": "server/src/repositories/database.repository.ts",
+          "pattern": "migration runner call",
+          "fromDockerCommand": true
+        }
+      ],
+      "mysql": {
+        "detected": false,
+        "evidence": [],
+        "required": false
+      },
+      "packageManager": null,
+      "port": "2283",
+      "portConfidence": "high",
+      "portSource": "compose",
+      "postgres": {
+        "evidence": [
+          "pg dependency in package.json",
+          "postgres dependency in package.json",
+          "docker-compose service using a PostgreSQL/PostGIS image (ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23) in docker/docker-compose.prod.yml",
+          "docker-compose service using a PostgreSQL/PostGIS image (ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23) in docker/docker-compose.yml",
+          "docker-compose service using a PostgreSQL/PostGIS image (ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23) in docker/docker-compose.rootless.yml"
+        ],
+        "required": true
+      },
+      "postgresqlDrivers": [
+        "pg",
+        "postgres"
+      ],
+      "readiness": {
+        "state": "NEEDS_CHANGES",
+        "passed": [
+          {
+            "id": "dockerfile",
+            "label": "Container setup found"
+          },
+          {
+            "id": "framework",
+            "label": "Framework detected"
+          },
+          {
+            "id": "port",
+            "label": "Application port detected"
+          },
+          {
+            "id": "health-endpoint",
+            "label": "Health check found"
+          },
+          {
+            "id": "env-vars",
+            "label": "Environment variables detected"
+          },
+          {
+            "id": "postgresql",
+            "label": "PostgreSQL database detected — Deployz provides a managed database"
+          },
+          {
+            "id": "startup-command",
+            "label": "Start command found"
+          },
+          {
+            "id": "external-services",
+            "label": "External service integrations detected"
+          },
+          {
+            "id": "runtime",
+            "label": "Runtime detected"
+          },
+          {
+            "id": "redis",
+            "label": "Redis detected — provisioned automatically on install"
+          }
+        ],
+        "summary": "This app needs changes before Deployz can deploy it.",
+        "findings": [
+          {
+            "id": "unsupported-multi-service",
+            "title": "Runs as several services",
+            "blocking": true,
+            "category": "architecture",
+            "severity": "required",
+            "confidence": "confirmed",
+            "whyItMatters": "Deployz provisions one container per application with managed database, cache, and storage. Extra infrastructure the app expects would not exist at runtime.",
+            "suggestedOutcome": "Run the app as a single container, or move the extra services out of the deployment.",
+            "technicalEvidence": "Unsupported architecture: docker/docker-compose.prod.yml defines 2 application services (immich-server, immich-machine-learning). Deployz runs ONE web process per deployment plus declared background workers.",
+            "plainEnglishExplanation": "This app's Docker Compose file starts more than one application container, but Deployz runs one container per deployment."
+          },
+          {
+            "id": "unsupported-gpu",
+            "title": "Needs a graphics processor (GPU)",
+            "blocking": true,
+            "category": "architecture",
+            "severity": "required",
+            "confidence": "confirmed",
+            "whyItMatters": "Deployz provisions one container per application with managed database, cache, and storage. Extra infrastructure the app expects would not exist at runtime.",
+            "suggestedOutcome": "Use a processor-only configuration, or move the graphics processing to a service that provides it.",
+            "technicalEvidence": "Unsupported infrastructure: the app requires a GPU (machine-learning/Dockerfile). Deployz runs CPU-only containers.",
+            "plainEnglishExplanation": "This app requires a graphics processor to run. Deployz runs apps on standard processors only."
+          },
+          {
+            "id": "database-migrations",
+            "title": "Database migrations run when the application starts",
+            "blocking": false,
+            "category": "database",
+            "severity": "recommended",
+            "confidence": "likely",
+            "whyItMatters": "Deployz does not run a migration step of its own for this app — the running application updates its own database schema on boot.",
+            "suggestedOutcome": "No action needed — migrations run on application startup and Deployz monitors the app until it reports healthy.",
+            "technicalEvidence": "Migrations run at startup: migration runner call (server/src/repositories/database.repository.ts).",
+            "plainEnglishExplanation": "This app applies its database migrations when the application itself starts, not as a separate deploy step."
+          },
+          {
+            "id": "worker-command",
+            "title": "Background job runner",
+            "blocking": false,
+            "category": "workers",
+            "severity": "recommended",
+            "confidence": "likely",
+            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
+            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
+            "technicalEvidence": "Worker patterns detected: bullmq, worker_threads",
+            "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
+          }
+        ],
+        "requiredCount": 2,
+        "recommendedCount": 2
+      },
+      "redis": {
+        "evidence": [
+          "docker-compose service using a Redis/Valkey image (docker.io/valkey/valkey:9@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf) in docker/docker-compose.prod.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf) in docker/docker-compose.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf) in docker/docker-compose.rootless.yml",
+          "Redis client initialization (new Redis() in server/src/middleware/websocket.adapter.ts",
+          "Redis client initialization (new Redis() in server/src/repositories/app.repository.ts",
+          "bullmq dependency in package.json",
+          "@nestjs/bullmq dependency in package.json",
+          "ioredis dependency in package.json"
+        ],
+        "purposes": [
+          "queue"
+        ],
+        "required": true,
+        "confidence": "high",
+        "compatibility": {
+          "supported": true
+        },
+        "connectionEnvVars": []
+      },
+      "resolvedWorkerCommand": null,
+      "resolvedWorkerCommands": null,
+      "runtime": "node",
+      "startupCommands": [
+        "CMD: [\"python\", \"-m\", \"immich_ml\"]",
+        "ENTRYPOINT: [\"tini\", \"--\"]"
+      ],
+      "unsupportedReasons": [
+        "Unsupported architecture: docker/docker-compose.prod.yml defines 2 application services (immich-server, immich-machine-learning). Deployz runs ONE web process per deployment plus declared background workers.",
+        "Unsupported infrastructure: the app requires a GPU (machine-learning/Dockerfile). Deployz runs CPU-only containers."
+      ],
+      "usesLocalFilesystem": false,
+      "usesMysql": false,
+      "usesPostgresql": true,
+      "usesRedis": true,
+      "usesS3": false,
+      "vendorOverrides": [],
+      "workerPatterns": [
+        "bullmq",
+        "worker_threads"
+      ]
+    }
+  }
+}

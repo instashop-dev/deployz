@@ -151,6 +151,14 @@ jobs:
       AI_MODEL: ${{ secrets.AI_MODEL }}
       AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      # Coding-agent fix instructions run on their own model. "openrouter"
+      # needs the OPENROUTER_API_KEY secret and uses FIX_INSTRUCTIONS_AI_MODEL
+      # (default anthropic/claude-opus-5.5). "gateway" is the rollback: the
+      # shared AI gateway and its AI_MODEL. Production stays on "gateway"
+      # until the repository variable is set to "openrouter".
+      FIX_INSTRUCTIONS_AI_PROVIDER: ${{ vars.FIX_INSTRUCTIONS_AI_PROVIDER || 'gateway' }}
+      FIX_INSTRUCTIONS_AI_MODEL: ${{ vars.FIX_INSTRUCTIONS_AI_MODEL }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
       # Where customer CloudFormation fetches the bootstrap template from,
       # printed by `pnpm --filter @deployz/cdk run publish:bootstrap`. A

@@ -1,0 +1,242 @@
+{
+  "id": "repo-209",
+  "repository": "searxng/searxng",
+  "commit": "23e7e4da008fdc9ac5b27b2625faa9144d46f208",
+  "analysisVersion": 52,
+  "source": {
+    "repoFullName": "searxng/searxng",
+    "containerPort": null,
+    "healthPath": "/healthz",
+    "migrationCommand": null,
+    "redisRequired": false,
+    "workerCommand": null,
+    "detectedMetadata": {
+      "aiAnalysis": {
+        "warnings": [
+          "AI analysis unavailable"
+        ],
+        "unresolved": [
+          "multiple-dockerfiles",
+          "start-command-unknown",
+          "redis-requirement-unclear"
+        ]
+      },
+      "ambiguities": [
+        {
+          "kind": "DOCKERFILE_TARGET",
+          "detail": "The repository contains more than one Dockerfile candidate; which one builds the application image is unresolved."
+        },
+        {
+          "kind": "START_COMMAND",
+          "detail": "No start command was detected in a Dockerfile or a package.json start script."
+        },
+        {
+          "kind": "REDIS_BINDING",
+          "detail": "Redis usage was detected at medium confidence; whether the cache is required is unresolved."
+        }
+      ],
+      "analysisCommitSha": "23e7e4da008fdc9ac5b27b2625faa9144d46f208",
+      "analysisVersion": 52,
+      "asyncQuestions": [],
+      "asyncQueues": [],
+      "asyncScheduledJobs": [],
+      "bindAddress": null,
+      "bindsLocalhost": false,
+      "copiesGitDirectory": false,
+      "databaseNamesMentioned": [],
+      "databaseState": "none",
+      "dockerfileBuildContext": ".",
+      "dockerfileMissingSources": [],
+      "dockerfilePath": "container/builder.dockerfile",
+      "envVarModel": [
+        {
+          "key": "GITHUB_REF_NAME",
+          "secret": false,
+          "source": [
+            "read in searx/version.py"
+          ],
+          "purpose": "external_credential",
+          "required": true,
+          "confidence": "high",
+          "classification": "customer_required"
+        },
+        {
+          "key": "GITHUB_REPOSITORY",
+          "secret": false,
+          "source": [
+            "read in searx/version.py"
+          ],
+          "purpose": "external_credential",
+          "required": true,
+          "confidence": "high",
+          "classification": "customer_required"
+        },
+        {
+          "key": "PATH",
+          "secret": false,
+          "source": [
+            "read in searx/version.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "SEARXNG_DEBUG_LOG_LEVEL",
+          "secret": false,
+          "source": [
+            "read in searx/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "SEARXNG_DISABLE_ETC_SETTINGS",
+          "secret": false,
+          "source": [
+            "read in searx/settings_loader.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "SEARXNG_SETTINGS_PATH",
+          "secret": false,
+          "source": [
+            "read in searx/settings_loader.py",
+            "read in utils/searxng_check.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "TERM",
+          "secret": false,
+          "source": [
+            "read in searx/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        }
+      ],
+      "externalServiceRequirements": [],
+      "framework": null,
+      "hasBuildCommand": false,
+      "hasDockerfile": true,
+      "hasEnvVars": false,
+      "hasExternalServices": false,
+      "hasHealthEndpoint": true,
+      "hasMigrationCommand": false,
+      "hasStartupCommand": false,
+      "hasWorkerProcesses": false,
+      "healthEndpointSources": [
+        "health route (searx/webapp.py)"
+      ],
+      "healthMode": "explicit",
+      "healthPath": "/healthz",
+      "ignoredDeploymentFiles": [],
+      "infrastructureBindings": [],
+      "migrationMode": "none",
+      "mysql": {
+        "detected": false,
+        "evidence": [],
+        "required": false
+      },
+      "packageManager": null,
+      "port": "5000",
+      "portConfidence": "low",
+      "portSource": "framework-default",
+      "postgres": {
+        "evidence": [],
+        "required": false
+      },
+      "readiness": {
+        "state": "ALMOST_READY",
+        "passed": [
+          {
+            "id": "dockerfile",
+            "label": "Container setup found"
+          },
+          {
+            "id": "health-endpoint",
+            "label": "Health check found"
+          },
+          {
+            "id": "runtime",
+            "label": "Runtime detected"
+          },
+          {
+            "id": "dockerfile-build-context",
+            "label": "container/builder.dockerfile is written for the repository root as its build context: COPY requirements.txt; COPY requirements-server.txt"
+          },
+          {
+            "id": "redis",
+            "label": "Redis detected — provisioned automatically on install"
+          }
+        ],
+        "summary": "Deployz found a few things to address before this app can be deployed reliably.",
+        "findings": [
+          {
+            "id": "port-unresolved",
+            "title": "Tell Deployz which port your app listens on",
+            "blocking": false,
+            "category": "network",
+            "severity": "required",
+            "confidence": "confirmed",
+            "whyItMatters": "Deployz routes customer traffic and health checks to one port. Without it, the app would run but never receive requests.",
+            "suggestedOutcome": "Declare the port the app listens on (for example an EXPOSE instruction in the Dockerfile), or set it in the application details.",
+            "technicalEvidence": "No port was found in the Dockerfile (EXPOSE or ENV PORT), an env file, a compose file, or a process.env.PORT default in source.",
+            "plainEnglishExplanation": "Deployz could not find the network port this app listens on."
+          },
+          {
+            "id": "start-command-missing",
+            "title": "Tell Deployz how to start your app",
+            "blocking": false,
+            "category": "container",
+            "severity": "required",
+            "confidence": "confirmed",
+            "whyItMatters": "Every deployment starts the app inside its container. Without a start command, the container exits immediately and the deployment never becomes healthy.",
+            "suggestedOutcome": "Add a CMD or ENTRYPOINT instruction to the Dockerfile (or a \"start\" script), or set the start command in the application details.",
+            "technicalEvidence": "The Dockerfile has no CMD or ENTRYPOINT instruction and no \"start\" script was found in any package.json.",
+            "plainEnglishExplanation": "Deployz found container instructions but no command that starts the app."
+          }
+        ],
+        "requiredCount": 2,
+        "recommendedCount": 0
+      },
+      "redis": {
+        "evidence": [
+          "docker-compose service using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in container/docker-compose.yml"
+        ],
+        "purposes": [
+          "unknown"
+        ],
+        "required": false,
+        "confidence": "medium",
+        "compatibility": {
+          "supported": true
+        },
+        "connectionEnvVars": []
+      },
+      "resolvedWorkerCommand": null,
+      "resolvedWorkerCommands": null,
+      "runtime": "go",
+      "unsupportedReasons": [],
+      "usesLocalFilesystem": false,
+      "usesMysql": false,
+      "usesPostgresql": false,
+      "usesRedis": true,
+      "usesS3": false,
+      "vendorOverrides": []
+    }
+  }
+}

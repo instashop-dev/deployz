@@ -5,6 +5,7 @@ import type { AiGatewayConfig } from '@deployz/analysis';
 
 import {
   describeAiGatewayConfig,
+  describeFixInstructionsAiConfig,
   resolveJevConfig,
   type JevConfig,
 } from './ai-config.js';
@@ -182,6 +183,22 @@ function readAiGatewayConfig(): AiGatewayConfig | undefined {
   return config;
 }
 
+// The fix-instructions model (ai-config.ts). A provider without its
+// credentials leaves fix instructions unavailable; it never switches model.
+const FIX_INSTRUCTIONS_AI_WARNINGS = {
+  'invalid-provider': 'FIX_INSTRUCTIONS_AI_PROVIDER must be "openrouter" or "gateway"',
+  'missing-openrouter-key': 'OPENROUTER_API_KEY is not set',
+  'missing-gateway': 'FIX_INSTRUCTIONS_AI_PROVIDER=gateway but AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY are not both set',
+} as const;
+
+function readFixInstructionsAiConfig(): AiGatewayConfig | undefined {
+  const { config, problem } = describeFixInstructionsAiConfig(process.env);
+  if (problem) {
+    console.warn(`[ai] ${FIX_INSTRUCTIONS_AI_WARNINGS[problem]} — fix instructions are unavailable until it is configured.`);
+  }
+  return config;
+}
+
 // Jev shadow-mode client (PR 1 foundation — nothing consumes it yet). Default
 // OFF: JEV_ENABLED=true is required, and a partial URL/key configuration
 // stays disabled with a warning (resolveJevConfig) rather than failing per
@@ -192,6 +209,7 @@ function readJevConfig(): JevConfig {
 
 export const env = {
   aiGateway: readAiGatewayConfig(),
+  fixInstructionsAi: readFixInstructionsAiConfig(),
   jev: readJevConfig(),
   apiPort,
   apiUrl,

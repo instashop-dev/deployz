@@ -68,6 +68,62 @@ export function describeAiGatewayConfig(source: Record<string, string | undefine
   };
 }
 
+// Fix-instructions model configuration. Only the coding-agent fix prompt uses
+// it; repository analysis and failure explanations stay on the shared gateway.
+
+/** The fix-instructions model on OpenRouter. Override with `FIX_INSTRUCTIONS_AI_MODEL`. */
+export const FIX_INSTRUCTIONS_MODEL_DEFAULT = 'anthropic/claude-opus-5.5';
+
+/** OpenRouter's OpenAI-compatible API. Override with `OPENROUTER_BASE_URL`. */
+export const OPENROUTER_BASE_URL_DEFAULT = 'https://openrouter.ai/api/v1';
+
+/**
+ * Where fix instructions are generated: `openrouter` (the default) or
+ * `gateway` — the shared AI gateway and its model, the rollback to the
+ * previous generator model.
+ */
+export type FixInstructionsAiProvider = 'openrouter' | 'gateway';
+
+/** Why the fix-instructions model is not configured, for the startup warning. */
+export type FixInstructionsAiProblem = 'invalid-provider' | 'missing-openrouter-key' | 'missing-gateway';
+
+/**
+ * Resolve the fix-instructions model. There is no fallback between
+ * providers: a provider without its credentials leaves fix instructions
+ * unavailable (a retryable 503 per request) and names the problem, rather
+ * than answering from another model.
+ */
+export function describeFixInstructionsAiConfig(source: Record<string, string | undefined>): {
+  provider: FixInstructionsAiProvider | undefined;
+  config: AiGatewayConfig | undefined;
+  problem: FixInstructionsAiProblem | undefined;
+} {
+  const rawProvider = source.FIX_INSTRUCTIONS_AI_PROVIDER || 'openrouter';
+
+  if (rawProvider === 'gateway') {
+    const shared = resolveAiGatewayConfig(source);
+    if (!shared) return { provider: 'gateway', config: undefined, problem: 'missing-gateway' };
+    // FIX_INSTRUCTIONS_AI_MODEL names an OpenRouter model; the rollback keeps
+    // the shared gateway's own AI_MODEL, the previous generator model.
+    return { provider: 'gateway', config: shared, problem: undefined };
+  }
+
+  if (rawProvider !== 'openrouter') return { provider: undefined, config: undefined, problem: 'invalid-provider' };
+
+  const apiKey = source.OPENROUTER_API_KEY;
+  if (!apiKey) return { provider: 'openrouter', config: undefined, problem: 'missing-openrouter-key' };
+  return {
+    provider: 'openrouter',
+    config: {
+      provider: 'openrouter',
+      baseUrl: source.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_DEFAULT,
+      providerApiKey: apiKey,
+      model: source.FIX_INSTRUCTIONS_AI_MODEL || FIX_INSTRUCTIONS_MODEL_DEFAULT,
+    },
+    problem: undefined,
+  };
+}
+
 // Jev shadow-mode client configuration, resolved from the same environment.
 
 /** The default model id — a TypeSafe native alias that resolves to the current version. Override with `JEV_MODEL`. */

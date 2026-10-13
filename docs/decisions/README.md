@@ -554,3 +554,31 @@ not with the release being deployed, because a release stores no spec.
 What would change it: a stack-update path that adds a database or cache to an
 existing deployment, or a per-release spec.
 
+
+## Fix instructions: a deterministic plan, the model on OpenRouter (2026-10-13)
+
+The previous fix prompt let per-finding template text and model prose decide
+what the coding agent should do. Some of that text was out of date with the
+product: it told agents to merge declared workers into the web process,
+replace message queues with in-process jobs, delete deployment files, and
+move a MongoDB data layer to PostgreSQL. It also listed a declared worker
+as a blocker.
+
+The plan is now deterministic (`planRemediation`): a class per finding, merged
+and ordered, with conditional actions, constraints and completion criteria.
+The model only adds repository-specific detail, and a safety filter drops
+guidance that breaks the rules. Classification stays testable in CI, and a
+model outage or a model change cannot change what the agent is told to do.
+
+The model is Claude Opus 5.5 through OpenRouter, on its own settings
+(`FIX_INSTRUCTIONS_AI_*`). Repository analysis and failure explanations stay
+on the shared gateway. There is no automatic fallback between models. The
+answer must come from the configured model, or the request fails with a
+retryable 503. `FIX_INSTRUCTIONS_AI_PROVIDER=gateway` is the explicit rollback
+to the previous model. The deploy keeps `gateway` until the repository
+variable says `openrouter`, so production does not change before its
+OpenRouter key exists.
+
+What would change it: repository file contents in the prompt (the model sees
+only structured facts and evidence today), or an asynchronous generation
+path that removes the 25-second request budget.

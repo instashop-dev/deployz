@@ -7,12 +7,9 @@ import { AiGatewayNotAvailableError, type AiGateway } from '@deployz/analysis';
 // unconfigured gateway would, so degraded paths stay exercised as degraded.
 
 const FIXTURE_RESPONSES: Record<string, unknown> = {
-  // fix-instructions.ts (packages/analysis) — no per-finding guidance; the
+  // fix-instructions.ts (packages/analysis) — no per-item guidance; the
   // deterministically assembled document is complete without it.
-  'fix-instructions': {
-    perFinding: [],
-    generalNotes: ['Verify each finding against the repository before making changes.'],
-  },
+  'fix-instructions': { items: [] },
   // repository-ai.ts §15 fallback — resolves nothing, so the deterministic
   // metadata stands exactly as the real degraded path would leave it. The
   // answer carries the structured per-field shape with null values only.

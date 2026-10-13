@@ -184,6 +184,9 @@ test('12b. benchmark corpora and registries are harness test data, not docs; DB 
   assert.equal(compat.risk, 'targeted');
   assert.deepEqual(compat.unitProjects, ['repository-compatibility']);
   assert.deepEqual(plan(['docs/testing/repository-deployment/findings.md']).unitProjects, ['repository-deployment']);
+  assert.deepEqual(plan(['docs/testing/remediation-benchmark/cases.yaml']).unitProjects, ['remediation-benchmark']);
+  assert.ok(plan(['packages/analysis/src/fix-instructions.ts']).unitProjects.includes('remediation-benchmark'));
+  assert.equal(plan(['apps/api/src/fix-instructions.ts']).unitProjects, 'ALL');
   assert.equal(plan(['packages/db/src/enums.ts']).risk, 'critical');
 });
 

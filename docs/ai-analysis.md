@@ -324,17 +324,43 @@ wrongly required, and stops treating token counts and limits as secrets (see
 
 ## Fix instructions
 
-`POST /api/applications/:id/fix-instructions` builds a deterministic prompt
-for the vendor's own coding agent, structured as: repository facts (only
-those the included blockers justify), blocking issues (accurate names plus
-evidence), required outcome, implementation guidance (deterministic
-per-blocker steps plus AI guidance), validation (only applicable checks),
-and a completion report. Informational findings that need no action are
-filtered out. `summariseEnvRequirements` splits the env-var model into
-build-time, runtime, and platform-injected names — never values. The
-document is cached on the row keyed by commit, analysis version, facts and
-findings; `{regenerate: true}` bypasses. A resolved finding never reaches
-the document.
+`POST /api/applications/:id/fix-instructions` builds one prompt for the
+vendor's own coding agent (`packages/analysis/src/fix-instructions.ts`).
+
+- **Plan.** `planRemediation` is deterministic. It gives every unresolved
+  finding one class: `APPLICATION_FIX` (an application code change with a
+  known safe pattern), `CONFIGURATION_FIX` (Deployz settings, environment
+  variables, or build and process files only), `ALREADY_SUPPORTED`,
+  `DEPLOYZ_LIMITATION` (the app needs something Deployz does not provide),
+  `NEEDS_INPUT` (a vendor decision or fact), or `UNSUPPORTED` (the app's
+  deployment model is out of scope). Each item has a confidence, evidence,
+  files to check, conditional actions, constraints, completion criteria and
+  the Deployz settings that resolve it without a repository change. Related
+  findings merge (the migration question absorbs the generic migration
+  finding), duplicates drop, and items are ordered by dependency.
+- **Safety rules.** No step tells the agent to merge a worker into the web
+  process, delete working code, rewrite the data layer, remove deployment
+  files, bypass security, invent secrets or suppress errors. Limitation,
+  input and unsupported items only verify and report. Informational findings
+  (a declared worker, provisioned queues, migrations at startup) are listed
+  as "keep as is", never as blockers.
+- **Model.** The model adds at most 70 words of repository-specific detail
+  per item, as `{items: [{id, guidance}]}` under a strict schema. It cannot
+  change a class, an action or a constraint. `isSafeGuidance` drops guidance
+  that matches an unsafe pattern, is too long, or names an unknown item.
+- **Document.** Sections: context (only the facts the items need, and only
+  the Deployz capabilities they touch), fixes in order, vendor decisions,
+  already supported, rules, validation (only applicable checks; a build
+  alone is not proof), and a per-item completion report. Names of
+  environment variables only, never values.
+- **Cache.** The document is cached on the row, keyed by
+  `FIX_INSTRUCTIONS_VERSION`, the model, the commit, the analysis version,
+  the facts and the findings. `{regenerate: true}` bypasses it. Bump
+  `FIX_INSTRUCTIONS_VERSION` when the plan, the prompt or the document
+  changes.
+- **Failure.** Any model failure (no credentials, timeout, malformed answer,
+  spend limit, another model served) answers a retryable 503. The analysis
+  and the readiness state do not change.
 
 ## Environment variables
 
@@ -419,6 +445,20 @@ diagnostic-vocabulary.ts`) plus a migration.
 - Gateway: `AI_GATEWAY_BASE_URL`, `AI_PROVIDER_API_KEY`, optional
   `AI_GATEWAY_TOKEN`, `AI_MODEL` (`apps/api/src/ai-config.ts`);
   `AI_FIXTURE_MODE=true` swaps in canned answers for E2E.
+- Fix-instructions model: `FIX_INSTRUCTIONS_AI_PROVIDER` (`openrouter`, the
+  default, or `gateway`), `FIX_INSTRUCTIONS_AI_MODEL` (the OpenRouter model,
+  default `anthropic/claude-opus-5.5`), `OPENROUTER_API_KEY`, optional
+  `OPENROUTER_BASE_URL`. Only fix instructions use it. Through OpenRouter
+  every request requires a provider that honours the JSON schema
+  (`provider.require_parameters`), asks for low reasoning effort (Opus 5.5
+  cannot switch thinking off), and logs the served model, tokens and cost
+  (`usage.cost`). An answer from another model is rejected
+  (`AiModelMismatchError`) and never retried. There is no fallback: a
+  provider without credentials leaves fix instructions unavailable.
+  `gateway` is the rollback to the shared gateway and `AI_MODEL`.
+- Fix-instructions budget: 25 s per request (under the 30 s Lambda and HTTP
+  API limits), one attempt may use 24 s, so a second attempt runs only after
+  a fast failure; 4000 prompt and 4000 completion tokens.
 - Prompts: `repository-ai.ts`, `fix-instructions.ts`,
   `diagnostic-explainer.ts`. Each has its own token budget, timeout, and
   a spend check on the gateway's reported usage; the gateway retries once
@@ -440,6 +480,13 @@ diagnostic-vocabulary.ts`) plus a migration.
   `apps/api/src/ai-explanation.test.ts`, `fix-instructions` tests); the
   live gateway test (`ai-live.test.ts`) runs only with `DEPLOYZ_LIVE_AI=1`
   and asserts structure, never wording.
+- Fix instructions: `pnpm benchmark:remediation` grades the plan and the
+  document over pinned real-repository snapshots and targeted mutations
+  (`docs/testing/remediation-benchmark/`): classes, critical unsafe
+  instructions, structure, expected content. CI runs the same checks
+  (`scripts/remediation-benchmark/benchmark.test.ts`). `--live` calls the
+  configured model and records its answers; `--replay <dir>` grades recorded
+  answers without a model call.
 - Changing a prompt or schema: keep `.strict()`, add the fixture-mode
   answer in `apps/api/src/ai-fixture.ts` if E2E needs it, and never assert
   on model prose in CI.

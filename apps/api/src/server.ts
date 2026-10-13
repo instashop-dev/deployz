@@ -388,6 +388,11 @@ export interface ServerDeps {
   // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
   // when unconfigured so diagnostics fall back to deterministic remediation.
   aiGateway?: AiGateway | undefined;
+  // Injectable gateway for the coding-agent fix instructions, which run on
+  // their own model (FIX_INSTRUCTIONS_AI_*, ai-config.ts). Defaults to the
+  // env-configured one; a throwing stub when unconfigured, so the route
+  // answers its retryable 503.
+  fixInstructionsAiGateway?: AiGateway | undefined;
   // Injectable Jev UNKNOWN-failure shadow runner (telemetry only). Defaults to
   // the env-configured Jev client, which degrades to a noop when Jev is
   // disabled — the failure flow is identical either way.
@@ -2039,6 +2044,7 @@ export async function buildServer({
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.aiGateway),
+  fixInstructionsAiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.fixInstructionsAi),
   jevFailureShadow = createJevFailureShadowRunnerFromEnv({ db }, env.jev),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
   defaultHttpsDeps: injectedDefaultHttpsDeps,
@@ -4011,7 +4017,11 @@ export async function buildServer({
       // document. Reuse it instead of paying for another generation; the
       // vendor can still ask for a fresh one. A re-analysis replaces
       // detected_metadata wholesale, which drops the cache on its own.
-      const key = fixInstructionsCacheKey(context, application.detectedMetadata?.['analysisVersion']);
+      const key = fixInstructionsCacheKey(
+        context,
+        application.detectedMetadata?.['analysisVersion'],
+        env.aiFixtureMode ? 'fixture' : (env.fixInstructionsAi?.model ?? 'unconfigured'),
+      );
       const { regenerate } = fixInstructionsBodySchema.parse(request.body ?? {});
       const cached = regenerate ? null : readCachedFixInstructions(application.detectedMetadata, key);
       if (cached) {
@@ -4021,7 +4031,7 @@ export async function buildServer({
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), FIX_INSTRUCTIONS_TIMEOUT_MS);
       try {
-        const instructions = await generateFixInstructions(context, aiGateway, {
+        const instructions = await generateFixInstructions(context, fixInstructionsAiGateway, {
           abortSignal: controller.signal,
         });
         const generatedAt = new Date().toISOString();

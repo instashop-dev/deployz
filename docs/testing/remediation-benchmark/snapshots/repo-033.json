@@ -1,0 +1,1392 @@
+{
+  "id": "repo-033",
+  "repository": "paperless-ngx/paperless-ngx",
+  "commit": "a28a6fe23b89a8f3b73b1f3994f22cbd97d2d5f1",
+  "analysisVersion": 52,
+  "source": {
+    "repoFullName": "paperless-ngx/paperless-ngx",
+    "containerPort": 8000,
+    "healthPath": "/",
+    "migrationCommand": null,
+    "redisRequired": true,
+    "workerCommand": null,
+    "detectedMetadata": {
+      "aiAnalysis": {
+        "warnings": [
+          "AI analysis unavailable"
+        ],
+        "unresolved": [
+          "multiple-dockerfiles"
+        ]
+      },
+      "ambiguities": [
+        {
+          "kind": "DOCKERFILE_TARGET",
+          "detail": "The repository contains more than one Dockerfile candidate; which one builds the application image is unresolved."
+        },
+        {
+          "kind": "MIGRATION_STRATEGY",
+          "detail": "A PostgreSQL or MySQL database is required but no migration command was detected."
+        },
+        {
+          "kind": "ARCHITECTURE_REQUIREMENT",
+          "detail": "Worker code was detected but no command resolves how a worker process starts."
+        }
+      ],
+      "analysisCommitSha": "a28a6fe23b89a8f3b73b1f3994f22cbd97d2d5f1",
+      "analysisVersion": 52,
+      "asyncQuestions": [],
+      "asyncQueues": [],
+      "asyncScheduledJobs": [],
+      "bindAddress": null,
+      "bindsLocalhost": false,
+      "buildCommands": [
+        "ng build"
+      ],
+      "copiesGitDirectory": false,
+      "databaseNamesMentioned": [],
+      "databaseState": "postgres",
+      "dockerfileMissingSources": [],
+      "dockerfilePath": "Dockerfile",
+      "envVarModel": [
+        {
+          "key": "COMPOSE_PROJECT_NAME",
+          "secret": false,
+          "source": [
+            ".env declares COMPOSE_PROJECT_NAME"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "unknown"
+        },
+        {
+          "key": "HOME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "NODE_ENV",
+          "secret": false,
+          "source": [
+            "read in src-ui/setup-jest.ts"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_ACCOUNT_DEFAULT_HTTP_PROTOCOL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_ACCOUNT_EMAIL_VERIFICATION",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_AI_LLM_API_KEY",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": false,
+          "confidence": "high",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_AI_LLM_EMBEDDING_ENDPOINT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_AI_LLM_EMBEDDING_MODEL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_AI_LLM_ENDPOINT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_AI_LLM_MODEL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_AI_LLM_OUTPUT_LANGUAGE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_ALLAUTH_TRUSTED_CLIENT_IP_HEADER",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_APP_LOGO",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_APP_TITLE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_AUTO_LOGIN_USERNAME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CACHE_BACKEND",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CHANNELS_BACKEND",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONFIGURATION_PATH",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_ASN_BARCODE_PREFIX",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_BARCODE_STRING",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_COLLATE_DOUBLE_SIDED_SUBDIR_NAME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_IGNORE_DIRS",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_IGNORE_PATTERNS",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_POLLING_INTERVAL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_STABILITY_DELAY",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONSUMER_TAG_BARCODE_MAPPING",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONVERT_BINARY",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONVERT_MEMORY_LIMIT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_CONVERT_TMPDIR",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_COOKIE_PREFIX",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DATE_ORDER",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DATE_PARSER_LANGUAGES",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DBENGINE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DBHOST",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "infrastructure_binding",
+          "required": false,
+          "confidence": "medium",
+          "classification": "deployz_managed"
+        },
+        {
+          "key": "PAPERLESS_DBNAME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "infrastructure_binding",
+          "required": false,
+          "confidence": "medium",
+          "classification": "deployz_managed"
+        },
+        {
+          "key": "PAPERLESS_DBPASS",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "infrastructure_binding",
+          "required": false,
+          "confidence": "medium",
+          "classification": "deployz_managed"
+        },
+        {
+          "key": "PAPERLESS_DBSSLCERT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DBSSLKEY",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DBSSLMODE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DBSSLROOTCERT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_DBUSER",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "infrastructure_binding",
+          "required": false,
+          "confidence": "medium",
+          "classification": "deployz_managed"
+        },
+        {
+          "key": "PAPERLESS_DB_OPTIONS",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_EMAIL_FROM",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_EMAIL_GNUPG_HOME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_EMAIL_HOST",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_EMAIL_HOST_PASSWORD",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "internal_secret",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_EMAIL_HOST_USER",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_EMAIL_PORT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_EMPTY_TRASH_DIR",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_ENABLE_UPDATE_CHECK",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_FILENAME_DATE_ORDER",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_FILENAME_FORMAT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_FORCE_SCRIPT_NAME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_GMAIL_OAUTH_CLIENT_ID",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": false,
+          "confidence": "high",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_GMAIL_OAUTH_CLIENT_SECRET",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": false,
+          "confidence": "high",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_GS_BINARY",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_HTTP_REMOTE_USER_HEADER_NAME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_IGNORE_DATES",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_LOGOUT_REDIRECT_URL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/custom.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_LOGROTATE_MAX_BACKUPS",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_LOGROTATE_MAX_SIZE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OAUTH_CALLBACK_BASE_URL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": false,
+          "confidence": "high",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OCR_CLEAN",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OCR_COLOR_CONVERSION_STRATEGY",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OCR_LANGUAGE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OCR_MODE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/checks.py",
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OCR_OUTPUT_TYPE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OCR_SKIP_ARCHIVE_FILE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/checks.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OCR_USER_ARGS",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OUTLOOK_OAUTH_CLIENT_ID",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": false,
+          "confidence": "high",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_OUTLOOK_OAUTH_CLIENT_SECRET",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": false,
+          "confidence": "high",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_POST_CONSUME_SCRIPT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_PRE_CONSUME_SCRIPT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_PROXY_SSL_HEADER",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": true,
+          "confidence": "medium",
+          "classification": "customer_required"
+        },
+        {
+          "key": "PAPERLESS_READ_CACHE_REDIS_URL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "infrastructure_binding",
+          "required": false,
+          "confidence": "medium",
+          "classification": "deployz_managed"
+        },
+        {
+          "key": "PAPERLESS_REDIS",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_REDIS_PREFIX",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_REMOTE_OCR_API_KEY",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": false,
+          "confidence": "high",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_REMOTE_OCR_ENDPOINT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_REMOTE_OCR_ENGINE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_SEARCH_LANGUAGE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_SECRET_KEY",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/custom.py",
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "external_credential",
+          "required": true,
+          "confidence": "high",
+          "classification": "deployz_generated"
+        },
+        {
+          "key": "PAPERLESS_SESSION_COOKIE_AGE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_SOCIALACCOUNT_PROVIDERS",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_SOCIAL_ACCOUNT_SYNC_GROUPS_CLAIM",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_SOCIAL_ACCOUNT_SYNC_STAFF_GROUP",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_SOCIAL_ACCOUNT_SYNC_SUPERUSER_GROUP",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_STATIC_URL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_THREADS_PER_WORKER",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_THUMBNAIL_FONT_NAME",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_TIKA_ENDPOINT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_TIKA_GOTENBERG_ENDPOINT",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_TIME_ZONE",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_TOKEN_THROTTLE_RATE",
+          "secret": true,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "internal_secret",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_TRASH_DIR",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        },
+        {
+          "key": "PAPERLESS_URL",
+          "secret": false,
+          "source": [
+            "read in src/paperless/settings/__init__.py"
+          ],
+          "purpose": "optional_configuration",
+          "required": false,
+          "confidence": "medium",
+          "classification": "optional"
+        }
+      ],
+      "envVars": [
+        "COMPOSE_PROJECT_NAME",
+        "NODE_ENV"
+      ],
+      "externalServiceRequirements": [
+        {
+          "service": "openai",
+          "evidence": [
+            "openai (pyproject.toml)"
+          ]
+        }
+      ],
+      "externalServices": [
+        "openai"
+      ],
+      "framework": null,
+      "hasBuildCommand": true,
+      "hasDockerfile": true,
+      "hasEnvVars": true,
+      "hasExternalServices": true,
+      "hasHealthEndpoint": true,
+      "hasMigrationCommand": false,
+      "hasStartupCommand": true,
+      "hasWorkerProcesses": true,
+      "healthEndpointSources": [
+        "HEALTHCHECK (Dockerfile)"
+      ],
+      "healthMode": "root",
+      "healthPath": "/",
+      "ignoredDeploymentFiles": [],
+      "infrastructureBindings": [
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "url",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_URL"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "host",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_HOST"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "port",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_PORT"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "database",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_NAME"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "username",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_USER"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "password",
+          "confidence": "high",
+          "applicationVariable": "DATABASE_PASSWORD"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "host",
+          "confidence": "high",
+          "applicationVariable": "PAPERLESS_DBHOST"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "database",
+          "confidence": "high",
+          "applicationVariable": "PAPERLESS_DBNAME"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "password",
+          "confidence": "high",
+          "applicationVariable": "PAPERLESS_DBPASS"
+        },
+        {
+          "source": "explicit",
+          "resource": "postgres",
+          "semantic": "username",
+          "confidence": "high",
+          "applicationVariable": "PAPERLESS_DBUSER"
+        },
+        {
+          "source": "detected",
+          "resource": "redis",
+          "semantic": "url",
+          "confidence": "high",
+          "applicationVariable": "PAPERLESS_READ_CACHE_REDIS_URL"
+        }
+      ],
+      "localFilesystemOps": [
+        "VOLUME /usr/src/paperless/data (Dockerfile)"
+      ],
+      "migrationMode": "unknown",
+      "mysql": {
+        "detected": false,
+        "evidence": [],
+        "required": false
+      },
+      "packageManager": "pnpm",
+      "port": "8000",
+      "portConfidence": "high",
+      "portSource": "dockerfile-expose",
+      "postgres": {
+        "evidence": [
+          "psycopg driver declared",
+          "docker-compose service using a PostgreSQL/PostGIS image (docker.io/library/postgres:18) in docker/compose/docker-compose.portainer.yml",
+          "docker-compose service using a PostgreSQL/PostGIS image (docker.io/library/postgres:18) in docker/compose/docker-compose.postgres-tika.yml",
+          "docker-compose service using a PostgreSQL/PostGIS image (docker.io/library/postgres:18) in docker/compose/docker-compose.postgres.yml"
+        ],
+        "required": true
+      },
+      "postgresqlDrivers": [
+        "psycopg"
+      ],
+      "readiness": {
+        "state": "NEEDS_CHANGES",
+        "passed": [
+          {
+            "id": "dockerfile",
+            "label": "Container setup found"
+          },
+          {
+            "id": "port",
+            "label": "Application port detected"
+          },
+          {
+            "id": "health-endpoint",
+            "label": "Health check found"
+          },
+          {
+            "id": "env-vars",
+            "label": "Environment variables detected"
+          },
+          {
+            "id": "postgresql",
+            "label": "PostgreSQL database detected — Deployz provides a managed database"
+          },
+          {
+            "id": "startup-command",
+            "label": "Start command found"
+          },
+          {
+            "id": "external-services",
+            "label": "External service integrations detected"
+          },
+          {
+            "id": "package-manager",
+            "label": "Package manager detected"
+          },
+          {
+            "id": "build-command",
+            "label": "Build command found"
+          },
+          {
+            "id": "runtime",
+            "label": "Runtime detected"
+          },
+          {
+            "id": "redis",
+            "label": "Redis detected — provisioned automatically on install"
+          }
+        ],
+        "summary": "This app needs changes before Deployz can deploy it.",
+        "findings": [
+          {
+            "id": "unsupported-multi-service",
+            "title": "Runs as several services",
+            "blocking": true,
+            "category": "architecture",
+            "severity": "required",
+            "confidence": "confirmed",
+            "whyItMatters": "Deployz provisions one container per application with managed database, cache, and storage. Extra infrastructure the app expects would not exist at runtime.",
+            "suggestedOutcome": "Build an image that runs only the web process, and declare each other process as a worker.",
+            "technicalEvidence": "Unsupported container setup: Dockerfile runs s6-overlay with 19 long-running services (init-complete, init-custom-init, init-env-file, init-folders) in one container. Deployz runs one web process and declared workers as separate services.",
+            "plainEnglishExplanation": "This app's image starts several long-running processes (web, API, worker) under a supervisor, but Deployz runs one process per container."
+          },
+          {
+            "id": "local-file-storage",
+            "title": "Files stored on local disk",
+            "blocking": true,
+            "category": "storage",
+            "severity": "required",
+            "confidence": "confirmed",
+            "whyItMatters": "Anything written to local disk disappears when the app restarts or updates, so uploads and generated files would be lost.",
+            "suggestedOutcome": "Store uploaded and persistent files in object storage instead of the local disk.",
+            "technicalEvidence": "Durable local filesystem state declared: VOLUME /usr/src/paperless/data (Dockerfile)",
+            "plainEnglishExplanation": "This app writes files to its own disk, but Deployz runs apps on disks that are wiped on every deploy."
+          },
+          {
+            "id": "database-migrations",
+            "title": "Give Deployz a way to update your database",
+            "blocking": false,
+            "category": "database",
+            "severity": "recommended",
+            "confidence": "likely",
+            "whyItMatters": "Deployz runs your migration command automatically on every deploy, so each customer database always matches the code that talks to it.",
+            "suggestedOutcome": "Set the migration command to \"python src/manage.py migrate --noinput\" in the application's settings, or make the image run it when it starts.",
+            "technicalEvidence": "A PostgreSQL library is present (psycopg) but no migration script was found in any package.json.",
+            "plainEnglishExplanation": "This app uses a database, but Deployz could not find a command that updates the database structure during deploys."
+          },
+          {
+            "id": "worker-command",
+            "title": "Background job runner",
+            "blocking": false,
+            "category": "workers",
+            "severity": "recommended",
+            "confidence": "likely",
+            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
+            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
+            "technicalEvidence": "Worker patterns detected: celery",
+            "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
+          }
+        ],
+        "requiredCount": 2,
+        "recommendedCount": 2
+      },
+      "redis": {
+        "evidence": [
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in docker/compose/docker-compose.sqlite-tika.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in docker/compose/docker-compose.mariadb.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in docker/compose/docker-compose.portainer.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in docker/compose/docker-compose.postgres-tika.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in docker/compose/docker-compose.mariadb-tika.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in docker/compose/docker-compose.sqlite.yml",
+          "docker-compose variant using a Redis/Valkey image (docker.io/valkey/valkey:9-alpine) in docker/compose/docker-compose.postgres.yml",
+          "celery with a Redis broker/result-backend signal",
+          "redis dependency (Python) in pyproject.toml"
+        ],
+        "purposes": [
+          "broker"
+        ],
+        "required": true,
+        "confidence": "high",
+        "compatibility": {
+          "supported": true
+        },
+        "connectionEnvVars": [
+          "PAPERLESS_READ_CACHE_REDIS_URL"
+        ]
+      },
+      "resolvedWorkerCommand": null,
+      "resolvedWorkerCommands": null,
+      "runtime": "node",
+      "startupCommands": [
+        "ENTRYPOINT: [\"/init\"]"
+      ],
+      "suggestedMigrationCommand": "python src/manage.py migrate --noinput",
+      "unsupportedReasons": [
+        "Unsupported container setup: Dockerfile runs s6-overlay with 19 long-running services (init-complete, init-custom-init, init-env-file, init-folders) in one container. Deployz runs one web process and declared workers as separate services."
+      ],
+      "usesLocalFilesystem": true,
+      "usesMysql": false,
+      "usesPostgresql": true,
+      "usesRedis": true,
+      "usesS3": false,
+      "vendorOverrides": [],
+      "workerPatterns": [
+        "celery"
+      ]
+    }
+  }
+}

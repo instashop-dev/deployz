@@ -159,15 +159,56 @@ describe('fix-instructions — buildFixInstructionsContext', () => {
     expect(context!.facts.migrationCommand).toBeNull();
   });
 
-  it('database is "postgres" iff usesPostgresql is true', () => {
-    const withDb = source({ detectedMetadata: { readiness: report(), usesPostgresql: true } });
+  it('database names the provisioned engine: PostgreSQL first, then MySQL', () => {
+    const withDb = source({ detectedMetadata: { readiness: report(), usesPostgresql: true, usesMysql: true } });
     expect(buildFixInstructionsContext(withDb)!.facts.database).toBe('postgres');
+
+    const mysql = source({ detectedMetadata: { readiness: report(), usesPostgresql: false, usesMysql: true } });
+    expect(buildFixInstructionsContext(mysql)!.facts.database).toBe('mysql');
 
     const withoutDb = source({ detectedMetadata: { readiness: report(), usesPostgresql: false } });
     expect(buildFixInstructionsContext(withoutDb)!.facts.database).toBe('none');
 
     const unset = source({ detectedMetadata: { readiness: report() } });
     expect(buildFixInstructionsContext(unset)!.facts.database).toBe('none');
+  });
+
+  it('marks the health path as vendor-set only when the vendor owns it', () => {
+    const detected = source({ healthPath: '/healthz', detectedMetadata: { readiness: report(), vendorOverrides: [] } });
+    const owned = source({ healthPath: '/healthz', detectedMetadata: { readiness: report(), vendorOverrides: ['healthPath'] } });
+    expect(buildFixInstructionsContext(detected)!.facts.healthPathSetByVendor).toBe(false);
+    expect(buildFixInstructionsContext(owned)!.facts.healthPathSetByVendor).toBe(true);
+  });
+
+  it('strips the Dockerfile instruction label from the detected start command', () => {
+    const app = source({ detectedMetadata: { readiness: report(), startupCommands: ['CMD: npm run migrate && npm start'] } });
+    expect(buildFixInstructionsContext(app)!.facts.startCommand).toBe('npm run migrate && npm start');
+  });
+
+  it('carries the declared worker commands so the plan keeps them', () => {
+    const app = source({
+      detectedMetadata: {
+        readiness: report(),
+        resolvedWorkerCommands: [{ id: 'worker', command: 'node worker.js', source: 'Procfile' }, { id: 'bad' }],
+      },
+    });
+    expect(buildFixInstructionsContext(app)!.facts.workerCommands).toEqual(['node worker.js']);
+    expect(buildFixInstructionsContext(source({ detectedMetadata: { readiness: report() } }))!.facts.workerCommands).toEqual([]);
+  });
+
+  it('suggests the analysed migration command only while the vendor has not decided one', () => {
+    const metadata = { readiness: report(), suggestedMigrationCommand: 'python manage.py migrate --noinput' };
+    expect(buildFixInstructionsContext(source({ detectedMetadata: metadata }))!.facts.suggestedMigrationCommand).toBe(
+      'python manage.py migrate --noinput',
+    );
+    expect(
+      buildFixInstructionsContext(source({ detectedMetadata: { ...metadata, vendorOverrides: ['migrationCommand'] } }))!
+        .facts.suggestedMigrationCommand,
+    ).toBeNull();
+    expect(
+      buildFixInstructionsContext(source({ migrationCommand: 'npm run migrate', detectedMetadata: metadata }))!.facts
+        .suggestedMigrationCommand,
+    ).toBeNull();
   });
 
   it('redisRequired is true from either the row column or the detected redis.required flag', () => {
@@ -327,24 +368,28 @@ describe('fixInstructionsCacheKey / readCachedFixInstructions', () => {
   const context = buildFixInstructionsContext(source)!;
 
   it('is deterministic and includes the runtime fact', () => {
-    expect(fixInstructionsCacheKey(context, 13)).toBe(fixInstructionsCacheKey(context, 13));
-    expect(fixInstructionsCacheKey(context, 13)).toMatch(/^[0-9a-f]{64}$/);
+    expect(fixInstructionsCacheKey(context, 13, 'model-a')).toBe(fixInstructionsCacheKey(context, 13, 'model-a'));
+    expect(fixInstructionsCacheKey(context, 13, 'model-a')).toMatch(/^[0-9a-f]{64}$/);
     expect(context.facts.runtime).toBe('node');
   });
 
+  it('changes with the model, so a model switch regenerates the document', () => {
+    expect(fixInstructionsCacheKey(context, 13, 'model-b')).not.toBe(fixInstructionsCacheKey(context, 13, 'model-a'));
+  });
+
   it('changes with the commit, the analysis version, a fact, or a finding', () => {
-    const base = fixInstructionsCacheKey(context, 13);
-    expect(fixInstructionsCacheKey({ ...context, commitSha: 'def' }, 13)).not.toBe(base);
-    expect(fixInstructionsCacheKey(context, 14)).not.toBe(base);
-    expect(fixInstructionsCacheKey({ ...context, facts: { ...context.facts, port: '8080' } }, 13)).not.toBe(base);
+    const base = fixInstructionsCacheKey(context, 13, 'model-a');
+    expect(fixInstructionsCacheKey({ ...context, commitSha: 'def' }, 13, 'model-a')).not.toBe(base);
+    expect(fixInstructionsCacheKey(context, 14, 'model-a')).not.toBe(base);
+    expect(fixInstructionsCacheKey({ ...context, facts: { ...context.facts, port: '8080' } }, 13, 'model-a')).not.toBe(base);
     expect(
-      fixInstructionsCacheKey({ ...context, findings: [{ ...context.findings[0]!, confidence: 'confirmed' }] }, 13),
+      fixInstructionsCacheKey({ ...context, findings: [{ ...context.findings[0]!, confidence: 'confirmed' }] }, 13, 'model-a'),
     ).not.toBe(base);
-    expect(fixInstructionsCacheKey(context, 'not-a-number')).toBe(fixInstructionsCacheKey(context, null));
+    expect(fixInstructionsCacheKey(context, 'not-a-number', 'model-a')).toBe(fixInstructionsCacheKey(context, null, 'model-a'));
   });
 
   it('reads a stored document only for exactly its key, and never a partial one', () => {
-    const key = fixInstructionsCacheKey(context, 13);
+    const key = fixInstructionsCacheKey(context, 13, 'model-a');
     const stored = { key, instructions: '# doc', generatedAt: '2026-09-05T10:00:00.000Z' };
     expect(readCachedFixInstructions({ fixInstructions: stored }, key)).toEqual(stored);
     expect(readCachedFixInstructions({ fixInstructions: stored }, 'other')).toBeNull();
