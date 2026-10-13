@@ -5,7 +5,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
-import { deployzTaskFamily, taskFamilySuffix, type DeploymentManifest, type DeploymentSpecV2 } from '@deployz/contracts';
+import {
+  deployzTaskFamily,
+  taskFamilySuffix,
+  workloadServicesFromSpec,
+  type DeploymentManifest,
+  type DeploymentSpecV2,
+} from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
@@ -757,8 +763,46 @@ describe('deploy contract, busy gate and restart', () => {
     expect(jobs[0]!.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:${releaseId}:RETRY:1`);
   });
 
+  /** The relay's healthy release evidence for the migrating spec's workloads, running `digest`. */
+  function healthyEvidenceFor(digest: string) {
+    const at = new Date().toISOString();
+    return {
+      version: 1,
+      observedAt: at,
+      services: workloadServicesFromSpec(migratingSpec())!.map((workload) => ({
+        workloadId: workload.id,
+        serviceLogicalId: workload.serviceLogicalId,
+        observed: true,
+        desiredCount: 2,
+        runningCount: 2,
+        rolloutState: 'COMPLETED',
+        runningDigests: [digest],
+        targets: workload.id === 'web' ? { healthy: 2, unhealthy: 0, pending: 0, unknown: 0 } : null,
+      })),
+      httpProbe: { ok: true, status: 200, checkedAt: at },
+    };
+  }
+
+  async function postHealthy(
+    deployment: { id: string; installationId: string; token: string },
+    digest: string,
+  ): Promise<void> {
+    const heartbeat = await app.inject({
+      method: 'POST',
+      url: '/api/relay/health',
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        installationId: deployment.installationId,
+        healthStatus: 'HEALTHY',
+        runningImageDigest: digest,
+        observedState: { releaseEvidence: healthyEvidenceFor(digest) },
+      }),
+    });
+    expect(heartbeat.statusCode, heartbeat.body).toBe(200);
+  }
+
   it('advances pointers v1 → v2 → v3 → rollback → v2 only after each rollout passes the promotion gate', async () => {
-    const deployment = await seedDeployment();
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
     const v1 = await seedRelease('v4.0.0');
     const v2 = await seedRelease('v4.1.0');
     const v3 = await seedRelease('v4.2.0');
@@ -795,34 +839,7 @@ describe('deploy contract, busy gate and restart', () => {
       });
       expect(response.statusCode, response.body).toBe(200);
 
-      const heartbeat = await app.inject({
-        method: 'POST',
-        url: '/api/relay/health',
-        headers: {
-          authorization: `Bearer ${deployment.token}`,
-          'content-type': 'application/json',
-        },
-        payload: JSON.stringify({
-          installationId: deployment.installationId,
-          healthStatus: 'HEALTHY',
-          runningImageDigest: await releaseDigest(releaseId),
-          observedState: {
-            deploymentRolloutState: 'COMPLETED',
-            desiredCount: 2,
-            runningCount: 2,
-            unhealthyTargetCount: 0,
-            pendingTargetCount: 0,
-            unknownTargetCount: 0,
-            httpProbe: {
-              ok: true,
-              statusCode: 200,
-              latencyMs: 9,
-              checkedAt: new Date().toISOString(),
-            },
-          },
-        }),
-      });
-      expect(heartbeat.statusCode, heartbeat.body).toBe(200);
+      await postHealthy(deployment, await releaseDigest(releaseId));
     };
 
     const pointers = async () => {
@@ -845,5 +862,45 @@ describe('deploy contract, busy gate and restart', () => {
     await post(`/api/deployments/${deployment.id}/rollback`, { releaseId: v2 });
     await reportSuccess(v2, 'ROLLBACK');
     expect(await pointers()).toEqual({ current: v2, previous: v3 });
+  });
+
+  it('does not present the previous release as confirmed after a failed rollback until fresh evidence re-confirms it', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const v1 = await seedRelease('v8.0.0');
+    const v2 = await seedRelease('v8.1.0');
+    await db.update(schema.deployments).set({ currentReleaseId: v2 }).where(eq(schema.deployments.id, deployment.id));
+    const digest = digestOf('v8.1.0');
+    await postHealthy(deployment, digest);
+
+    const servingRelease = async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deployment.id}`,
+        headers: { cookie },
+      });
+      return (response.json() as { deploymentStatus: { servingRelease: unknown } }).deploymentStatus.servingRelease;
+    };
+    expect(await servingRelease()).toMatchObject({ releaseId: v2, confirmed: true });
+
+    await post(`/api/deployments/${deployment.id}/rollback`, { releaseId: v1 });
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    const failed = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${job!.id}/result`,
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ success: false, error: 'rollout failed' }),
+    });
+    expect(failed.statusCode, failed.body).toBe(200);
+
+    // The update failed: the deployment stays live on v2, but nothing has
+    // re-confirmed that v2 is what serves.
+    expect(await servingRelease()).toEqual({ releaseId: v2, confirmedAt: null, confirmed: false });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await postHealthy(deployment, digest);
+    expect(await servingRelease()).toMatchObject({ releaseId: v2, confirmed: true });
   });
 });

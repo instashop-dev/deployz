@@ -769,6 +769,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
       installationId,
       currentReleaseId: release!.id,
       defaultHttps: { hostname: 'd-summary.deployz.dev', status: 'ACTIVE' },
+      observedState: { releaseVerdict: { pass: true, reason: null, notStarted: false } },
     });
     const readyResponse = await app.inject({
       method: 'GET',
@@ -789,6 +790,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
       healthStatus: 'HEALTHY',
       installationId: null,
       defaultHttps: { hostname: 'd-unenrolled.deployz.dev', status: 'ACTIVE' },
+      observedState: { releaseVerdict: { pass: true, reason: null, notStarted: false } },
     });
     const unenrolledBody = customerDeploymentStatusSchema.parse(
       (await app.inject({ method: 'GET', url: `/api/install/${unenrolled.installLinkId}/status` })).json(),
@@ -820,6 +822,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
       state: 'HEALTHY',
       healthStatus: 'HEALTHY',
       defaultHttps: { hostname: 'd-nosignal.deployz.dev', status: 'ACTIVE' },
+      observedState: { releaseVerdict: { pass: true, reason: null, notStarted: false } },
     });
     const body = customerDeploymentStatusSchema.parse(
       (await app.inject({ method: 'GET', url: `/api/install/${healthy.installLinkId}/status` })).json(),

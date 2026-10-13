@@ -945,6 +945,7 @@ describe('deploy links', () => {
         healthStatus: 'HEALTHY',
         currentReleaseId: release!.id,
         defaultHttps: { hostname: 'd-summary.deployz.dev', status: 'ACTIVE' },
+        observedState: { releaseVerdict: { pass: true, reason: null, notStarted: false } },
       })
       .where(eq(schema.deployments.id, deploymentId));
     const ready = await fetchBody();
@@ -977,6 +978,7 @@ describe('deploy links', () => {
         healthStatus: 'HEALTHY',
         installationId: null,
         defaultHttps: { hostname: 'd-unenrolled.deployz.dev', status: 'ACTIVE' },
+        observedState: { releaseVerdict: { pass: true, reason: null, notStarted: false } },
       })
       .where(eq(schema.deployments.id, deploymentId));
     const unenrolled = (await status(publicId, token)).json() as {

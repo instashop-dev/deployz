@@ -194,6 +194,8 @@ export interface DerivationDeployment {
   relayBoundAt: Date | null;
   lastHealthAt: Date | null;
   currentReleaseId: string | null;
+  /** When relay evidence last confirmed `currentReleaseId` is serving — see servingReleaseFor. */
+  currentReleaseConfirmedAt: Date | null;
   observedState: Record<string, unknown> | null;
   updatedAt: Date;
   /** When the customer launched the CloudFormation Quick Create — the AWS_SETUP step's authoritative start. */
@@ -322,9 +324,60 @@ export interface DerivedDeploymentStatus {
   relay: { connected: boolean; lastSeenAt: string | null };
   job: { type: JobType; status: JobState } | null;
   aws: { stackStatus: string | null };
-  health: { status: HealthStatus; layers: RuntimeHealthLayers };
+  /**
+   * `notStarted`: every workload is intentionally at zero tasks (a configured
+   * first start still waiting) — a runtime condition, not an outage.
+   */
+  health: { status: HealthStatus; layers: RuntimeHealthLayers; notStarted: boolean };
+  /** Which release is serving and whether relay evidence confirms it — separate from health and from `failure`. */
+  servingRelease: ServingRelease;
+  /** The connector sends no release evidence, so it can neither promote a release nor verify readiness. */
+  connector: { upgradeRequired: boolean; reason: 'RELEASE_EVIDENCE_MISSING' | null };
   result: { url: string } | null;
   failure: DerivedFailure | null;
+}
+
+export interface ServingRelease {
+  releaseId: string | null;
+  confirmedAt: string | null;
+  confirmed: boolean;
+}
+
+// The verdict the heartbeat route stamps into observedState.releaseVerdict
+// after evaluating THAT heartbeat's release evidence (server.ts).
+interface StoredReleaseVerdict {
+  pass: boolean;
+  reason: string | null;
+  notStarted: boolean;
+}
+
+function readReleaseVerdict(observedState: Record<string, unknown> | null | undefined): StoredReleaseVerdict | null {
+  const raw = observedState?.['releaseVerdict'] as Partial<StoredReleaseVerdict> | null | undefined;
+  if (raw === undefined || raw === null || typeof raw.pass !== 'boolean') return null;
+  return { pass: raw.pass, reason: raw.reason ?? null, notStarted: raw.notStarted === true };
+}
+
+/**
+ * The current release counts as confirmed only while no deploy, rollback or
+ * restart has settled after the evidence that confirmed it: such an operation
+ * may have changed what runs, so only newer evidence re-confirms.
+ */
+function servingReleaseFor(deployment: DerivationDeployment, jobs: readonly DerivationJob[]): ServingRelease {
+  const confirmedAt = deployment.currentReleaseConfirmedAt;
+  const confirmed =
+    deployment.currentReleaseId !== null &&
+    confirmedAt !== null &&
+    !jobs.some(
+      (job) =>
+        (job.type === 'DEPLOY_RELEASE' || job.type === 'ROLLBACK' || job.type === 'RESTART') &&
+        job.finishedAt !== null &&
+        job.finishedAt > confirmedAt,
+    );
+  return {
+    releaseId: deployment.currentReleaseId,
+    confirmedAt: confirmed ? confirmedAt!.toISOString() : null,
+    confirmed,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1079,6 +1132,7 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     deployment.currentReleaseId !== null ||
     jobs.some((job) => job.type === 'INSTALL' && SUCCEEDED_JOB_STATES.has(job.state));
   const httpsUrl = appUrl !== null && appUrl.startsWith('https://');
+  const releaseVerdict = readReleaseVerdict(deployment.observedState);
   const statusUpdatesUnavailable = deployment.relayStatus === 'DISCONNECTED' || deployment.state === 'DISCONNECTED';
 
   let stage: DeploymentStage;
@@ -1110,12 +1164,12 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     // was last confirmed — regressing a deployment's stage because the
     // relay went quiet would read as the deployment breaking, when nothing
     // about the deployment itself changed.
-    if (deployment.healthStatus === 'HEALTHY' && httpsUrl) {
+    if (deployment.healthStatus === 'HEALTHY' && httpsUrl && releaseVerdict?.pass === true) {
       stage = 'READY';
       currentActivity = STAGE_ACTIVITY.READY;
     } else {
       stage = 'VERIFYING';
-      if (deployment.healthStatus !== 'HEALTHY') {
+      if (deployment.healthStatus !== 'HEALTHY' || (httpsUrl && releaseVerdict?.pass !== true)) {
         currentActivity = 'Running health checks.';
       } else {
         // Healthy but not yet on an HTTPS URL. needsDomainSetup is reserved
@@ -1348,6 +1402,12 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       // §10.1: the five layers, each from its own source — never collapsed
       // into the scalar `status` above.
       layers: buildHealthLayers(deployment.relayStatus, deployment.observedState),
+      notStarted: releaseVerdict?.notStarted === true,
+    },
+    servingRelease: servingReleaseFor(deployment, jobs),
+    connector: {
+      upgradeRequired: releaseVerdict?.reason === 'EVIDENCE_MISSING',
+      reason: releaseVerdict?.reason === 'EVIDENCE_MISSING' ? 'RELEASE_EVIDENCE_MISSING' : null,
     },
     // Runtime-verified reachability is the gate for exposing an address:
     // READY's https URL always, and the temporary HTTP ALB endpoint once a
@@ -1469,7 +1529,9 @@ export function toCustomerDeploymentStatus(
 }
 
 /** The authenticated vendor projection — full operational detail. */
-export function toVendorDeploymentStatus(derived: DerivedDeploymentStatus): VendorDeploymentStatus {
+export function toVendorDeploymentStatus(
+  derived: DerivedDeploymentStatus,
+): VendorDeploymentStatus & Pick<DerivedDeploymentStatus, 'servingRelease' | 'connector'> {
   return {
     stage: derived.stage,
     updatedAt: derived.updatedAt,
@@ -1487,6 +1549,8 @@ export function toVendorDeploymentStatus(derived: DerivedDeploymentStatus): Vend
     job: derived.job,
     aws: derived.aws,
     health: derived.health,
+    servingRelease: derived.servingRelease,
+    connector: derived.connector,
     url: derived.result?.url ?? null,
     failure: derived.failure
       ? {

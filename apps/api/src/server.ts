@@ -54,6 +54,7 @@ import {
   failureCodeSchema,
   provisionedResources,
   validateEnvironmentSettings,
+  evaluateReleaseEvidence,
   failureEvidenceSchema,
   healthComponentsSchema,
   healthStatusSchema,
@@ -63,6 +64,7 @@ import {
   regionSchema,
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
+  releaseEvidenceSchema,
   requiredInfrastructureComponents,
   requirementsFromSpec,
   migrationTaskFromSpec,
@@ -78,6 +80,7 @@ import {
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
   type CustomerDeploymentStatus,
+  type ExpectedWorkload,
   type DeploymentManifest,
   type DeploymentPlan,
   type InfrastructureChange,
@@ -7333,101 +7336,148 @@ export async function buildServer({
   ];
   const ACTIVE_JOB_STATES: readonly JobStateValue[] = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
 
-  /**
-   * §10.3 the promotion gate's observational half: whether ONE heartbeat's
-   * observedState shows a fully rolled-out, healthy release. Every layer the
-   * relay reported must pass — ECS rollout COMPLETED, expected task count up,
-   * no unhealthy/pending/unclassified ALB targets, and a successful HTTP
-   * probe. A signal the relay did not report (older relay, unreadable AWS)
-   * is not an obstacle, but a reported failure in any layer blocks promotion:
-   * a partially-rolled-out service must never become current.
-   */
-  function releasePromotionGatesPass(observedState: Record<string, unknown> | null | undefined): boolean {
-    if (!observedState || typeof observedState !== 'object') return false;
-
-    const rollout = observedState['deploymentRolloutState'];
-    if (rollout !== undefined && rollout !== null && rollout !== 'COMPLETED') return false;
-
-    // HTTP probe: when one was taken this poll, only a successful one passes.
-    const probe = observedState['httpProbe'] as { ok?: unknown } | null | undefined;
-    if (probe !== undefined && probe !== null && probe.ok !== true) return false;
-
-    const desired = observedState['desiredCount'];
-    const running = observedState['runningCount'];
-    if (typeof desired === 'number' && typeof running === 'number' && desired > 0 && running < desired) {
-      return false;
-    }
-    for (const key of ['unhealthyTargetCount', 'pendingTargetCount', 'unknownTargetCount']) {
-      const count = observedState[key];
-      if (typeof count === 'number' && count > 0) return false;
-    }
-    return true;
+  /** The workloads the frozen spec requires; `public` marks the ones the load balancer serves. */
+  function expectedWorkloadsFor(deployment: Pick<DeploymentRow, 'specV2'>): ExpectedWorkload[] {
+    const spec = readStoredDeploymentSpec(deployment.specV2);
+    const services = spec ? workloadServicesFromSpec(spec) : null;
+    if (!spec || !services) return [];
+    const publicIds = new Set(spec.ir.ingress.public ? spec.ir.ingress.targetWorkloadIds : []);
+    return services.map((service) => ({
+      id: service.id,
+      serviceLogicalId: service.serviceLogicalId,
+      public: publicIds.has(service.id),
+    }));
   }
 
+  /**
+   * §10.3 the promotion gate's observational half: whether ONE heartbeat's
+   * `releaseEvidence` proves every required workload runs one image digest at
+   * full capacity with healthy targets and a successful public probe. Only
+   * that heartbeat counts — never the stored observedState — and evidence
+   * older than the newest already accepted for the deployment is rejected, so
+   * a late heartbeat cannot move the release pointer back.
+   */
+  function assessReleaseEvidence(
+    deployment: Pick<DeploymentRow, 'specV2' | 'currentReleaseConfirmedAt'>,
+    rawEvidence: unknown,
+  ): { accepted: boolean; digest: string | null; observedAt: Date | null; reason: string | null; notStarted: boolean } {
+    const expected = expectedWorkloadsFor(deployment);
+    const verdict = evaluateReleaseEvidence(rawEvidence, expected, new Date());
+    const parsed = releaseEvidenceSchema.safeParse(rawEvidence);
+    const observedAt = parsed.success ? new Date(parsed.data.observedAt) : null;
+    const notStarted =
+      parsed.success &&
+      !verdict.pass &&
+      verdict.reason !== 'EVIDENCE_STALE' &&
+      expected.length > 0 &&
+      expected.every((workload) =>
+        parsed.data.services.some(
+          (service) =>
+            service.workloadId === workload.id &&
+            service.serviceLogicalId === workload.serviceLogicalId &&
+            service.observed &&
+            service.desiredCount === 0,
+        ),
+      );
+    const outOfOrder =
+      observedAt !== null &&
+      deployment.currentReleaseConfirmedAt !== null &&
+      observedAt < deployment.currentReleaseConfirmedAt;
+    if (verdict.pass && outOfOrder) {
+      return { accepted: false, digest: null, observedAt, reason: 'EVIDENCE_OUT_OF_ORDER', notStarted: false };
+    }
+    return verdict.pass
+      ? { accepted: true, digest: verdict.digest, observedAt, reason: null, notStarted: false }
+      : { accepted: false, digest: null, observedAt, reason: verdict.reason, notStarted };
+  }
+
+  /**
+   * Promotes or re-confirms the current release from accepted evidence. The
+   * deployment row is locked inside the transaction (a job insert needs the
+   * same row for its foreign key), so a job created or settled since the
+   * heartbeat began cannot be overrun, and an older heartbeat that lost a race
+   * cannot move the confirmation back.
+   */
   async function reconcileRunningDigest(
     deployment: DeploymentRow,
-    runningImageDigest: string | null,
-    observedState: Record<string, unknown> | null,
+    runningImageDigest: string,
+    observedAt: Date,
   ): Promise<void> {
     const digest = digestSuffix(runningImageDigest);
     if (!digest) return;
 
+    let currentIsServing = false;
     if (deployment.currentReleaseId) {
       const currentRows = await db
         .select({ imageDigest: schema.releases.imageDigest })
         .from(schema.releases)
         .where(eq(schema.releases.id, deployment.currentReleaseId))
         .limit(1);
-      if (digestSuffix(currentRows[0]?.imageDigest ?? null) === digest) return; // Already truthful.
+      currentIsServing = digestSuffix(currentRows[0]?.imageDigest ?? null) === digest;
     }
 
-    const activeJobs = await db
-      .select({ id: schema.deploymentJobs.id })
-      .from(schema.deploymentJobs)
-      .where(
-        and(
-          eq(schema.deploymentJobs.deploymentId, deployment.id),
-          inArray(schema.deploymentJobs.state, ACTIVE_JOB_STATES),
-          inArray(schema.deploymentJobs.type, MUTATING_JOB_TYPES),
-        ),
-      )
-      .limit(1);
-    if (activeJobs.length > 0) return; // A job owns the pointer right now.
-
-    const releases = await db
-      .select()
-      .from(schema.releases)
-      .where(eq(schema.releases.applicationId, deployment.applicationId));
-    const matches = releases.filter(
-      (release) => release.releaseStatus === 'READY' && digestSuffix(release.imageDigest) === digest,
-    );
-    // Zero matches: the raw digest stays in observedState and the runtime
-    // version renders as unknown. More than one: the same image built under
-    // two versions — reconciling would be a guess, so it stays as-is.
-    if (matches.length !== 1) return;
-    const reconciled = matches[0]!;
-    if (reconciled.id === deployment.currentReleaseId) return;
-
-    // §10.3 promotion gate: a release only becomes current on the strength of
-    // THIS heartbeat's observations, and only when every one of them passes —
-    // the ECS rollout completed, the expected task count is up, no ALB target
-    // is unhealthy/pending/unknown, and the HTTP probe succeeded. A
-    // partially-rolled-out or failing application is never promoted.
-    if (!releasePromotionGatesPass(observedState)) return;
+    let reconciled: typeof schema.releases.$inferSelect | null = null;
+    if (!currentIsServing) {
+      const releases = await db
+        .select()
+        .from(schema.releases)
+        .where(eq(schema.releases.applicationId, deployment.applicationId));
+      const matches = releases.filter(
+        (release) => release.releaseStatus === 'READY' && digestSuffix(release.imageDigest) === digest,
+      );
+      // Zero matches: the raw digest stays in observedState and the runtime
+      // version renders as unknown. More than one: the same image built under
+      // two versions — reconciling would be a guess, so it stays as-is.
+      if (matches.length !== 1) return;
+      reconciled = matches[0]!;
+    }
 
     await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({
+          currentReleaseId: schema.deployments.currentReleaseId,
+          currentReleaseConfirmedAt: schema.deployments.currentReleaseConfirmedAt,
+          state: schema.deployments.state,
+        })
+        .from(schema.deployments)
+        .where(eq(schema.deployments.id, deployment.id))
+        .for('update');
+      if (!locked || locked.currentReleaseId !== deployment.currentReleaseId) return; // The pointer moved meanwhile.
+      if (locked.currentReleaseConfirmedAt !== null && locked.currentReleaseConfirmedAt > observedAt) return;
+      const activeJobs = await tx
+        .select({ id: schema.deploymentJobs.id })
+        .from(schema.deploymentJobs)
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            inArray(schema.deploymentJobs.state, ACTIVE_JOB_STATES),
+            inArray(schema.deploymentJobs.type, MUTATING_JOB_TYPES),
+          ),
+        )
+        .limit(1);
+      if (activeJobs.length > 0) return; // A job owns the pointer right now.
+
+      if (reconciled === null) {
+        await tx
+          .update(schema.deployments)
+          .set({ currentReleaseConfirmedAt: observedAt })
+          .where(eq(schema.deployments.id, deployment.id));
+        return;
+      }
+
       await tx
         .update(schema.deployments)
         .set({
           currentReleaseId: reconciled.id,
-          previousReleaseId: deployment.currentReleaseId,
+          previousReleaseId: locked.currentReleaseId,
+          currentReleaseConfirmedAt: observedAt,
         })
         .where(eq(schema.deployments.id, deployment.id));
       // The result route may have set UPDATE_AVAILABLE because the released
       // image was not yet promoted — now that it IS promoted, resolve the
       // state: HEALTHY when no newer READY release exists, else stay
       // UPDATE_AVAILABLE (a genuinely newer release was published meanwhile).
-      if (deployment.state === 'UPDATE_AVAILABLE') {
+      if (locked.state === 'UPDATE_AVAILABLE') {
         const hasNewer = await newerReadyReleaseExists(
           tx,
           deployment.applicationId,
@@ -7453,12 +7503,15 @@ export async function buildServer({
         deploymentId: deployment.id,
         customerId: deployment.customerId,
         releaseId: reconciled.id,
-        previousState: deployment.currentReleaseId,
+        previousState: locked.currentReleaseId,
         requestedState: reconciled.id,
         result: 'success',
         payload: {
           source: 'runtime-observation',
-          previousReleaseId: deployment.currentReleaseId,
+          // initial: the first release confirmed for this deployment;
+          // drift: the runtime differed from the release the pointer named.
+          kind: locked.currentReleaseId === null ? 'initial' : 'drift',
+          previousReleaseId: locked.currentReleaseId,
           reconciledReleaseId: reconciled.id,
           imageDigest: digest,
         },
@@ -8713,7 +8766,7 @@ export async function buildServer({
     const observedState =
       componentsParsed?.success === true
         ? { ...(body.observedState ?? deployment.observedState ?? {}), components: componentsParsed.data }
-        : (body.observedState ?? deployment.observedState);
+        : (body.observedState ?? deployment.observedState ?? {});
     // The runtime digest rides observedState too, so the raw truth survives
     // even when it cannot be reconciled to a release.
     if (body?.runningImageDigest !== undefined) {
@@ -8761,6 +8814,21 @@ export async function buildServer({
       };
     }
 
+    // Release evidence: only THIS heartbeat's own report counts, never the
+    // state stored by an earlier one. The verdict is stamped into observedState
+    // for the status derivation; a connector that sends no evidence is stamped
+    // EVIDENCE_MISSING, which flags it for upgrade.
+    const evidence = assessReleaseEvidence(
+      deployment,
+      (body.observedState as Record<string, unknown> | undefined)?.['releaseEvidence'],
+    );
+    (observedState as Record<string, unknown>)['releaseVerdict'] = {
+      pass: evidence.accepted,
+      reason: evidence.reason,
+      notStarted: evidence.notStarted,
+      evaluatedAt: new Date().toISOString(),
+    };
+
     const previousHealth = deployment.healthStatus;
     const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
     // Edge-triggered: the rollout failure is recorded once per observed
@@ -8785,6 +8853,7 @@ export async function buildServer({
     // stuck teardown the vendor explicitly asked for.
     const stateRecovered =
       nextHealth === 'HEALTHY' &&
+      evidence.accepted &&
       deployment.state === 'FAILED' &&
       deployment.currentReleaseId !== null &&
       !(await latestJobIsDestroy(db, deployment.id));
@@ -8796,6 +8865,7 @@ export async function buildServer({
     const installVerifiedHealthy =
       deployment.state === 'INSTALLING' &&
       nextHealth === 'HEALTHY' &&
+      evidence.accepted &&
       (await hasSucceededInstall(db, deployment.id));
 
     await db.transaction(async (tx) => {
@@ -8819,7 +8889,9 @@ export async function buildServer({
 
       // Only a CHANGE is worth an event — the relay reports on every poll and
       // an append-only log of "still healthy" would bury everything else.
-      if (nextHealth !== previousHealth) {
+      // An intentional zero-task state (a configured first start still
+      // waiting) is not an outage and records no health event.
+      if (nextHealth !== previousHealth && !(evidence.notStarted && nextHealth !== 'HEALTHY')) {
         await recordEvent(tx, {
           organizationId: deployment.organizationId,
           eventType:
@@ -8891,19 +8963,16 @@ export async function buildServer({
       request.log.warn({ err: error }, 'infrastructure inventory persistence failed');
     }
 
-    // Runtime truth wins: reconcile the deployment's release pointer to
-    // whatever the relay observed actually running — but ONLY once §10.3's
-    // promotion gates pass in this very heartbeat (rollout complete, counts
-    // full, targets healthy, HTTP probe successful). Failures here must not
-    // fail the heartbeat itself.
-    try {
-      await reconcileRunningDigest(
-        deployment,
-        body?.runningImageDigest ?? null,
-        observedState as Record<string, unknown> | null,
-      );
-    } catch (error) {
-      request.log.warn({ err: error }, 'runtime digest reconciliation failed');
+    // Runtime truth wins: reconcile the deployment's release pointer to the
+    // digest this heartbeat's release evidence proved running — but ONLY when
+    // the evidence passes in full (§10.3). Failures here must not fail the
+    // heartbeat itself.
+    if (evidence.accepted && evidence.digest !== null && evidence.observedAt !== null) {
+      try {
+        await reconcileRunningDigest(deployment, evidence.digest, evidence.observedAt);
+      } catch (error) {
+        request.log.warn({ err: error }, 'runtime digest reconciliation failed');
+      }
     }
 
     // A heartbeat is a progress signal for the deployment's active mutating
