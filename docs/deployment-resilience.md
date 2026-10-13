@@ -428,6 +428,35 @@ completed its rollout (`packages/relay/src/config-update.ts`):
   update succeeds at once and the following deploy starts it. Pending-secret
   delivery and the cleanup of bound rows on success are unchanged.
 
+## A restart settles on its rollout
+
+A RESTART reports success only after every service it restarted completed
+the rollout it forced (`packages/relay/src/restart.ts`). Forcing the
+deployment is not the restart: ECS settles 3-5 minutes later, and a job
+recorded as succeeded earlier would leave the deployment idle while tasks
+still roll, and would hide a crash loop.
+
+- **Same gates as a configuration update.** The relay forces a new
+  deployment of every service that has tasks, records each service's new
+  PRIMARY deployment id on the pending marker, and settles with
+  `settleConfigRollouts`: that deployment is PRIMARY and COMPLETED with the
+  expected task count, and every ALB target is healthy. A service at zero
+  tasks has nothing to replace and is skipped; if every service is at zero,
+  the restart succeeds at once.
+- **Deferred while it runs.** The command stays in progress, and the
+  operation exclusivity rule keeps other service mutations out. The resumer
+  settles it on a later poll.
+- **Rollback is failure.** A circuit-breaker rollback, or a PRIMARY on
+  another deployment, fails the job with `ECS_DEPLOYMENT_FAILED`. This is a
+  failed day-2 operation: the previous tasks keep serving and the deployment
+  returns to `HEALTHY` or `UPDATE_AVAILABLE`.
+- **Idempotent.** A re-offered RESTART with its own marker only waits on the
+  recorded rollouts and never forces a second deployment. The marker is
+  written right after the forced deployment, so a relay that dies between
+  the two calls can force once more on re-offer; the rolling replacement
+  makes that safe.
+- **No migrations.** A restart never runs a migration (see above).
+
 ## Idempotency and exclusivity
 
 - Every operation has a durable idempotency key

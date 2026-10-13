@@ -55,9 +55,9 @@ import {
 import {
   createEcsDeployExecutor,
   createEcsDeployResumer,
-  createRestartExecutor,
   type EcsDeployDeps,
 } from '@deployz/relay/deploy';
+import { createRestartExecutor, createRestartResumer } from '@deployz/relay/restart';
 import { createDestroyExecutor, createDestroyResumer, type DestroyDeps } from '@deployz/relay/destroy';
 import { observeRuntimeHealth } from '@deployz/relay/ecs-health';
 import { observeRunningImageDigest } from '@deployz/relay/ecs-observe';
@@ -826,6 +826,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       let results = await createInstallResumer(installDeps)();
       if (results.length === 0) results = await createEcsDeployResumer(deployDeps)();
       if (results.length === 0) results = await createConfigUpdateResumer(configDeps)();
+      if (results.length === 0) results = await createRestartResumer(configDeps)();
       if (results.length === 0) results = await createDestroyResumer(destroyDeps)();
       if (results.length === 0) results = await createPurgeResumer(purgeDeps)();
       if (results.length > 0 && pendingBefore) {

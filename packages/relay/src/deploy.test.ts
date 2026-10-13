@@ -4,7 +4,6 @@ import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import {
   createEcsDeployExecutor,
   createEcsDeployResumer,
-  createRestartExecutor,
   overlayEffectiveApplicationConfig,
   readDeployRequest,
   replaceApplicationImages,
@@ -1945,72 +1944,6 @@ describe('createEcsDeployResumer', () => {
     expect(settled).toHaveLength(1);
     expect(settled[0]?.success).toBe(true);
     expect(await d.pending.read()).toBeNull();
-  });
-});
-
-describe('createRestartExecutor', () => {
-  it('forces a new deployment of the current definition', async () => {
-    const state = baseState();
-    const result = await run(
-      createRestartExecutor(deps(state)),
-      deployCommand({}, 'RESTART' as never),
-    );
-    expect(result.success).toBe(true);
-    expect(state.updates).toHaveLength(1);
-    expect(state.updates[0]).toMatchObject({
-      cluster: 'app-cluster',
-      service: SERVICE_ARN,
-      forceNewDeployment: true,
-    });
-  });
-
-  it('does not fail a restart whose stack resources cannot be read', async () => {
-    const state = baseState();
-    const d = deps(state);
-    const result = await run(
-      createRestartExecutor({ ...d, cfn: { ...d.cfn, listStackResources: async () => null } }),
-      deployCommand({}, 'RESTART' as never),
-    );
-    expect(result.success).toBe(false);
-    expect(result.deferred).toBe(true);
-    expect(result.error).toBeUndefined();
-    expect(state.updates).toHaveLength(0);
-  });
-
-  it('fails when there is no service to restart', async () => {
-    const state = baseState();
-    const result = await run(
-      createRestartExecutor(deps(state, false)),
-      deployCommand({}, 'RESTART' as never),
-    );
-    expect(result.success).toBe(false);
-  });
-
-  it('restarts EVERY app service (Phase 4A multi-workload)', async () => {
-    const state = baseState();
-    const d = deps(state);
-    // Two services in the stack.
-    const services: StackResource[] = [
-      { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
-      { logicalId: 'EmailWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: WORKER_SERVICE_ARN },
-    ];
-    (d.cfn as { listStackResources(): Promise<{ resources: StackResource[] }> }).listStackResources =
-      async () => ({ resources: services });
-    const fake = d.ecs as unknown as {
-      describeServices(input: { services: string[] }): Promise<{ services: unknown[] }>;
-    };
-    const originalDescribe = fake.describeServices.bind(d.ecs);
-    fake.describeServices = async (input) => {
-      const answer = await originalDescribe(input);
-      // One shared fake service state, answered once per requested ARN.
-      return { services: input.services.map(() => answer.services[0]) };
-    };
-
-    const result = await run(createRestartExecutor(d), deployCommand({}, 'RESTART' as never));
-    expect(result.success).toBe(true);
-    expect(state.updates).toHaveLength(2);
-    expect(state.updates[0]).toMatchObject({ service: SERVICE_ARN, forceNewDeployment: true });
-    expect(state.updates[1]).toMatchObject({ service: WORKER_SERVICE_ARN, forceNewDeployment: true });
   });
 });
 

@@ -314,7 +314,13 @@ test.describe('phase5-composition', () => {
           message: 'waiting for the restart executor to touch both services',
         })
         .toBe(2);
-      expect((await getDeployment(request, deploymentId)).state).toBe('HEALTHY');
+      // The restart job settles on its rollout, on a later relay poll.
+      await expect
+        .poll(async () => (await getDeployment(request, deploymentId)).state, {
+          timeout: 20_000,
+          message: 'waiting for the restart rollout to settle',
+        })
+        .toBe('HEALTHY');
 
       // ── v1 deploy: web + worker roll, and the cleanup family is
       // registered with the release image once the rollout settles. ─────────

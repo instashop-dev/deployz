@@ -233,7 +233,13 @@ test.describe('multi-worker-sweep', () => {
           message: 'waiting for the restart executor to touch all three services',
         })
         .toBe(3);
-      expect((await getDeployment(request, deploymentId)).state).toBe('HEALTHY');
+      // The restart job settles on its rollout, on a later relay poll.
+      await expect
+        .poll(async () => (await getDeployment(request, deploymentId)).state, {
+          timeout: 20_000,
+          message: 'waiting for the restart rollout to settle',
+        })
+        .toBe('HEALTHY');
 
       // ── Successful v1 deploy — every service rolls to the new revision. ────
       const v1ReleaseId = await createRelease(request, application.id, '1.0.0');

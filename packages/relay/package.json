@@ -58,6 +58,10 @@
       "types": "./dist/config-update.d.ts",
       "import": "./dist/config-update.js"
     },
+    "./restart": {
+      "types": "./dist/restart.d.ts",
+      "import": "./dist/restart.js"
+    },
     "./destroy": {
       "types": "./dist/destroy.d.ts",
       "import": "./dist/destroy.js"

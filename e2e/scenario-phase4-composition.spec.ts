@@ -226,7 +226,13 @@ test.describe('phase4-composition', () => {
         })
         .toBe(3);
       expect(relay.account.migrationRuns).toBe(1);
-      expect((await getDeployment(request, deploymentId)).state).toBe('HEALTHY');
+      // The restart job settles on its rollout, on a later relay poll.
+      await expect
+        .poll(async () => (await getDeployment(request, deploymentId)).state, {
+          timeout: 20_000,
+          message: 'waiting for the restart rollout to settle',
+        })
+        .toBe('HEALTHY');
 
       // ── v1 deploy: a NEW migration identity runs the migration again. ──────
       const v1ReleaseId = await createRelease(request, application.id, '1.0.0');
