@@ -451,10 +451,12 @@ still roll, and would hide a crash loop.
   failed day-2 operation: the previous tasks keep serving and the deployment
   returns to `HEALTHY` or `UPDATE_AVAILABLE`.
 - **Idempotent.** A re-offered RESTART with its own marker only waits on the
-  recorded rollouts and never forces a second deployment. The marker is
-  written right after the forced deployment, so a relay that dies between
-  the two calls can force once more on re-offer; the rolling replacement
-  makes that safe.
+  recorded rollouts and never forces a second deployment. A RESTART that
+  settled (including the all-zero case) leaves a `settled` marker, so a lost
+  result report is repeated from the marker and never forces a second
+  deployment. The running marker is written right after the forced
+  deployment, so a relay that dies between the two calls can force once more
+  on re-offer; the rolling replacement makes that safe.
 - **No migrations.** A restart never runs a migration (see above).
 
 ## Idempotency and exclusivity
@@ -501,7 +503,8 @@ still roll, and would hide a crash loop.
   re-delivered or re-offered command converges on real AWS state instead of
   duplicating a mutation.
 - **A pending command carries authority.** Before it resumes or provisions,
-  the relay asks the control plane whether the command is still active
+  and before a DEPLOY_RELEASE, ROLLBACK, RESTART or CONFIG_UPDATE changes
+  AWS, the relay asks the control plane whether the command is still active
   (`GET /api/relay/commands/:id/authority`). A superseded command never
   mutates AWS; an ambiguous answer defers every mutation. See
   "Pending-command authority and safe recreation" below.
@@ -518,6 +521,12 @@ or 5xx answer is ambiguous: the relay defers all mutations and asks again
 on the next poll. The decision record is
 `docs/decisions/pending-command-authority.md`.
 
+The same check guards the day-2 commands. A DEPLOY_RELEASE, ROLLBACK, RESTART
+or CONFIG_UPDATE executor asks before it changes AWS. A deploy resumer asks
+until its rollout has started. After that, settling only reads, so it
+continues. An inactive command mutates nothing, and the resumer clears its
+own marker with `compareAndSet`. An ambiguous answer defers.
+
 `installApplicationStack` has three create modes:
 
 - `fresh` — a first install creates the stack when it is absent.
@@ -533,12 +542,28 @@ throttle, a permission denial or a transport error (`absent: false` plus an
 unreadable reads fails the install with that distinction; it does not claim
 the stack was deleted.
 
-On terminal settle the INSTALL resumer writes a `settled` marker (the
-result plus `settledAt`) instead of clearing first. The marker is cleared
-only after the result report succeeds (`onResultReported`). A failed report
-retries without rerunning provisioning. Every clear and write uses
-`compareAndSet`, so a newer command's marker is never cleared or
-overwritten.
+On terminal settle every command that changes AWS (INSTALL, DEPLOY_RELEASE,
+ROLLBACK, RESTART, CONFIG_UPDATE) writes a `settled` marker (the result plus
+`settledAt`) instead of clearing first. This holds for an immediate executor
+result and for a deferred resumer result. The marker is cleared only after
+the result report succeeds (`onResultReported`). A failed report (429, 5xx,
+timeout or a dead Lambda) retries from the marker, on the next poll or when
+the control plane offers the command again, and never reruns provisioning, a
+migration or a forced deployment. Every clear and write of an existing marker
+uses `compareAndSet`, so a newer command's marker is never cleared or
+overwritten. A new running marker is created only when no marker of the same
+command exists.
+
+A settled marker keeps no command payload, so it never holds a secret value.
+A result that would exceed the 4096-character SSM limit is cut in a fixed
+order: the error text is clipped, then the evidence is dropped, then the
+output keeps only its scalars and key-name lists (`generatedKeys` stays),
+then the output is dropped. `success` and `failureCode` always stay.
+
+The store tells an absent marker (`ParameterNotFound`) from an unreadable
+one (`AccessDenied`, throttling, a transport error or content that does not
+parse). When the marker is unreadable, every executor and resumer defers and
+changes nothing, because the command may already have run.
 
 DESTROY cancels an obsolete INSTALL before the idle check: a DISCONNECTED
 relay's active INSTALL can never complete, so it must not block the

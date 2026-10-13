@@ -109,9 +109,9 @@ import {
   createPendingStore,
   memoryPendingStore,
   pendingParameterName,
-  type PendingCommand,
+  settledResultOf,
+  settleMarker,
   type PendingStore,
-  type PersistedCommandResult,
 } from './pending.js';
 import { pollOnce, reportCommandProgress, type PollDependencies } from './poll.js';
 import { fetchWithRetry, type SleepFn } from './retry.js';
@@ -1137,10 +1137,17 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
 
     // A settled marker for this same command already holds the terminal
     // answer. Re-reporting it must not provision anything again.
-    const pending = await deps.pending.read();
-    if (pending?.commandId === command.id && pending.phase === 'settled' && pending.result) {
-      return buildResultFromPending(pending);
+    const current = await deps.pending.inspect();
+    // An unreadable marker hides whether this install already ran: provision
+    // nothing and let the control plane offer it again.
+    if (current.state === 'unreadable') {
+      return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
     }
+    const stored =
+      current.state === 'present' && current.marker.commandId === command.id
+        ? settledResultOf(current.marker)
+        : null;
+    if (stored !== null) return stored;
 
     // The control plane is the authority on whether this command may still
     // provision. A `false` is final; a `null` is unknown, so the work is
@@ -1283,17 +1290,17 @@ export function createInstallResumer(
   deps: InstallExecutorDeps,
 ): () => Promise<RelayCommandResult[]> {
   return async () => {
-    const pending = await deps.pending.read();
-    if (pending === null) return [];
+    const current = await deps.pending.inspect();
+    if (current.state !== 'present') return [];
+    const pending = current.marker;
     // The pending store holds ONE command of any type; each resumer only
     // settles its own, so a deferred deploy is never answered as an install.
     if (pending.type !== 'INSTALL') return [];
 
     // A settled marker already holds the answer. Retry reporting it — never
     // provision again — until a report is accepted.
-    if (pending.phase === 'settled' && pending.result) {
-      return [buildResultFromPending(pending)];
-    }
+    const stored = settledResultOf(pending);
+    if (stored !== null) return [stored];
 
     // Authority first: a superseded command must not recreate infrastructure
     // during (or after) a teardown. A `null` keeps the marker for the next
@@ -1405,7 +1412,9 @@ export function createInstallResumer(
       // DELETE_STUCK: recovery cannot make more progress on its own. Persist
       // the terminal failure in the marker (compare-and-set, so a newer
       // command is never overwritten) and report it.
-      const result: PersistedCommandResult = {
+      const stuck: RelayCommandResult = {
+        commandId: pending.commandId,
+        idempotencyKey: pending.idempotencyKey,
         success: false,
         error:
           `Stack "${pending.stackName}" is still ${report.lastStackStatus} after first-install ` +
@@ -1414,12 +1423,7 @@ export function createInstallResumer(
         failureCode: 'STACK_CREATE_FAILED',
         output: settled.output,
       };
-      await deps.pending.compareAndSet(pending.commandId, {
-        ...pending,
-        phase: 'settled',
-        result,
-        settledAt: new Date().toISOString(),
-      });
+      await settleMarker(deps.pending, pending, stuck, false);
       console.log(
         JSON.stringify({
           event: 'relay:command-resumed',
@@ -1430,35 +1434,28 @@ export function createInstallResumer(
           reason: `recovery stuck: ${report.phase}`,
         }),
       );
-      return [
-        {
-          commandId: pending.commandId,
-          idempotencyKey: pending.idempotencyKey,
-          ...result,
-        },
-      ];
+      return [stuck];
     }
 
     // Persist the terminal answer BEFORE reporting: if the report fails, the
     // marker still holds it, so the next poll retries without provisioning.
-    const result: PersistedCommandResult = settled.success
+    const result: RelayCommandResult = settled.success
       ? {
+          commandId: pending.commandId,
+          idempotencyKey: pending.idempotencyKey,
           success: true,
           output: { executed: true, type: pending.type, ...settled.output },
         }
       : {
+          commandId: pending.commandId,
+          idempotencyKey: pending.idempotencyKey,
           success: false,
           error: settled.error ?? 'Installation could not be verified',
           failureCode: 'STACK_CREATE_FAILED',
           ...(settled.evidence ? { evidence: settled.evidence } : {}),
           output: settled.output,
         };
-    const written = await deps.pending.compareAndSet(pending.commandId, {
-      ...pending,
-      phase: 'settled',
-      result,
-      settledAt: new Date().toISOString(),
-    });
+    const written = await settleMarker(deps.pending, pending, result, false);
     if (!written) {
       // A newer command owns the marker now — never overwrite it, and do not
       // report this obsolete result.
@@ -1483,13 +1480,7 @@ export function createInstallResumer(
       }),
     );
 
-    return [
-      {
-        commandId: pending.commandId,
-        idempotencyKey: pending.idempotencyKey,
-        ...result,
-      },
-    ];
+    return [result];
   };
 }
 
@@ -1500,20 +1491,6 @@ function failure(command: RelayCommand, error: string): RelayCommandResult {
     success: false,
     error,
     failureCode: 'STACK_CREATE_FAILED',
-  };
-}
-
-/** Rebuild a reportable result from a settled pending marker. */
-function buildResultFromPending(pending: PendingCommand): RelayCommandResult {
-  const result = pending.result as PersistedCommandResult;
-  return {
-    commandId: pending.commandId,
-    idempotencyKey: pending.idempotencyKey,
-    success: result.success,
-    ...(result.output ? { output: result.output } : {}),
-    ...(result.error ? { error: result.error } : {}),
-    ...(result.failureCode ? { failureCode: result.failureCode } : {}),
-    ...(result.evidence ? { evidence: result.evidence } : {}),
   };
 }
 
@@ -1845,6 +1822,7 @@ function createDefaultInstallDeps(
 function deployResumerDeps(
   installationId: string,
   unappliedConfiguration: EcsDeployDeps['unappliedConfiguration'],
+  checkAuthority: EcsDeployDeps['checkAuthority'],
 ): EcsDeployDeps {
   return {
     cfn: getCloudFormationReader(),
@@ -1854,6 +1832,7 @@ function deployResumerDeps(
     stackName: relayApplicationStackName(),
     installationId,
     unappliedConfiguration,
+    ...(checkAuthority ? { checkAuthority } : {}),
   };
 }
 
@@ -1915,6 +1894,7 @@ function createDefaultExecutors(
     stackName: relayApplicationStackName(),
     installationId: installDeps.installationId,
     unappliedConfiguration,
+    ...(installDeps.checkAuthority ? { checkAuthority: installDeps.checkAuthority } : {}),
   };
 
   const destroyDeps = {
@@ -2217,6 +2197,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       installationId,
       elb: getTargetHealthReader(),
       pending: getPendingStore(installationId),
+      ...(installDeps.checkAuthority ? { checkAuthority: installDeps.checkAuthority } : {}),
     });
 
     const pollDeps: PollDependencies = {
@@ -2283,7 +2264,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
           const installResults = await createInstallResumer(installDeps)();
           if (installResults.length > 0) return installResults;
           const deployResults = await createEcsDeployResumer(
-            deployResumerDeps(installDeps.installationId, unappliedConfiguration),
+            deployResumerDeps(installDeps.installationId, unappliedConfiguration, installDeps.checkAuthority),
           )();
           if (deployResults.length > 0) return deployResults;
           const configResults = await createConfigUpdateResumer({
