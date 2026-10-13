@@ -18,6 +18,7 @@ function observation(overrides: Partial<Parameters<typeof deriveHealthStatus>[0]
     pendingTargetCount: 0,
     unknownTargetCount: 0,
     rolloutFailed: false,
+    rolloutProgressing: false,
     ...overrides,
   };
 }
@@ -79,6 +80,26 @@ describe('deriveHealthStatus', () => {
 
   it('UNHEALTHY when the ECS rollout failed', () => {
     expect(deriveHealthStatus(observation({ rolloutFailed: true }))).toBe('UNHEALTHY');
+  });
+
+  it('UNKNOWN, not an outage, when every service is intentionally at zero tasks', () => {
+    expect(deriveHealthStatus(observation({ desiredCount: 0, runningCount: 0 }))).toBe('UNKNOWN');
+    expect(deriveComponents(observation({ desiredCount: 0, runningCount: 0 })).application).toBe('UNKNOWN');
+  });
+
+  it('HEALTHY during a rollout that keeps serving, even with pending targets and a shortfall', () => {
+    expect(
+      deriveHealthStatus(
+        observation({ desiredCount: 2, runningCount: 1, targetCount: 2, pendingTargetCount: 1, rolloutProgressing: true }),
+      ),
+    ).toBe('HEALTHY');
+  });
+
+  it('still DEGRADED for unhealthy targets during a rollout, and UNHEALTHY when nothing runs', () => {
+    expect(
+      deriveHealthStatus(observation({ targetCount: 2, unhealthyTargetCount: 1, rolloutProgressing: true })),
+    ).toBe('DEGRADED');
+    expect(deriveHealthStatus(observation({ runningCount: 0, rolloutProgressing: true }))).toBe('UNHEALTHY');
   });
 
   it('UNKNOWN when the counts could not be observed', () => {
@@ -480,5 +501,169 @@ describe('observeRuntimeHealth', () => {
     expect(health.components['web']).toBe('HEALTHY');
     expect(health.components['email-worker']).toBe('HEALTHY');
     expect(health.components['import-worker']).toBeUndefined();
+  });
+
+  describe('release-evidence inputs', () => {
+    const COMPLETE = [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }];
+    const IN_PROGRESS = [{ status: 'PRIMARY', rolloutState: 'IN_PROGRESS' }];
+    const TARGET_GROUP = 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/abc';
+
+    /** Answers by serviceArn; a service left out is one DescribeServices could not find. */
+    function namedEcs(
+      services: Record<string, { desiredCount: number; runningCount: number; deployments: { status: string; rolloutState: string }[] }>,
+    ): EcsServiceReader {
+      return {
+        async describeServices() {
+          return {
+            services: Object.entries(services).map(([serviceArn, service]) => ({
+              serviceArn,
+              ...service,
+              loadBalancers: serviceArn === WEB_SERVICE ? [{ targetGroupArn: TARGET_GROUP }] : [],
+            })),
+          };
+        },
+      };
+    }
+
+    it('does not let a surplus in one service cover a shortfall in another', async () => {
+      const health = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({
+            [WEB_SERVICE]: { desiredCount: 1, runningCount: 0, deployments: COMPLETE },
+            [WORKER_SERVICE]: { desiredCount: 1, runningCount: 2, deployments: COMPLETE },
+          }),
+          elb: elbWith(['healthy']),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(health.desiredCount).toBe(2);
+      expect(health.runningCount).toBe(1);
+      expect(health.healthStatus).toBe('DEGRADED');
+      expect(health.components['web']).toBe('UNHEALTHY');
+      expect(health.services[0]).toMatchObject({ workloadId: 'web', runningCount: 0 });
+      expect(health.services[1]).toMatchObject({ workloadId: 'email-worker', runningCount: 2 });
+    });
+
+    it('matches answers by service, so a service ECS could not find does not shift the others', async () => {
+      const health = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({ [WORKER_SERVICE]: { desiredCount: 1, runningCount: 1, deployments: COMPLETE } }),
+          elb: elbWith(['healthy']),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(health.services[0]).toMatchObject({ workloadId: 'web', observed: false, desiredCount: null, runningCount: null, targets: null });
+      expect(health.services[1]).toMatchObject({ workloadId: 'email-worker', observed: true, runningCount: 1 });
+      expect(health.components['web']).toBeUndefined();
+      expect(health.desiredCount).toBeNull();
+      expect(health.healthStatus).toBe('UNKNOWN');
+      expect(health.deploymentRolloutState).toBe('IN_PROGRESS');
+    });
+
+    it('reports targets only for the service behind the load balancer', async () => {
+      const health = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({
+            [WEB_SERVICE]: { desiredCount: 1, runningCount: 1, deployments: COMPLETE },
+            [WORKER_SERVICE]: { desiredCount: 1, runningCount: 1, deployments: COMPLETE },
+          }),
+          elb: elbWith(['healthy', 'initial']),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(health.services[0]?.targets).toEqual({ healthy: 1, unhealthy: 0, pending: 1, unknown: 0 });
+      expect(health.services[1]?.targets).toBeNull();
+    });
+
+    it('reports a service at zero desired tasks as not started, not as an outage', async () => {
+      const health = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({
+            [WEB_SERVICE]: { desiredCount: 0, runningCount: 0, deployments: COMPLETE },
+            [WORKER_SERVICE]: { desiredCount: 0, runningCount: 0, deployments: COMPLETE },
+          }),
+          elb: elbWith([]),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(health.healthStatus).toBe('UNKNOWN');
+      expect(health.components['web']).toBe('UNKNOWN');
+      expect(health.components['email-worker']).toBe('UNKNOWN');
+      expect(health.services.map((s) => s.desiredCount)).toEqual([0, 0]);
+    });
+
+    it('is not degraded during a normal rollout that keeps a healthy target serving', async () => {
+      const health = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({
+            [WEB_SERVICE]: { desiredCount: 2, runningCount: 1, deployments: IN_PROGRESS },
+            [WORKER_SERVICE]: { desiredCount: 1, runningCount: 1, deployments: COMPLETE },
+          }),
+          elb: elbWith(['healthy', 'initial']),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(health.deploymentRolloutState).toBe('IN_PROGRESS');
+      expect(health.healthStatus).toBe('HEALTHY');
+      expect(health.components['web']).toBe('HEALTHY');
+    });
+
+    it('stays DEGRADED when serving capacity is lost after the rollout completed', async () => {
+      const health = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({
+            [WEB_SERVICE]: { desiredCount: 2, runningCount: 1, deployments: COMPLETE },
+            [WORKER_SERVICE]: { desiredCount: 1, runningCount: 1, deployments: COMPLETE },
+          }),
+          elb: elbWith(['healthy']),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(health.healthStatus).toBe('DEGRADED');
+      expect(health.components['web']).toBe('DEGRADED');
+    });
+
+    it('stays DEGRADED during a rollout when a target is unhealthy, and UNHEALTHY when no task runs', async () => {
+      const unhealthy = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({
+            [WEB_SERVICE]: { desiredCount: 2, runningCount: 1, deployments: IN_PROGRESS },
+            [WORKER_SERVICE]: { desiredCount: 1, runningCount: 1, deployments: COMPLETE },
+          }),
+          elb: elbWith(['healthy', 'unhealthy']),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(unhealthy.healthStatus).toBe('DEGRADED');
+      expect(unhealthy.components['web']).toBe('DEGRADED');
+      const nothingRuns = await observeRuntimeHealth(
+        {
+          cfn: cfnWith(MULTI_STACK),
+          ecs: namedEcs({
+            [WEB_SERVICE]: { desiredCount: 1, runningCount: 0, deployments: IN_PROGRESS },
+            [WORKER_SERVICE]: { desiredCount: 1, runningCount: 1, deployments: COMPLETE },
+          }),
+          elb: elbWith(['initial']),
+        },
+        'deployz-app',
+        WORKLOADS,
+      );
+      expect(nothingRuns.components['web']).toBe('UNHEALTHY');
+      expect(nothingRuns.healthStatus).toBe('DEGRADED');
+    });
   });
 });

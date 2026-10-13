@@ -350,7 +350,7 @@ test.describe('relay-disconnect', () => {
     const firstEvents = (await api.getStackEvents(deploymentId)) as StackEventRow[];
     // None of the timeline entries authored at afterMs >= 1s ever arrive —
     // the relay went silent well before real elapsed time reached them.
-    expect(firstEvents.some((event) => event.logicalResourceId === 'ApplicationService')).toBe(false);
+    expect(firstEvents.some((event) => event.logicalResourceId === 'WebService')).toBe(false);
 
     const first = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(first.deploymentStatus.stage).toBe('PROVISIONING');

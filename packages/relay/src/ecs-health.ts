@@ -5,6 +5,8 @@
  * only these observations do.
  */
 
+import type { ServiceEvidence } from '@deployz/contracts';
+
 import type { CloudFormationReader, StackResource } from './verify.js';
 
 export type RuntimeHealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN';
@@ -16,9 +18,11 @@ export interface EcsServiceReader {
     services: string[];
   }): Promise<{
     services: {
+      serviceArn?: string | undefined;
       desiredCount?: number | undefined;
       runningCount?: number | undefined;
       deployments?: { status?: string | undefined; rolloutState?: string | undefined }[];
+      loadBalancers?: { targetGroupArn?: string | undefined }[];
     }[];
   }>;
 }
@@ -63,7 +67,16 @@ export interface RuntimeHealth {
   /** Targets whose ELB state the API did not classify — `unknown`, `unused`, `unavailable`. */
   readonly unknownTargetCount: number | null;
   readonly deploymentRolloutState: string | null;
+  /** One entry per expected workload (or per stack service without a workload list). */
+  readonly services: readonly ServiceRuntimeEvidence[];
 }
+
+/**
+ * What one ECS service reported this observation — the release-evidence
+ * fields (see `ServiceEvidence` in contracts) minus the running digests,
+ * which come from the task observation.
+ */
+export type ServiceRuntimeEvidence = Omit<ServiceEvidence, 'runningDigests'>;
 
 /** The inputs the verdict is derived from — pure, so the rules are testable. */
 export interface HealthObservation {
@@ -76,30 +89,41 @@ export interface HealthObservation {
   /** Targets ELB reports in an unclassified state — the ALB verdict cannot be told. */
   readonly unknownTargetCount: number;
   readonly rolloutFailed: boolean;
+  /**
+   * A normal rollout is under way and no serving capacity is lost: a PRIMARY
+   * deployment is IN_PROGRESS, every service that should run has a running
+   * task, and the load balancer has a healthy target and no unhealthy one.
+   * Missing or pending capacity is then progress, not degradation.
+   */
+  readonly rolloutProgressing: boolean;
 }
 
 /**
- * HEALTHY   — full running count, every target healthy, no failed rollout.
+ * HEALTHY   — full running count, every target healthy, no failed rollout; or a
+ *             rollout in progress that keeps serving.
  * DEGRADED  — still serving (runningCount > 0), but with unhealthy, pending
- *             (`initial`/`draining`) or unclassified targets: reachable but not
- *             fully healthy. `initial` is the ALB's "registering" state — it
- *             must never count as healthy, or the first POST-install heartbeat
+ *             (`initial`/`draining`) or unclassified targets, or fewer running
+ *             tasks than desired outside a rollout: reachable but not fully
+ *             healthy. `initial` is the ALB's "registering" state — it must
+ *             never count as healthy, or the first POST-install heartbeat
  *             would claim HEALTHY before a single target answered a probe.
  * UNHEALTHY — nothing serving, or every target unhealthy, or a failed rollout.
- * UNKNOWN   — not derivable from what was observed (no counts, or every target
- *             unclassified).
+ * UNKNOWN   — not derivable from what was observed (no counts, every target
+ *             unclassified, or every service intentionally at zero tasks —
+ *             "not started", not an outage).
  */
 export function deriveHealthStatus(o: HealthObservation): RuntimeHealthStatus {
   if (o.rolloutFailed) return 'UNHEALTHY';
   if (o.runningCount === null || o.desiredCount === null) return 'UNKNOWN';
+  if (o.desiredCount === 0) return 'UNKNOWN';
   const allTargetsUnhealthy = o.targetCount > 0 && o.unhealthyTargetCount >= o.targetCount;
   if (o.runningCount === 0 || allTargetsUnhealthy) return 'UNHEALTHY';
   const allTargetsUnknown = o.targetCount > 0 && o.unknownTargetCount >= o.targetCount;
   if (allTargetsUnknown) return 'UNKNOWN';
-  const fullyRunning = o.runningCount >= o.desiredCount && o.desiredCount > 0;
   if (o.unhealthyTargetCount > 0) return 'DEGRADED';
+  if (o.rolloutProgressing) return 'HEALTHY';
   if (o.pendingTargetCount > 0 || o.unknownTargetCount > 0) return 'DEGRADED';
-  return fullyRunning ? 'HEALTHY' : 'DEGRADED';
+  return o.runningCount >= o.desiredCount ? 'HEALTHY' : 'DEGRADED';
 }
 
 export function deriveComponents(o: HealthObservation): {
@@ -109,11 +133,15 @@ export function deriveComponents(o: HealthObservation): {
   const application =
     o.runningCount === null || o.desiredCount === null
       ? 'UNKNOWN'
-      : o.rolloutFailed || o.runningCount === 0
+      : o.rolloutFailed
         ? 'UNHEALTHY'
-        : o.runningCount >= o.desiredCount
-          ? 'HEALTHY'
-          : 'DEGRADED';
+        : o.desiredCount === 0
+          ? 'UNKNOWN'
+          : o.runningCount === 0
+            ? 'UNHEALTHY'
+            : o.runningCount >= o.desiredCount || o.rolloutProgressing
+              ? 'HEALTHY'
+              : 'DEGRADED';
   // Known-bad targets outrank the unknown signal; an unclassified target that
   // is not known-bad leaves the ALB verdict UNKNOWN until ELB says more.
   const loadBalancer =
@@ -170,6 +198,17 @@ interface ServiceObservation {
   readonly runningCount: number | null;
   readonly rolloutFailed: boolean;
   readonly primaryRolloutState: string | null;
+  readonly targetGroupArns: readonly string[];
+}
+
+/** Per-workload verdict from its OWN service; `behindHealthyTargets` is false when its load balancer has no healthy target or an unhealthy one. */
+function workloadStatus(observation: ServiceObservation, behindHealthyTargets: boolean): RuntimeHealthStatus {
+  const { desiredCount, runningCount } = observation;
+  if (observation.rolloutFailed) return 'UNHEALTHY';
+  if (runningCount === null || desiredCount === null || desiredCount === 0) return 'UNKNOWN';
+  if (runningCount === 0) return 'UNHEALTHY';
+  if (runningCount >= desiredCount) return 'HEALTHY';
+  return observation.primaryRolloutState === 'IN_PROGRESS' && behindHealthyTargets ? 'HEALTHY' : 'DEGRADED';
 }
 
 /**
@@ -195,11 +234,14 @@ export async function observeRuntimeHealth(
   const targetGroupArn = completedPhysicalId(resources, TARGET_GROUP_TYPE);
   // arn:aws:ecs:REGION:ACCOUNT:service/CLUSTER/SERVICE
   const cluster = firstServiceArn?.split('/')[1] ?? null;
+  // The services the verdict must cover: every workload's service, or every
+  // stack service when the control plane sent no workload list.
+  const expected =
+    workloads !== undefined && workloads.length > 0
+      ? workloads
+      : services.map((service) => ({ id: service.logicalId, serviceLogicalId: service.logicalId }));
 
-  let desiredCount: number | null = null;
-  let runningCount: number | null = null;
   let rolloutFailed = false;
-  let deploymentRolloutState: string | null = null;
   const perService = new Map<string, ServiceObservation>();
   if (services.length > 0 && cluster) {
     try {
@@ -207,52 +249,70 @@ export async function observeRuntimeHealth(
         cluster,
         services: services.map((service) => service.physicalId),
       });
-      // DescribeServices answers in request order; zip so each observation
-      // lands on the service (and therefore workload) that asked for it.
+      // Match each answer to the service that asked for it. A service
+      // DescribeServices could not find comes back as a failure, not in
+      // `services`, so position alone would shift every later answer. A reader
+      // that does not name its services answers in request order.
+      const unnamed = described.every((service) => service.serviceArn === undefined);
       for (let i = 0; i < services.length; i++) {
-        const service = described[i];
+        const service = unnamed
+          ? described.length === services.length
+            ? described[i]
+            : undefined
+          : described.find((entry) => entry.serviceArn === services[i]!.physicalId);
         if (!service) continue;
         const observation: ServiceObservation = {
           desiredCount: service.desiredCount ?? null,
           runningCount: service.runningCount ?? null,
           rolloutFailed: service.deployments?.some((d) => d.rolloutState === 'FAILED') ?? false,
           primaryRolloutState: service.deployments?.find((d) => d.status === 'PRIMARY')?.rolloutState ?? null,
+          targetGroupArns: (service.loadBalancers ?? []).flatMap((lb) => (lb.targetGroupArn ? [lb.targetGroupArn] : [])),
         };
         perService.set(services[i]!.logicalId, observation);
         if (observation.rolloutFailed) rolloutFailed = true;
       }
-      // An aggregate count is only honest when EVERY observed service
-      // reported one — a single unreadable service must leave the aggregate
-      // "unknown", never a deceptively small sum.
-      const observed = [...perService.values()];
-      desiredCount = observed.every((s) => s.desiredCount !== null)
-        ? observed.reduce((sum, s) => sum + (s.desiredCount ?? 0), 0)
-        : null;
-      runningCount = observed.every((s) => s.runningCount !== null)
-        ? observed.reduce((sum, s) => sum + (s.runningCount ?? 0), 0)
-        : null;
     } catch {
       // ECS unreadable: counts unknown, but target health may still be readable.
-      desiredCount = null;
-      runningCount = null;
+      perService.clear();
     }
   }
+  // An aggregate is only honest when EVERY expected service was observed and
+  // reported a count — one missing or unreadable service must leave it
+  // "unknown", never a deceptively small or masked sum. Each service counts at
+  // most its desired count, so surplus tasks of one service cannot cover a
+  // shortfall in another.
+  const observedExpected = expected.map((workload) => perService.get(workload.serviceLogicalId));
+  const complete = observedExpected.length > 0 && observedExpected.every((o) => o !== undefined);
+  const counted = complete ? (observedExpected as ServiceObservation[]) : [];
+  const desiredCount =
+    complete && counted.every((s) => s.desiredCount !== null)
+      ? counted.reduce((sum, s) => sum + (s.desiredCount ?? 0), 0)
+      : null;
+  const runningCount =
+    complete && counted.every((s) => s.runningCount !== null && s.desiredCount !== null)
+      ? counted.reduce((sum, s) => sum + Math.min(s.runningCount ?? 0, s.desiredCount ?? 0), 0)
+      : null;
+  let deploymentRolloutState: string | null = null;
   if (rolloutFailed) {
     deploymentRolloutState = 'FAILED';
   } else if (perService.size > 0) {
-    deploymentRolloutState = [...perService.values()].every((s) => s.primaryRolloutState === 'COMPLETED')
+    deploymentRolloutState = complete && counted.every((s) => s.primaryRolloutState === 'COMPLETED')
       ? 'COMPLETED'
       : 'IN_PROGRESS';
   }
 
   let targetCount = 0;
+  let healthyTargetCount = 0;
   let unhealthyTargetCount = 0;
   let pendingTargetCount = 0;
   let unknownTargetCount = 0;
+  let targetsRead = false;
   if (targetGroupArn) {
     try {
       const { targets } = await deps.elb.describeTargetHealth({ targetGroupArn });
+      targetsRead = true;
       targetCount = targets.length;
+      healthyTargetCount = targets.filter((t) => t.state === 'healthy').length;
       unhealthyTargetCount = targets.filter((t) => t.state === 'unhealthy').length;
       // 'initial' means the target is still registering (health checks have
       // not passed yet); 'draining' marks a target being drained before
@@ -270,6 +330,25 @@ export async function observeRuntimeHealth(
     }
   }
 
+  // A rollout that keeps serving: a PRIMARY deployment is IN_PROGRESS and no
+  // service that should run has lost all its tasks or (once its own rollout
+  // completed) part of its capacity. The load balancer, when one fronts the
+  // stack, has a healthy target and no unhealthy one.
+  const targetsServing = targetGroupArn === null || (targetsRead && healthyTargetCount > 0 && unhealthyTargetCount === 0);
+  const rolloutProgressing =
+    !rolloutFailed &&
+    complete &&
+    counted.some((s) => s.primaryRolloutState === 'IN_PROGRESS') &&
+    counted.every(
+      (s) =>
+        s.desiredCount === 0 ||
+        (s.runningCount !== null &&
+          s.desiredCount !== null &&
+          s.runningCount > 0 &&
+          (s.runningCount >= s.desiredCount || s.primaryRolloutState === 'IN_PROGRESS')),
+    ) &&
+    targetsServing;
+
   const observation: HealthObservation = {
     desiredCount,
     runningCount,
@@ -278,6 +357,7 @@ export async function observeRuntimeHealth(
     pendingTargetCount,
     unknownTargetCount,
     rolloutFailed,
+    rolloutProgressing,
   };
   // The cache, database and storage have no runtime probe (no describe
   // calls, by the same IAM-frugality that keeps this module to ECS + ELB
@@ -289,17 +369,8 @@ export async function observeRuntimeHealth(
   const storageProvisioned = completedPhysicalId(resources, STORAGE_TYPE) !== null;
 
   const derived = deriveComponents(observation);
-  /** Per-workload verdict from its OWN service — no targets, no HTTP probe. */
-  const workloadStatus = (observation: ServiceObservation): RuntimeHealthStatus =>
-    observation.rolloutFailed
-      ? 'UNHEALTHY'
-      : observation.runningCount === null || observation.desiredCount === null
-        ? 'UNKNOWN'
-        : observation.runningCount === 0
-          ? 'UNHEALTHY'
-          : observation.runningCount >= observation.desiredCount
-            ? 'HEALTHY'
-            : 'DEGRADED';
+  const behindAlb = (service: ServiceObservation): boolean =>
+    targetGroupArn !== null && service.targetGroupArns.includes(targetGroupArn);
 
   const components: RuntimeHealth['components'] = {
     ...(targetGroupArn ? { loadBalancer: derived.loadBalancer } : {}),
@@ -309,15 +380,49 @@ export async function observeRuntimeHealth(
   };
   if (workloads !== undefined && workloads.length > 0) {
     for (const workload of workloads) {
-      const observation = perService.get(workload.serviceLogicalId);
+      const service = perService.get(workload.serviceLogicalId);
       // The workload's service is absent or never completed — omitted, per
       // this module's "not a phantom" rule, never reported as running.
-      if (observation !== undefined) components[workload.id] = workloadStatus(observation);
+      if (service !== undefined) {
+        components[workload.id] = workloadStatus(service, !behindAlb(service) || targetsServing);
+      }
     }
   } else if (perService.size > 0) {
     // Legacy single-application shape (no workload list): the aggregate.
     components['application'] = derived.application;
   }
+
+  const evidence: ServiceRuntimeEvidence[] = expected.map((workload) => {
+    const service = perService.get(workload.serviceLogicalId);
+    if (service === undefined) {
+      return {
+        workloadId: workload.id,
+        serviceLogicalId: workload.serviceLogicalId,
+        observed: false,
+        desiredCount: null,
+        runningCount: null,
+        rolloutState: null,
+        targets: null,
+      };
+    }
+    return {
+      workloadId: workload.id,
+      serviceLogicalId: workload.serviceLogicalId,
+      observed: true,
+      desiredCount: service.desiredCount,
+      runningCount: service.runningCount,
+      rolloutState: service.primaryRolloutState,
+      targets:
+        behindAlb(service) && targetsRead
+          ? {
+              healthy: healthyTargetCount,
+              unhealthy: unhealthyTargetCount,
+              pending: pendingTargetCount,
+              unknown: unknownTargetCount,
+            }
+          : null,
+    };
+  });
 
   return {
     healthStatus: deriveHealthStatus(observation),
@@ -328,5 +433,6 @@ export async function observeRuntimeHealth(
     pendingTargetCount,
     unknownTargetCount,
     deploymentRolloutState,
+    services: evidence,
   };
 }

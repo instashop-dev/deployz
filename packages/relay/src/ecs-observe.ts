@@ -16,7 +16,8 @@ export interface EcsTaskReader {
   listTasks(input: {
     cluster: string;
     serviceName: string;
-  }): Promise<{ taskArns: string[] }>;
+    nextToken?: string | undefined;
+  }): Promise<{ taskArns: string[]; nextToken?: string | undefined }>;
   describeTasks(input: {
     cluster: string;
     tasks: string[];
@@ -95,61 +96,113 @@ export interface ObserveDigestDeps {
 
 const SERVICE_RESOURCE_TYPE = 'AWS::ECS::Service';
 
+/** DescribeTasks accepts at most 100 task ARNs per call. */
+const DESCRIBE_TASKS_BATCH = 100;
+
+/** The distinct digests running in one ECS service of the stack. */
+export interface ServiceDigests {
+  readonly serviceLogicalId: string;
+  /**
+   * The distinct application digests of every RUNNING task; empty when no task
+   * runs; null when the tasks could not be read in full (a failed call, or a
+   * RUNNING task without an application digest).
+   */
+  readonly digests: string[] | null;
+}
+
+/**
+ * The digests running in each ECS service of the stack, or null when the
+ * stack inventory cannot be read. A service that fails to read gives null
+ * digests for that service only.
+ */
+export async function observeServiceDigests(
+  deps: ObserveDigestDeps,
+  stackName: string,
+): Promise<ServiceDigests[] | null> {
+  const inventory = await listAllStackResources(deps.cfn, stackName);
+  if (inventory === null) return null;
+
+  const services: ServiceDigests[] = [];
+  for (const resource of inventory.resources) {
+    if (resource.type !== SERVICE_RESOURCE_TYPE || !resource.physicalId) continue;
+    let digests: string[] | null;
+    try {
+      digests = await observeServiceDigest(deps, resource.physicalId);
+    } catch {
+      digests = null;
+    }
+    services.push({ serviceLogicalId: resource.logicalId, digests });
+  }
+  return services;
+}
+
 /**
  * The sha256 digest currently running for this installation's application,
- * or null when it cannot be resolved (no stack, no service, no running
- * task, unreadable inventory). Health reporting must continue even when this
- * fails.
+ * or null when it cannot be resolved (no stack, no service, unreadable
+ * inventory). Health reporting must continue even when this fails.
  *
  * Every ECS service counts, so a half-applied multi-service rollout never
- * reads as the new release: a service with no running task is ignored (the
- * others supply the digest), and two services on different digests give null.
+ * reads as the new release: a service with no running task, a service whose
+ * tasks could not be read, and two services (or two tasks) on different
+ * digests all give null.
  */
 export async function observeRunningImageDigest(
   deps: ObserveDigestDeps,
   stackName: string,
 ): Promise<string | null> {
-  const inventory = await listAllStackResources(deps.cfn, stackName);
-  if (inventory === null) return null;
+  return singleDigest(await observeServiceDigests(deps, stackName));
+}
 
+/** The one digest every service runs; null when a service is empty or unread, or digests differ. */
+export function singleDigest(services: readonly ServiceDigests[] | null): string | null {
+  if (services === null || services.length === 0) return null;
   const digests = new Set<string>();
-  for (const resource of inventory.resources) {
-    if (resource.type !== SERVICE_RESOURCE_TYPE || !resource.physicalId) continue;
-    const digest = await observeServiceDigest(deps, resource.physicalId);
-    if (digest !== null) digests.add(digest);
+  for (const service of services) {
+    if (service.digests === null || service.digests.length === 0) return null;
+    for (const digest of service.digests) digests.add(digest);
   }
   return digests.size === 1 ? [...digests][0]! : null;
 }
 
-async function observeServiceDigest(deps: ObserveDigestDeps, serviceArn: string): Promise<string | null> {
+async function observeServiceDigest(deps: ObserveDigestDeps, serviceArn: string): Promise<string[] | null> {
   // arn:aws:ecs:REGION:ACCOUNT:service/CLUSTER/SERVICE
   const parts = serviceArn.split('/');
   const cluster = parts[1];
   if (!cluster) return null;
 
-  const { taskArns } = await deps.ecs.listTasks({ cluster, serviceName: parts[2]! });
-  if (taskArns.length === 0) return null;
+  const taskArns: string[] = [];
+  let nextToken: string | undefined;
+  do {
+    const page = await deps.ecs.listTasks({ cluster, serviceName: parts[2]!, nextToken });
+    taskArns.push(...page.taskArns);
+    nextToken = page.nextToken;
+  } while (nextToken);
 
-  const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: taskArns });
+  const digests = new Set<string>();
   const essentialByDefinition = new Map<string, ReadonlySet<string>>();
-  for (const task of tasks) {
-    let essential: ReadonlySet<string> = new Set();
-    if (task.taskDefinitionArn !== undefined) {
-      const cached = essentialByDefinition.get(task.taskDefinitionArn);
-      if (cached) {
-        essential = cached;
-      } else {
-        const { taskDefinition } = await deps.ecs.describeTaskDefinition({
-          taskDefinition: task.taskDefinitionArn,
-        });
-        essential = essentialContainerNames(taskDefinition.containerDefinitions);
-        essentialByDefinition.set(task.taskDefinitionArn, essential);
+  for (let i = 0; i < taskArns.length; i += DESCRIBE_TASKS_BATCH) {
+    const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: taskArns.slice(i, i + DESCRIBE_TASKS_BATCH) });
+    for (const task of tasks) {
+      if (task.lastStatus !== 'RUNNING') continue;
+      let essential: ReadonlySet<string> = new Set();
+      if (task.taskDefinitionArn !== undefined) {
+        const cached = essentialByDefinition.get(task.taskDefinitionArn);
+        if (cached) {
+          essential = cached;
+        } else {
+          const { taskDefinition } = await deps.ecs.describeTaskDefinition({
+            taskDefinition: task.taskDefinitionArn,
+          });
+          essential = essentialContainerNames(taskDefinition.containerDefinitions);
+          essentialByDefinition.set(task.taskDefinitionArn, essential);
+        }
       }
+      const digest = applicationContainers(task.containers, essential).find((c) =>
+        c.imageDigest?.startsWith('sha256:'),
+      )?.imageDigest;
+      if (!digest) return null;
+      digests.add(digest);
     }
-    const digest = applicationContainers(task.containers, essential).find((c) =>
-      c.imageDigest?.startsWith('sha256:'),
-    )?.imageDigest;
-    if (digest) return digest;
   }
-  return null;
+  return [...digests];
 }

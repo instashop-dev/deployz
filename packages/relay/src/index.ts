@@ -58,7 +58,7 @@ import {
   type EcsDeployDeps,
   type EcsTaskDefinition,
 } from './deploy.js';
-import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
+import { observeServiceDigests, type EcsTaskReader } from './ecs-observe.js';
 import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
 import { probeHealthUrl } from './http-probe.js';
 import { readRelayIdentity } from './identity.js';
@@ -203,9 +203,13 @@ function getEcsTaskReader(): EcsTaskReader {
     ecsTaskReader = {
       async listTasks(input) {
         const response = await client.send(
-          new ListTasksCommand({ cluster: input.cluster, serviceName: input.serviceName }),
+          new ListTasksCommand({
+            cluster: input.cluster,
+            serviceName: input.serviceName,
+            nextToken: input.nextToken,
+          }),
         );
-        return { taskArns: response.taskArns ?? [] };
+        return { taskArns: response.taskArns ?? [], nextToken: response.nextToken };
       },
       async describeTasks(input) {
         const response = await client.send(
@@ -300,12 +304,16 @@ function getEcsServiceReader(): EcsServiceReader {
         );
         return {
           services: (response.services ?? []).map((service) => ({
+            serviceArn: service.serviceArn ?? undefined,
             desiredCount: service.desiredCount ?? undefined,
             runningCount: service.runningCount ?? undefined,
             deployments: (service.deployments ?? []).map((deployment) => ({
               status: deployment.status ?? undefined,
               rolloutState: deployment.rolloutState ?? undefined,
               taskDefinition: deployment.taskDefinition ?? undefined,
+            })),
+            loadBalancers: (service.loadBalancers ?? []).map((lb) => ({
+              targetGroupArn: lb.targetGroupArn ?? undefined,
             })),
           })),
         };
@@ -2063,6 +2071,11 @@ export interface RelayHandlerDeps {
    */
   observeImage?: PollDependencies['observeImage'];
   /**
+   * Overrides the per-service digest observation that feeds the release
+   * evidence and, without `observeImage`, the running image digest.
+   */
+  observeServiceDigests?: PollDependencies['observeServiceDigests'];
+  /**
    * Overrides the runtime health observation (ECS counts, target health,
    * rollout state) wired into every health report.
    */
@@ -2324,10 +2337,11 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
           })();
         }),
       identity: deps.identity ?? readRelayIdentity(context),
-      observeImage:
-        deps.observeImage ??
+      ...(deps.observeImage ? { observeImage: deps.observeImage } : {}),
+      observeServiceDigests:
+        deps.observeServiceDigests ??
         (() =>
-          observeRunningImageDigest(
+          observeServiceDigests(
             {
               cfn: getCloudFormationReader(),
               ecs: getEcsTaskReader(),
