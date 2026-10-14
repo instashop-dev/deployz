@@ -261,6 +261,5 @@ Recorded so they are not mistaken for gaps:
 - Customer-provided build-time values, Dockerfile `ARG` detection, format
   validation beyond `_URL`/`_EMAIL`/`_PORT` names.
 - Deployment notifications, ECR lifecycle policies, per-application ECR
-  repositories, an `ANALYZING` sweeper, a product exit for a DESTROY stuck in
-  `DELETE_IN_PROGRESS`, and an `INSTALLING` timeout for an application that
-  never becomes healthy.
+  repositories, an `ANALYZING` sweeper, and a product exit for a DESTROY stuck
+  in `DELETE_IN_PROGRESS`.

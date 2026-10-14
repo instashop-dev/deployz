@@ -34,6 +34,7 @@ Three decisions with substantial detail have their own files:
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 | 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
 | 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
+| 2026-10-14 | An install that never verifies fails after a 30-minute window, driven by the heartbeat | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -582,3 +583,25 @@ OpenRouter key exists.
 What would change it: repository file contents in the prompt (the model sees
 only structured facts and evidence today), or an asynchronous generation
 path that removes the 25-second request budget.
+
+## An install that never verifies fails after a bounded window (2026-10-14)
+
+An installed deployment stayed INSTALLING for ever when the application never
+passed release evidence. The watchdog only sweeps jobs, and no job is active
+in that state, so nothing ended it.
+
+The heartbeat now ends it. It is the only signal that carries the verdict, it
+already runs every five minutes, and it needs no new scheduler or table. After
+30 minutes from the latest settled install, deploy or configuration job, a
+refusal that blames the application marks the deployment FAILED once, with a
+code from the existing taxonomy (a new code would need a database enum
+migration and copy in six places for no new remediation). The result is the
+documented "first install failed" shape, so deploy again is the recovery.
+
+Old connectors are excluded: with no release evidence the control plane cannot
+tell a broken application from a connector that cannot report. They stay
+INSTALLING with the upgrade-required flag. Stale or invalid evidence and a
+configured first start at zero tasks are excluded for the same reason.
+
+What would change it: a heartbeat-independent deadline (a scheduled sweep), or
+a window per application size.

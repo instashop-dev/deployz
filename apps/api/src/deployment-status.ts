@@ -32,6 +32,7 @@ import {
 } from '@deployz/contracts';
 
 import type { ConnectorUpdateOffer } from './connector-update.js';
+import { readInstallVerification } from './install-verification.js';
 
 // Unified deployment status — the read-time derivation described in
 // packages/contracts/src/index.ts above customerDeploymentStatusSchema.
@@ -727,11 +728,26 @@ function latestOfType(jobs: DerivationJob[], type: JobType): DerivationJob | und
   );
 }
 
+/**
+ * The job whose failure explains a FAILED deployment. An install that never
+ * verified has no failed job: the control plane records the classified code on
+ * the settled job its window was measured from. That record wins unless a
+ * job failed after that job settled.
+ */
 function latestFailedJob(jobs: DerivationJob[]): DerivationJob | undefined {
-  return latestBy(
+  const failed = latestBy(
     jobs.filter((job) => job.state === 'FAILED'),
     (job) => job.createdAt,
   );
+  const unverified = latestBy(
+    jobs.filter((job) => SUCCEEDED_JOB_STATES.has(job.state) && readInstallVerification(job.result) !== null),
+    (job) => job.finishedAt ?? job.createdAt,
+  );
+  const record = unverified ? readInstallVerification(unverified.result) : null;
+  if (!unverified || !record || (failed && failed.createdAt >= (unverified.finishedAt ?? unverified.createdAt))) {
+    return failed;
+  }
+  return { ...unverified, state: 'FAILED', failureCode: record.failureCode, result: null };
 }
 
 /**

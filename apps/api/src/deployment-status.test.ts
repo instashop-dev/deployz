@@ -232,6 +232,44 @@ describe('deriveDeploymentStatus — the seven spec scenarios', () => {
     expect(status.failure?.code).toBe('PORT_MISMATCH');
   });
 
+  it('an install that never verified → FAILED with the recorded code, not the job outcome', () => {
+    const finishedAt = new Date(NOW.getTime() + 1000);
+    const status = derive({
+      deployment: makeDeployment({ state: 'FAILED' }),
+      jobs: [
+        makeJob({ state: 'FAILED', failureCode: 'PORT_MISMATCH', createdAt: new Date(NOW.getTime() - 5000), finishedAt: NOW }),
+        makeJob({
+          result: { installVerification: { failureCode: 'IMAGE_HEALTH_CHECK_FAILED', reason: 'PROBE_FAILED' } },
+          finishedAt,
+        }),
+      ],
+    });
+    expect(status.stage).toBe('FAILED');
+    expect(status.failure?.code).toBe('IMAGE_HEALTH_CHECK_FAILED');
+    expect(status.failure?.component).toBe('runtime');
+    expect(status.failure?.awsStatus).toBeNull();
+  });
+
+  it('a failed deploy after an unverified install owns the failure', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'FAILED' }),
+      jobs: [
+        makeJob({
+          result: { installVerification: { failureCode: 'IMAGE_HEALTH_CHECK_FAILED', reason: 'PROBE_FAILED' } },
+          finishedAt: NOW,
+        }),
+        makeJob({
+          type: 'DEPLOY_RELEASE',
+          state: 'FAILED',
+          failureCode: 'MIGRATION_FAILED',
+          createdAt: new Date(NOW.getTime() + 5000),
+          finishedAt: new Date(NOW.getTime() + 6000),
+        }),
+      ],
+    });
+    expect(status.failure?.code).toBe('MIGRATION_FAILED');
+  });
+
   it('relay outage on an already-healthy deployment → stage retained, statusUpdatesUnavailable', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY', relayStatus: 'DISCONNECTED' }),

@@ -124,14 +124,17 @@ without decryption parsed as "nothing pending"; the relay now decrypts and
 logs `relay:pending-marker-unreadable`. Republish the bootstrap template if
 the customer's relay predates the fix.
 
-**The deployment stays `INSTALLING` and never becomes healthy.** INSTALL
-succeeded but the runtime health gate never passes (the container keeps
-restarting, or the health path never answers). There is no timeout for this
-state, and retry-install is refused once an INSTALL has succeeded. Read the
+**The deployment stays `INSTALLING`, then becomes `FAILED`, because it never
+becomes healthy.** INSTALL succeeded but the runtime health gate never passes
+(the container keeps restarting, or the health path never answers). After 30
+minutes without passing evidence a heartbeat marks the deployment `FAILED`
+with a classified code. An old connector that sends no release evidence stays
+`INSTALLING` and is asked to upgrade. Retry-install is refused once an
+INSTALL has succeeded. Read the
 ECS stop reason and `unboundSecretKeys` in the diagnostics, fix the
 configuration or the release, then **deploy again**: a DEPLOY_RELEASE
-against an installed deployment is allowed from `INSTALLING`
-(`requireDeployableState`), and a successful rollout promotes it to
+against an installed deployment is allowed from `INSTALLING` and from
+`FAILED` (`requireDeployableState`), and a successful rollout promotes it to
 `HEALTHY`. If the install itself must be redone, disconnect and create a
 new deployment.
 

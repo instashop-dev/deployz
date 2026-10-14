@@ -43,6 +43,8 @@ export type DeploymentEventType =
   | 'deployment.reconciled'
   // A healthy heartbeat cleared a stale FAILED on an installed deployment.
   | 'deployment.state_recovered'
+  // An installed application never passed release evidence within its window.
+  | 'deployment.install_not_verified'
   // The watchdog failed a stuck mutating job (Phase 7).
   | 'operation.timeout'
   // The watchdog parked an in-flight job because the relay went quiet —

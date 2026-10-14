@@ -24,11 +24,11 @@ known state, and provides a deterministic path forward.
   | --- | --- | --- |
   | `NOT_INSTALLED` | deployment created | `WAITING_FOR_RELAY` (customer launches the Quick Create), `DELETED` (disconnect before install) |
   | `WAITING_FOR_RELAY` | launch recorded | `INSTALLING` (relay registers, INSTALL job created), `DELETED` |
-  | `INSTALLING` | INSTALL claimed; also a retry-install | `HEALTHY` (heartbeat verifies runtime health after INSTALL success), `FAILED` (INSTALL fails) |
+  | `INSTALLING` | INSTALL claimed; also a retry-install | `HEALTHY` (heartbeat verifies runtime health after INSTALL success), `FAILED` (INSTALL fails, or the application never verifies within its window) |
   | `HEALTHY` | runtime health verified; a day-2 job succeeded with no newer release | `UPDATING`, `UPDATE_AVAILABLE`, `DELETING` |
   | `UPDATE_AVAILABLE` | a newer READY release exists | `UPDATING`, `DELETING` |
   | `UPDATING` | DEPLOY_RELEASE / ROLLBACK / RESTART running | `HEALTHY` or `UPDATE_AVAILABLE` (success, or a failed day-2 job whose previous release still serves), `FAILED` (a failed first deploy of a configured-first-start install) |
-  | `FAILED` | first install or destroy failed | `INSTALLING` (retry-install), `UPDATING` (deploy again after a first-start failure), `DELETING` |
+  | `FAILED` | first install or destroy failed; an installed application never verified within its window | `INSTALLING` (retry-install), `UPDATING` (deploy again after a first-start failure or an unverified install), `DELETING` |
   | `DELETING` | DESTROY queued | `DELETED` (success or force-complete), `FAILED` (destroy failed) |
   | `DELETED` | terminal; `cleanupState` tracks purge (`SKIPPED_RELAY_OFFLINE`, `PURGE_FAILED`, `COMPLETE`) | — |
 
@@ -794,6 +794,39 @@ expected workload is intentionally at zero tasks (a configured first start
 still waiting), `health.notStarted` is set and no outage event is recorded.
 A missing required infrastructure component is reported, never repaired
 automatically.
+
+### An install that never verifies fails after a bounded window
+
+An installed deployment cannot stay INSTALLING forever. The relay heartbeat
+route (not the watchdog, which only sweeps jobs) fails it when all of these
+hold: the state is INSTALLING, an INSTALL succeeded, no mutating job is
+active, the latest mutating job is a settled INSTALL, DEPLOY_RELEASE or
+CONFIG_UPDATE that finished at least 30 minutes ago, and this heartbeat's
+release verdict is a refusal that blames the application. The window covers
+the 300-second load-balancer health-check grace, a 3-5 minute ECS rollout and
+a first-start migration, and is six five-minute heartbeats long. The latest
+settled job anchors the window, so a deploy that follows the install restarts
+it.
+
+The deployment becomes FAILED once, under a row lock, with one
+`deployment.install_not_verified` event that holds the verdict reason and a
+short evidence summary (counts and statuses, no secrets). The classified code
+is stored on the anchor job's result as `installVerification` and is read by
+the status derivation and the diagnostics route. The reason maps to an
+existing code: `PROBE_FAILED`, `PROBE_MISSING` and `TARGETS_UNHEALTHY` to
+`IMAGE_HEALTH_CHECK_FAILED`; `TASKS_INSUFFICIENT` and `WORKLOAD_MISSING` to
+`CONTAINER_START_FAILED`; `ROLLOUT_INCOMPLETE` to `ECS_DEPLOYMENT_FAILED`;
+`DIGEST_MIXED` and `DIGEST_UNKNOWN` to `UNKNOWN`. A job that fails after the
+anchor settles owns the failure instead.
+
+These cases never fail: `EVIDENCE_MISSING` (an old connector; it gets the
+upgrade-required path), `EVIDENCE_STALE`, `EVIDENCE_INVALID`,
+`NO_EXPECTED_WORKLOADS`, and a configured first start whose workloads are
+intentionally at zero tasks (its own deploy job governs it). Recovery is
+**deploy again**, which `requireDeployableState` allows for a FAILED
+deployment whose install succeeded. A passing heartbeat clears the FAILED
+state through the existing `stateRecovered` rule only when a release is
+already current.
 
 ## The trust boundary shapes everything
 
