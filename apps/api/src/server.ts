@@ -6454,8 +6454,9 @@ export async function buildServer({
   // A fresh first-install attempt (customer retry, deploy-link retry, reset of
   // a never-installed deployment) replaces the relay credential, so the
   // certificate requested for the previous attempt belongs to a relay that no
-  // longer polls. Drop that default-HTTPS state, stop its queued domain jobs
-  // and remove its control-plane DNS records; the next attempt requests a new
+  // longer polls. Drop that default-HTTPS state, cancel its unfinished domain jobs (a
+  // RUNNING one belongs to the revoked relay and can never report) and remove
+  // its control-plane DNS records; the next attempt requests a new
   // certificate. The old certificate is unused and stays in the customer's
   // account, tagged for a later purge.
   async function dropDefaultHttpsForFreshAttempt(deployment: DeploymentRow): Promise<void> {
@@ -6473,7 +6474,7 @@ export async function buildServer({
           eq(schema.deploymentJobs.deploymentId, deployment.id),
           inArray(schema.deploymentJobs.type, ['CONFIGURE_DOMAIN', 'REMOVE_DOMAIN']),
           like(schema.deploymentJobs.idempotencyKey, `${deployment.id}:%:default-https:%`),
-          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED']),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
         ),
       );
     try {

@@ -5547,6 +5547,34 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(job!.state).toBe('CANCELLED');
   });
 
+  it('relay/reset cancels a RUNNING or WAITING default-HTTPS job of the revoked connector', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Running Cert Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      defaultHttps: { hostname: 'd-running.deployz.dev', status: 'PENDING', checkCycle: 1, lastError: null },
+    });
+    for (const [cycle, state] of [[0, 'RUNNING'], [1, 'WAITING']] as const) {
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment.id,
+        type: 'CONFIGURE_DOMAIN',
+        state,
+        idempotencyKey: `${deployment.id}:CONFIGURE_DOMAIN:default-https:${cycle}`,
+        payload: {},
+        requestedBy: null,
+      });
+    }
+
+    const reset = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(reset.statusCode).toBe(200);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs.map((job) => job.state)).toEqual(['CANCELLED', 'CANCELLED']);
+  });
+
   it('relay/reset of a never-installed deployment keeps a Quick Create link with a fresh stack name', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'Fresh Reset App' });
     const customer = await insertCustomer(db, org.organizationId);

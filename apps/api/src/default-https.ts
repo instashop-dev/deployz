@@ -354,9 +354,24 @@ export async function ensureDefaultHttpsConfigureJob(
   if (newest && IN_FLIGHT_JOB_STATES.has(newest.state)) {
     return false;
   }
-  const newestCycle = newest ? Number(newest.idempotencyKey.slice(prefix.length)) : undefined;
-  const shouldBump = opts?.forceNewCycle === true || (newest !== undefined && newestCycle === state.checkCycle);
-  const cycle = shouldBump ? state.checkCycle + 1 : state.checkCycle;
+  // A state reset to cycle 0 must not collide with older jobs that still own
+  // those keys: the next cycle is always above every existing cycle.
+  const existing = await db
+    .select({ idempotencyKey: schema.deploymentJobs.idempotencyKey })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deployment.id),
+        eq(schema.deploymentJobs.type, 'CONFIGURE_DOMAIN'),
+        like(schema.deploymentJobs.idempotencyKey, `${prefix}%`),
+      ),
+    );
+  const maxCycle = existing.reduce(
+    (max, row) => Math.max(max, Number(row.idempotencyKey.slice(prefix.length))),
+    -1,
+  );
+  const shouldBump = opts?.forceNewCycle === true || maxCycle >= state.checkCycle;
+  const cycle = shouldBump ? Math.max(state.checkCycle, maxCycle) + 1 : state.checkCycle;
   if (shouldBump) {
     await db
       .update(schema.deployments)
