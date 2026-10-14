@@ -100,7 +100,8 @@ const ENI_PIN_REASON = /\bnetwork interface\b|\beni-[0-9a-f]{8,}\b/i;
  * Whether a DESTROY's DELETE_FAILED evidence is the expected retained-data
  * cascade: the resources CloudFormation could not delete are the retained
  * RDS instance itself (deletion protection) or resources pinned by its ENI
- * (security group, subnet). The relay's data-preserving recovery
+ * (security group, subnet, and the secondary VPC CIDR block the retained
+ * database subnets use — accepted only beside ENI/RDS evidence). The relay's data-preserving recovery
  * (packages/relay/src/destroy.ts) retains exactly these, the delete then
  * completes, and the vendor's next step is Purge — not a retry loop.
  *
@@ -122,13 +123,21 @@ export function isRetainedDataDeleteBlocked(stackEvents: readonly FailureStackEv
   const failed = stackEvents.filter(
     (event) => event.resourceStatus === 'DELETE_FAILED' && event.resourceType !== 'AWS::CloudFormation::Stack',
   );
+  const isPinEvidence = (event: FailureStackEvent): boolean => {
+    const reason = event.resourceStatusReason ?? '';
+    if (PERMISSION_DENIED_REASON.test(reason)) return false;
+    return event.resourceType.startsWith('AWS::RDS::') || ENI_PIN_REASON.test(reason);
+  };
+  const hasPinEvidence = failed.some(isPinEvidence);
   return (
     failed.length > 0 &&
-    failed.every((event) => {
-      const reason = event.resourceStatusReason ?? '';
-      if (PERMISSION_DENIED_REASON.test(reason)) return false;
-      return event.resourceType.startsWith('AWS::RDS::') || ENI_PIN_REASON.test(reason);
-    })
+    failed.every(
+      (event) =>
+        isPinEvidence(event) ||
+        (hasPinEvidence &&
+          event.resourceType === 'AWS::EC2::VPCCidrBlock' &&
+          !PERMISSION_DENIED_REASON.test(event.resourceStatusReason ?? '')),
+    )
   );
 }
 
