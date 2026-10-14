@@ -1644,6 +1644,12 @@ describe('toTaskRevisionPurgeClient', () => {
     ]);
   });
 
+  it('lists without familyPrefix, which ECS reads as one exact family name', async () => {
+    const { client, sent } = fakeEcs([[`${ARN}/DeployzAppWeb${OWN_SUFFIX}:2`]]);
+    await toTaskRevisionPurgeClient(client, 'inst-purge-test').listOwnedActiveRevisions(10);
+    expect(sent[0]).toEqual({ name: 'ListTaskDefinitionsCommand', input: { status: 'ACTIVE' } });
+  });
+
   it('stops at the limit', async () => {
     const { client } = fakeEcs([
       [1, 2, 3].map((n) => `${ARN}/DeployzAppWeb${OWN_SUFFIX}:${n}`),
