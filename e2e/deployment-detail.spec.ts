@@ -19,6 +19,11 @@ const OUT = 'test-results/deployment-detail';
 const CREATED_AT = '2025-09-06T10:00:00Z';
 const UPDATED_AT = '2025-09-12T11:30:00Z';
 
+const defaultHealth = {
+  status: 'HEALTHY',
+  layers: { infrastructure: 'HEALTHY', rollout: 'COMPLETED', targets: null, http: null, relay: 'CONNECTED' },
+};
+
 function vendorStatus(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     stage: 'READY',
@@ -42,13 +47,12 @@ function vendorStatus(overrides: Record<string, unknown> = {}): Record<string, u
     relay: { connected: true, lastSeenAt: UPDATED_AT },
     job: { type: 'INSTALL', status: 'SUCCEEDED' },
     aws: { stackStatus: 'CREATE_COMPLETE' },
-    health: {
-      status: 'HEALTHY',
-      layers: { infrastructure: 'HEALTHY', rollout: 'COMPLETED', targets: null, http: null, relay: 'CONNECTED' },
-    },
+    servingRelease: { releaseId: null, confirmedAt: UPDATED_AT, confirmed: true },
+    connector: { upgradeRequired: false, reason: null, updateAvailable: false, updateUrl: null, updateTemplateUrl: null },
     url: 'https://docs.acme.example',
     failure: null,
     ...overrides,
+    health: { notStarted: false, ...((overrides.health as object | undefined) ?? defaultHealth) },
   };
 }
 

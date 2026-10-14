@@ -17,7 +17,7 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
-import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
+import { startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
 import { API_URL, buildApi, expect, test, waitForInstallAutoDeploy } from './simulation/fixtures.js';
 
@@ -127,10 +127,15 @@ test.describe('migration workloads (phase 4c)', () => {
     expect(reset.ok()).toBeTruthy();
     const installInfo = await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) => r.json()) as {
       quickCreateUrl: string | null;
+      existingStackUpdate: { enrollmentCode: string; relayCredential: string | null } | null;
     };
-    expect(installInfo.quickCreateUrl).not.toBeNull();
-    const freshEnrollmentCode = extractQuickCreateParam(installInfo.quickCreateUrl!, 'EnrollmentCode');
-    const freshRelayCredential = extractQuickCreateParam(installInfo.quickCreateUrl!, 'RelayCredential');
+    // The connector stack already exists, so the customer updates it with the
+    // new values instead of creating a new one.
+    expect(installInfo.quickCreateUrl).toBeNull();
+    expect(installInfo.existingStackUpdate).not.toBeNull();
+    expect(installInfo.existingStackUpdate!.relayCredential).not.toBeNull();
+    const freshEnrollmentCode = installInfo.existingStackUpdate!.enrollmentCode;
+    const freshRelayCredential = installInfo.existingStackUpdate!.relayCredential!;
     const relayB = startSimulatedRelay({
       scenario: getScenario('migration-success'),
       apiUrl: API_URL,

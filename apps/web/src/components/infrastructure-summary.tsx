@@ -139,7 +139,11 @@ export function InfrastructureSummary({
   // manifest never asked for it) or, once past the install phase, "Missing"
   // (the manifest asked for it and it is not there).
   const notRequiredKinds = infrastructureNotRequiredKinds(infrastructure.expectations);
-  const missingKinds = infrastructureMissingKinds(infrastructure.expectations, state);
+  // A kind that already has a row (the application, when only its worker
+  // service exists) is not listed a second time as missing.
+  const missingKinds = infrastructureMissingKinds(infrastructure.expectations, state).filter(
+    (kind) => !infrastructure.components.some((component) => component.kind === kind),
+  );
   const purge = purgeProgress(detail);
   const summaryStatus = operationalSummaryStatus(infrastructure, state, purge);
   const resourceCount = infrastructure.components.reduce(
