@@ -757,11 +757,16 @@ describe('deploy links', () => {
 
   it('retry mints a fresh attempt, clears the relay binding, and records the event', async () => {
     const { publicId, token, deploymentId } = await createLink();
-    const [original] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
     await db
       .update(schema.deployments)
-      .set({ state: 'WAITING_FOR_RELAY', installationId: 'inst-stale', relayTokenHash: 'stale-hash' })
+      .set({
+        state: 'WAITING_FOR_RELAY',
+        installationId: 'inst-stale',
+        relayTokenHash: 'stale-hash',
+        bootstrapStackName: `deployz-bootstrap-kept-${deploymentId}`,
+      })
       .where(eq(schema.deployments.id, deploymentId));
+    const [original] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
 
     const response = await retry(publicId, token);
     expect(response.statusCode, response.body).toBe(200);
@@ -770,11 +775,15 @@ describe('deploy links', () => {
       attemptNumber: number;
       bootstrapStackName: string;
       quickCreateUrl: string | null;
+      existingStackUpdate: { stackName: string } | null;
     };
     expect(body.state).toBe('NOT_INSTALLED');
     expect(body.attemptNumber).toBe(original!.attemptNumber + 1);
     expect(body.bootstrapStackName).toMatch(/^deployz-bootstrap-/);
-    expect(typeof body.quickCreateUrl).toBe('string');
+    // A connector registered (installationId set), so the retry keeps its stack.
+    expect(body.bootstrapStackName).toBe(original!.bootstrapStackName);
+    expect(body.quickCreateUrl).toBeNull();
+    expect(body.existingStackUpdate).toMatchObject({ stackName: original!.bootstrapStackName });
 
     const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
     expect(deployment!.enrollmentCode).not.toBe(original!.enrollmentCode);
@@ -793,6 +802,26 @@ describe('deploy links', () => {
       .where(and(eq(schema.eventLogs.eventType, 'deploy_link.retry.requested'), eq(schema.eventLogs.deploymentId, deploymentId)));
     expect(events).toHaveLength(1);
     expect(events[0]!.actorId).toBe(`deploy-link:${publicId}`);
+  });
+
+  it('retry of a link whose connector never registered gives a fresh Quick Create with a new stack name', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await db
+      .update(schema.deployments)
+      .set({ state: 'WAITING_FOR_RELAY', installationId: null })
+      .where(eq(schema.deployments.id, deploymentId));
+    const [original] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+
+    const response = await retry(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      bootstrapStackName: string;
+      quickCreateUrl: string | null;
+      existingStackUpdate: unknown;
+    };
+    expect(body.bootstrapStackName).not.toBe(original!.bootstrapStackName);
+    expect(typeof body.quickCreateUrl).toBe('string');
+    expect(body.existingStackUpdate).toBeNull();
   });
 
   it('retry records previousInstallationId and previousBootstrapStackName before nulling installationId', async () => {

@@ -808,6 +808,21 @@ function existingStackUpdateFor(input: {
   };
 }
 
+// A customer retry of a failed first install keeps the connector stack when a
+// previous attempt reached the customer's account (a connector registered, or
+// an earlier retry already chose to keep it). The old attempt's failed stack
+// and its retained database can be recovered only through that same connector
+// installation, so a second connector would orphan them. Nothing reached the
+// account when no connector ever registered: that retry gets a fresh stack.
+function retryKeepsConnector(deployment: DeploymentRow): boolean {
+  return (
+    deployment.bootstrapStackName !== null &&
+    (deployment.installationId !== null ||
+      deployment.enrollmentUsedAt !== null ||
+      deployment.bootstrapStackName === deployment.previousBootstrapStackName)
+  );
+}
+
 /**
  * Resolve the config scope from a request's customer id: an absent/empty id
  * is the vendor scope, otherwise the customer is loaded to get its NAME.
@@ -3300,11 +3315,14 @@ export async function buildServer({
     }
     assertPublicRetryAllowed(deployment);
     const nextAttempt = deployment.attemptNumber + 1;
-    const stackName = bootstrapStackName({
-      appName: applicationName,
-      deploymentId: deployment.id,
-      attempt: nextAttempt,
-    });
+    const keepsConnector = retryKeepsConnector(deployment);
+    const stackName = keepsConnector
+      ? deployment.bootstrapStackName!
+      : bootstrapStackName({
+          appName: applicationName,
+          deploymentId: deployment.id,
+          attempt: nextAttempt,
+        });
     const enrollmentCode = mintEnrollmentCode();
     const relayCredential = mintRelayCredential();
     await db.transaction(async (tx) => {
@@ -3371,7 +3389,7 @@ export async function buildServer({
       attemptNumber: nextAttempt,
       bootstrapStackName: stackName,
       quickCreateUrl:
-        env.bootstrapTemplateUrl
+        env.bootstrapTemplateUrl && !keepsConnector
           ? buildBootstrapQuickCreateUrl({
               region: deployment.region,
               templateUrl: env.bootstrapTemplateUrl,
@@ -3381,6 +3399,16 @@ export async function buildServer({
               stackName,
             })
           : null,
+      existingStackUpdate: keepsConnector
+        ? existingStackUpdateFor({
+            region: deployment.region,
+            bootstrapStackName: stackName,
+            previousBootstrapStackName: stackName,
+            enrollmentCode,
+            enrollmentUsedAt: null,
+            relayCredential,
+          })
+        : null,
     });
     },
   );
@@ -4722,11 +4750,14 @@ export async function buildServer({
       }
       assertPublicRetryAllowed(deployment);
       const nextAttempt = deployment.attemptNumber + 1;
-      const stackName = bootstrapStackName({
-        appName: application.name,
-        deploymentId: deployment.id,
-        attempt: nextAttempt,
-      });
+      const keepsConnector = retryKeepsConnector(deployment);
+      const stackName = keepsConnector
+        ? deployment.bootstrapStackName!
+        : bootstrapStackName({
+            appName: application.name,
+            deploymentId: deployment.id,
+            attempt: nextAttempt,
+          });
       const enrollmentCode = mintEnrollmentCode();
       const relayCredential = mintRelayCredential();
       await db.transaction(async (tx) => {
@@ -4798,10 +4829,21 @@ export async function buildServer({
           appName: application.name,
           attemptNumber: nextAttempt,
           bootstrapStackName: stackName,
+          previousBootstrapStackName: keepsConnector ? stackName : null,
           enrollmentCode,
           enrollmentUsedAt: null,
           relayCredential,
         }),
+        existingStackUpdate: keepsConnector
+          ? existingStackUpdateFor({
+              region: deployment.region,
+              bootstrapStackName: stackName,
+              previousBootstrapStackName: stackName,
+              enrollmentCode,
+              enrollmentUsedAt: null,
+              relayCredential,
+            })
+          : null,
       };
     },
   );
@@ -8068,7 +8110,15 @@ export async function buildServer({
               deploymentId: deployment.id,
               type: 'INSTALL',
               idempotencyKey: await retryAwareIdempotencyKey(db, deployment.id, 'INSTALL', `${deployment.id}:INSTALL`),
-              payload: await buildInstallPayload(db, deployment, configStore, body.installationId!),
+              payload: {
+                // A retry that kept the connector stack re-enrolls the same
+                // installation, so the failed attempt's stack is recovered.
+                ...(deployment.bootstrapStackName !== null &&
+                deployment.bootstrapStackName === deployment.previousBootstrapStackName
+                  ? { recovery: { neverInstalled: true } }
+                  : {}),
+                ...(await buildInstallPayload(db, deployment, configStore, body.installationId!)),
+              },
               requestedBy: null,
             })
           ).job

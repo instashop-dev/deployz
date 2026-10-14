@@ -5163,7 +5163,7 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(jobs[0]!.state).toBe('REQUESTED');
   });
 
-  it('POST /api/install/:installLinkId/retry starts a fresh attempt: new code, new stack name, dead jobs cancelled', async () => {
+  it('POST /api/install/:installLinkId/retry starts a fresh attempt: new code, same connector stack, dead jobs cancelled', async () => {
     const { deployment, installLinkId } = await seedWaiting({
       state: 'WAITING_FOR_RELAY',
       installationId: 'inst-old-attempt',
@@ -5197,12 +5197,8 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     };
     expect(body.state).toBe('NOT_INSTALLED');
     expect(body.attemptNumber).toBe(1);
-    expect(body.bootstrapStackName).toBe(
-      bootstrapStackName({ appName: 'Widget Suite', deploymentId: deployment.id, attempt: 1 }),
-    );
-    expect(body.bootstrapStackName).not.toBe(oldStackName);
-    // No published template in the test environment: the fresh link is
-    // handed out by the install page once the vendor publishes one.
+    // A connector registered (installationId set): the retry keeps its stack.
+    expect(body.bootstrapStackName).toBe(oldStackName);
     expect(body.quickCreateUrl).toBeNull();
 
     const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
@@ -5326,6 +5322,95 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(dep!.installationId).toBeNull();
     // previousInstallationId stays as it was — the retry should not write it when installationId was already null.
     expect(dep!.previousInstallationId).toBeNull();
+  });
+
+  it('install retry of a failed install whose connector registered keeps the stack and offers an update, then re-enrolls the same installation with recovery', async () => {
+    const stackName = 'deployz-bootstrap-widget-suite-keep-0';
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'FAILED',
+      installationId: 'inst-keep',
+      bootstrapStackName: stackName,
+      enrollmentUsedAt: new Date(),
+      relayStatus: 'CONNECTED',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'FAILED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      bootstrapStackName: string;
+      quickCreateUrl: string | null;
+      existingStackUpdate: { stackName: string; enrollmentCode: string; relayCredential: string | null };
+    };
+    expect(body.bootstrapStackName).toBe(stackName);
+    expect(body.quickCreateUrl).toBeNull();
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(body.existingStackUpdate).toMatchObject({
+      stackName,
+      enrollmentCode: dep!.enrollmentCode,
+      relayCredential: dep!.relayCredential,
+    });
+    expect(dep!.previousInstallationId).toBe('inst-keep');
+
+    const registered = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: dep!.enrollmentCode, installationId: 'inst-keep' },
+      { authorization: `Bearer ${dep!.relayCredential}` },
+    );
+    expect(registered.statusCode, registered.body).toBe(200);
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.state, 'REQUESTED')));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.payload).toMatchObject({ recovery: { neverInstalled: true } });
+    const [enrolled] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(enrolled!.installationId).toBe('inst-keep');
+    expect(enrolled!.bootstrapStackName).toBe(stackName);
+  });
+
+  it('install retry of an install whose connector never registered gives a fresh Quick Create and no recovery', async () => {
+    const stackName = 'deployz-bootstrap-widget-suite-fresh-0';
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'WAITING_FOR_RELAY',
+      installationId: null,
+      bootstrapStackName: stackName,
+    });
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      bootstrapStackName: string;
+      quickCreateUrl: string | null;
+      existingStackUpdate: unknown;
+    };
+    expect(body.bootstrapStackName).not.toBe(stackName);
+    expect(body.existingStackUpdate).toBeNull();
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    const page = (await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })).json() as {
+      quickCreateUrl: string | null;
+    };
+    expect(page.quickCreateUrl).not.toBeNull();
+    const registered = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: dep!.enrollmentCode, installationId: 'inst-new-stack' },
+      { authorization: `Bearer ${dep!.relayCredential}` },
+    );
+    expect(registered.statusCode, registered.body).toBe(200);
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.state, 'REQUESTED')));
+    expect(job!.payload).not.toHaveProperty('recovery');
   });
 
   it('relay/reset bumps the attempt, recomputes the stack name, and returns a never-installed deployment to NOT_INSTALLED', async () => {

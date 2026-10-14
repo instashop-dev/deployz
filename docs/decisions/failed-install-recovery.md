@@ -79,5 +79,14 @@ relay (next poll):
   installApplicationStack (unchanged) → verifyInstallation (unchanged)
 ```
 
+The customer-facing retry (install link, deploy link) reaches the same pass.
+When a connector registered in a previous attempt, the retry keeps its
+bootstrap stack and installation and returns `existingStackUpdate` instead of a
+Quick Create link. A new connector would mint a new installation id whose IAM is
+scoped to its own tag, and it could never recover the failed stack or its
+retained RDS instance. The customer updates the stack with the new
+`RelayCredential` and `EnrollmentCode`; registration then creates the INSTALL
+with `recovery`. A retry with no registered connector gets a fresh stack.
+
 A retried install that defers (stack still building) is finished by the
 resumer on later polls without re-running recovery.

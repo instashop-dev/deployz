@@ -85,7 +85,9 @@ behind each step is in [`../architecture.md`](../architecture.md).
 5. **Relay enrollment**: the relay registers with a single-use enrollment
    code; preflight runs again; the INSTALL job is created. While waiting, the
    page has no primary action. Past the staleness window it shows "Still
-   connecting" guidance and "Retry connection", which mints a new code. The
+   connecting" guidance and "Retry connection", which mints a new code. If the connector already
+   registered, the retry keeps its stack and the page shows how to update that
+   stack with the new values; a second connector is not created. The
    expected stack name and a CloudFormation link are under Deployment details.
 6. **Install progress**: the page polls `GET /api/install/:id/status` and
    shows one step list: Connect your AWS account → Create infrastructure
