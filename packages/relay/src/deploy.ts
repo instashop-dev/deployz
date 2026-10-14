@@ -1138,9 +1138,10 @@ const COMPLETE_RESOURCE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLET
 
 /**
  * Whether every registered ALB target for the application's target group is
- * healthy. Only `healthy` counts: a target still registering (`initial`),
- * draining, unclassified, or unhealthy means the load balancer is not
- * finished with this release, however complete the ECS rollout looks.
+ * healthy. A `draining` target is an old task leaving and is ignored; among
+ * the rest only `healthy` counts: a target still registering (`initial`),
+ * unclassified, or unhealthy means the load balancer is not finished with
+ * this release, however complete the ECS rollout looks.
  * Absent target group (never completed, or not readable) also means not
  * healthy — the deploy keeps waiting rather than guessing.
  */
@@ -1153,7 +1154,8 @@ export async function deploymentTargetsHealthy(
   );
   if (!targetGroup?.physicalId) return false;
   const { targets } = await deps.elb.describeTargetHealth({ targetGroupArn: targetGroup.physicalId });
-  return targets.length > 0 && targets.every((target) => target.state === 'healthy');
+  const remaining = targets.filter((target) => target.state !== 'draining');
+  return remaining.length > 0 && remaining.every((target) => target.state === 'healthy');
 }
 
 async function observeRunningDigest(

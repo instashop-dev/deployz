@@ -145,11 +145,11 @@ function ecsWith(options: {
 }
 
 /** The settle-gate readers: every ALB target healthy unless told otherwise, and a fresh marker store. */
-function rolloutDeps(targetState = 'healthy') {
+function rolloutDeps(targetState: string | string[] = 'healthy') {
   return {
     elb: {
       async describeTargetHealth() {
-        return { targets: [{ state: targetState }] };
+        return { targets: [targetState].flat().map((state) => ({ state })) };
       },
     },
     pending: memoryPendingStore(),
@@ -679,7 +679,7 @@ describe('CONFIG_UPDATE settlement — success only after every rollout complete
     entries: EffectiveConfigEntry[],
     ecsOptions: Parameters<typeof ecsWith>[0] = {},
     secrets: ConfigSecretsWriter = fakeSecretsWriter(),
-    targetState = 'healthy',
+    targetState: string | string[] = 'healthy',
   ) {
     return {
       cfn: cfnWithService({ withConfigSecret: true }),
@@ -720,6 +720,19 @@ describe('CONFIG_UPDATE settlement — success only after every rollout complete
 
   it('waits while an ALB target is not healthy yet', async () => {
     const d = running(debug, {}, fakeSecretsWriter(), 'initial');
+    await createConfigUpdateExecutor(d)(command());
+    expect(await createConfigUpdateResumer(d)()).toEqual([]);
+  });
+
+  it('settles without waiting for a draining target', async () => {
+    const d = running(debug, {}, fakeSecretsWriter(), ['healthy', 'draining']);
+    await createConfigUpdateExecutor(d)(command());
+    const [result] = await createConfigUpdateResumer(d)();
+    expect(result).toMatchObject({ commandId: 'job-config', success: true });
+  });
+
+  it('still waits for a registering target next to a draining one', async () => {
+    const d = running(debug, {}, fakeSecretsWriter(), ['initial', 'draining']);
     await createConfigUpdateExecutor(d)(command());
     expect(await createConfigUpdateResumer(d)()).toEqual([]);
   });
