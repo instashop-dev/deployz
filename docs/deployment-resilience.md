@@ -740,7 +740,13 @@ retained RDS instance (PostgreSQL or MySQL; deletion protection off,
 application secret regardless of infrastructure generation** (anything
 carrying the installation tag that is not the relay's own
 `deployz:component=bootstrap` secret), the bucket (every version), ACM
-certificates, subnet groups and network orphans — one kind per relay poll.
+certificates, every ACTIVE task-definition revision in the installation's own
+suffixed families (including relay-registered ones; shared and other
+installations' families are never touched), subnet groups and network orphans —
+one kind per relay poll. A connector role without
+`ecs:DeregisterTaskDefinition` (pre-#532 template) skips the revision pass:
+PURGE still completes and reports `task-definition-revisions` in the result's
+`leftovers` instead of claiming removal.
 A failed purge lands on `cleanupState: PURGE_FAILED` and stays retryable.
 
 ## First-install recovery

@@ -6,6 +6,7 @@ import {
   isAccessDenied,
   settlePurge,
   toNetworkPurgeClient,
+  toTaskRevisionPurgeClient,
   type AcmPurgeClient,
   type CachePurgeClient,
   type NetworkPurgeClient,
@@ -13,6 +14,7 @@ import {
   type RdsPurgeClient,
   type S3PurgeClient,
   type SecretsPurgeClient,
+  type TaskRevisionPurgeClient,
 } from './purge.js';
 import { memoryPendingStore } from './pending.js';
 import type { WaitOptions } from './recover.js';
@@ -1598,5 +1600,131 @@ describe('createPurgeResumer — previous installation id from pending payload',
     expect(results).toHaveLength(0); // still purging
     expect(calls).toContain('rds:unprotect:db-prev');
     expect(calls).toContain('rds:delete:db-prev');
+  });
+});
+
+// ── task-definition revisions ────────────────────────────────────────────
+
+const ARN = 'arn:aws:ecs:us-west-1:111122223333:task-definition';
+const OWN_SUFFIX = 'instpurgetest';
+
+describe('toTaskRevisionPurgeClient', () => {
+  function fakeEcs(pages: string[][]) {
+    const sent: { name: string; input: Record<string, unknown> }[] = [];
+    return {
+      sent,
+      client: {
+        async send(command: unknown) {
+          const { constructor, input } = command as {
+            constructor: { name: string };
+            input: Record<string, unknown>;
+          };
+          sent.push({ name: constructor.name, input });
+          if (constructor.name !== 'ListTaskDefinitionsCommand') return {};
+          const index = input.nextToken === undefined ? 0 : Number(input.nextToken);
+          return {
+            taskDefinitionArns: pages[index] ?? [],
+            ...(index + 1 < pages.length ? { nextToken: String(index + 1) } : {}),
+          };
+        },
+      },
+    };
+  }
+
+  it('lists only suffixed families, across pages', async () => {
+    const { client } = fakeEcs([
+      [`${ARN}/DeployzAppWeb:1`, `${ARN}/DeployzAppWebotherinstallation1234:2`],
+      [`${ARN}/DeployzAppWeb${OWN_SUFFIX}:2`, `${ARN}/Unrelated${OWN_SUFFIX}:1`],
+      [`${ARN}/DeployzAppWorker${OWN_SUFFIX}:5`],
+    ]);
+    const revisions = await toTaskRevisionPurgeClient(client, 'inst-purge-test').listOwnedActiveRevisions(10);
+    expect(revisions).toEqual([
+      `${ARN}/DeployzAppWeb${OWN_SUFFIX}:2`,
+      `${ARN}/DeployzAppWorker${OWN_SUFFIX}:5`,
+    ]);
+  });
+
+  it('stops at the limit', async () => {
+    const { client } = fakeEcs([
+      [1, 2, 3].map((n) => `${ARN}/DeployzAppWeb${OWN_SUFFIX}:${n}`),
+    ]);
+    const revisions = await toTaskRevisionPurgeClient(client, 'inst-purge-test').listOwnedActiveRevisions(2);
+    expect(revisions).toHaveLength(2);
+  });
+
+  it('also matches the previous installation suffix', async () => {
+    const { client } = fakeEcs([[`${ARN}/DeployzAppWebolderid:1`]]);
+    const revisions = await toTaskRevisionPurgeClient(client, 'inst-purge-test', 'older-id').listOwnedActiveRevisions(10);
+    expect(revisions).toEqual([`${ARN}/DeployzAppWebolderid:1`]);
+  });
+});
+
+describe('settlePurge — task-definition revisions', () => {
+  function revisionClient(calls: string[], arns: string[]): TaskRevisionPurgeClient {
+    let remaining = [...arns];
+    return {
+      async listOwnedActiveRevisions() {
+        return remaining;
+      },
+      async deregisterRevision(arn) {
+        calls.push(`task-revision:deregister:${arn}`);
+        remaining = remaining.filter((a) => a !== arn);
+      },
+    };
+  }
+
+  const stackGone: CloudFormationReader = {
+    async describeStack() {
+      return { found: false };
+    },
+    async describeStackResources() {
+      return [];
+    },
+  };
+
+  it('deregisters the owned revisions, then completes on the next pass', async () => {
+    const calls: string[] = [];
+    const arns = [`${ARN}/DeployzAppWeb${OWN_SUFFIX}:2`, `${ARN}/DeployzAppWeb${OWN_SUFFIX}:1`];
+    const deps = depsWith(stackGone, calls, { taskRevisions: revisionClient(calls, arns) });
+
+    expect(await settlePurge(deps)).toEqual({ state: 'purging' });
+    expect(calls).toEqual(arns.map((arn) => `task-revision:deregister:${arn}`));
+    expect(await settlePurge(deps)).toEqual({ state: 'succeeded' });
+  });
+
+  it('reports a leftover, not a failure, when deregistering is AccessDenied', async () => {
+    const calls: string[] = [];
+    const denied = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
+    const deps = depsWith(stackGone, calls, {
+      taskRevisions: {
+        async listOwnedActiveRevisions() {
+          return [`${ARN}/DeployzAppWeb${OWN_SUFFIX}:2`];
+        },
+        async deregisterRevision() {
+          throw denied;
+        },
+      },
+    });
+
+    expect(await settlePurge(deps)).toEqual({
+      state: 'succeeded',
+      leftovers: ['task-definition-revisions'],
+    });
+
+    const executed = await createPurgeExecutor(deps)(command());
+    expect(executed.success).toBe(true);
+    expect(executed.output).toMatchObject({ purged: true, leftovers: ['task-definition-revisions'] });
+  });
+
+  it('rethrows any other error', async () => {
+    const deps = depsWith(stackGone, [], {
+      taskRevisions: {
+        async listOwnedActiveRevisions() {
+          throw new Error('throttled');
+        },
+        async deregisterRevision() {},
+      },
+    });
+    await expect(settlePurge(deps)).rejects.toThrow('throttled');
   });
 });
