@@ -2,7 +2,7 @@
   "id": "repo-009",
   "repository": "heroku/node-js-getting-started",
   "commit": "63c6674c478b697fc20a6412c78a5f7a2dcf14be",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "heroku/node-js-getting-started",
     "containerPort": 5006,
@@ -30,7 +30,7 @@
         }
       ],
       "analysisCommitSha": "63c6674c478b697fc20a6412c78a5f7a2dcf14be",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

@@ -2,7 +2,7 @@
   "id": "repo-029",
   "repository": "postalsys/emailengine",
   "commit": "1933e5d9952fab26fbd3f4a630adfc0ca341717a",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "postalsys/emailengine",
     "containerPort": null,
@@ -26,7 +26,7 @@
         }
       ],
       "analysisCommitSha": "1933e5d9952fab26fbd3f4a630adfc0ca341717a",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

@@ -322,6 +322,25 @@ describe('buildReadinessReport — finding classification', () => {
     expect(report.state).toBe('READY');
     expect(report.findings.find((f) => f.id === 'worker-command')?.severity).toBe('recommended');
   });
+
+  it('never tells the vendor to merge jobs into the web process, replace a queue or remove infrastructure', () => {
+    const analysis = analyseRepo(workerWithoutCommandTree);
+    const report = buildReadinessReport({
+      ...analysis,
+      rejections: [
+        ...analysis.rejections,
+        { detected: true, dependency: 'kafka', reason: 'Kafka consumer in src/queue.ts' },
+        { detected: true, dependency: 'terraform', reason: 'main.tf at the repository root' },
+      ],
+    });
+    const outcomes = ['worker-command', 'unsupported-message-queue', 'unsupported-architecture'].map(
+      (id) => report.findings.find((f) => f.id === id)?.suggestedOutcome ?? '',
+    );
+    expect(outcomes.every((outcome) => outcome.length > 0)).toBe(true);
+    for (const outcome of outcomes) {
+      expect(outcome).not.toMatch(/inside the web process, or|remove the job-runner|Replace the queue|Remove the third-party infrastructure/);
+    }
+  });
 });
 
 // ==========================================================================

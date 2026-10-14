@@ -2,7 +2,7 @@
   "id": "repo-034",
   "repository": "CTFd/CTFd",
   "commit": "91ced62d44d3ec3142a0948ee96ed19947cfc979",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "CTFd/CTFd",
     "containerPort": 8000,
@@ -34,7 +34,7 @@
         }
       ],
       "analysisCommitSha": "91ced62d44d3ec3142a0948ee96ed19947cfc979",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

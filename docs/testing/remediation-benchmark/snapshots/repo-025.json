@@ -2,7 +2,7 @@
   "id": "repo-025",
   "repository": "lobehub/lobehub",
   "commit": "55905273091fb09a5717dc28f93b2ef38864cefd",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "lobehub/lobehub",
     "containerPort": 3210,
@@ -39,7 +39,7 @@
         }
       ],
       "analysisCommitSha": "55905273091fb09a5717dc28f93b2ef38864cefd",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

@@ -2,7 +2,7 @@
   "id": "repo-003",
   "repository": "thedevs-network/kutt",
   "commit": "279b491b53bbd01fbae70f603222526962772061",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "thedevs-network/kutt",
     "containerPort": 3000,
@@ -31,7 +31,7 @@
         }
       ],
       "analysisCommitSha": "279b491b53bbd01fbae70f603222526962772061",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
