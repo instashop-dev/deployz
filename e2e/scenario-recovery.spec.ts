@@ -135,18 +135,26 @@ test.describe('install-link-retry', () => {
       //    The route resets to NOT_INSTALLED and records previousInstallationId.
       const retryResp = await request.post(`${API_URL}/api/install/${installLinkId}/retry`, { data: {} });
       expect(retryResp.ok()).toBeTruthy();
-      const retryBody = (await retryResp.json()) as { state: string; attemptNumber: number; quickCreateUrl: string | null };
+      const retryBody = (await retryResp.json()) as {
+        state: string;
+        attemptNumber: number;
+        quickCreateUrl: string | null;
+        existingStackUpdate: { enrollmentCode: string; relayCredential: string } | null;
+      };
       expect(retryBody.state).toBe('NOT_INSTALLED');
       expect(retryBody.attemptNumber).toBe(1);
-      expect(retryBody.quickCreateUrl).not.toBeNull();
+      // The connector registered, so the retry updates its stack: no second connector.
+      expect(retryBody.quickCreateUrl).toBeNull();
+      expect(retryBody.existingStackUpdate).not.toBeNull();
 
       // 4. Verify the deployment re-armed: fetch the fresh credential.
       const refreshedInfo = await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) => r.json()) as {
         quickCreateUrl: string | null;
+        existingStackUpdate: { enrollmentCode: string; relayCredential: string } | null;
       };
-      expect(refreshedInfo.quickCreateUrl).not.toBeNull();
-      const freshEnrollment = extractQuickCreateParam(refreshedInfo.quickCreateUrl!, 'EnrollmentCode');
-      const freshRelayCred = extractQuickCreateParam(refreshedInfo.quickCreateUrl!, 'RelayCredential');
+      expect(refreshedInfo.quickCreateUrl).toBeNull();
+      const freshEnrollment = refreshedInfo.existingStackUpdate!.enrollmentCode;
+      const freshRelayCred = refreshedInfo.existingStackUpdate!.relayCredential;
 
       // Fresh enrollment code is different from the first.
       expect(freshEnrollment).not.toBe(enrollmentCode);
@@ -156,10 +164,9 @@ test.describe('install-link-retry', () => {
       const relayB = startSimulatedRelay({
         scenario: getScenario('happy-path'),
         apiUrl: API_URL,
-        installationId: `inst-retry-b-${crypto.randomUUID().slice(0, 8)}`,
+        installationId,
         enrollmentCode: freshEnrollment,
         relayToken: freshRelayCred,
-        // Use a fresh account (the old one has the stack already).
       });
 
       try {

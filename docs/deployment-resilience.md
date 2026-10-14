@@ -169,6 +169,13 @@ The customer-facing retry (`POST /api/install/:id/retry`,
 enrollment code and credential. It is refused after any successful install and
 outside NOT_INSTALLED, WAITING_FOR_RELAY, INSTALLING and FAILED (for example
 while a DESTROY runs); a retry during INSTALLING is allowed on purpose.
+When a previous attempt reached the customer account (a connector registered,
+or an earlier retry already kept its stack) the retry keeps the same bootstrap
+stack name. The API returns `quickCreateUrl: null` and `existingStackUpdate`,
+so the customer UPDATES the existing connector stack with the new credential
+and enrollment code. The same installation re-enrolls, and its INSTALL carries
+`recovery` so the failed application stack is recovered. A retry for a
+connector that never registered gets a fresh Quick Create and stack name.
 
 Retrying a failed update is just deploying again — `requireDeployableState`
 allows it, and `retryAwareIdempotencyKey` mints a fresh attempt key once the
@@ -760,7 +767,10 @@ ElastiCache replication-group delete — identified from the failed stack's
 own resource list, never by name); recreate; re-verify. Retained S3 buckets
 are deliberately left (inert, empty, blocked by IAM tag-condition
 semantics). The decision record is `docs/decisions/failed-install-recovery.md`.
-Recovery is the only recreation path. A normal install creates a stack
+A customer retry of a failed first install reaches the same pass: it keeps
+the connector stack, and the re-enrolled connector's INSTALL carries
+`recovery.neverInstalled`. A second connector could not run it, because its IAM
+is scoped to its own installation tag. Recovery is the only recreation path. A normal install creates a stack
 only when none exists; a resumed install adopts an existing stack and
 never recreates a missing one. Only the authorized recovery pass may
 recreate a stack the previous attempt lost — see "Pending-command

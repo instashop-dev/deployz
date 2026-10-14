@@ -149,6 +149,13 @@ of a Quick Create link: the customer chooses Update, then Replace existing
 template, and enters the new `RelayCredential` and `EnrollmentCode`. Creating a
 second stack for the same installation is not supported.
 
+**Customer retried a failed install and created a second connector.** The retry
+of a failed install whose connector registered shows an update of the existing
+connector stack, not a Quick Create link. A customer who created a second
+connector stack instead must delete that extra `deployz-bootstrap-…` stack. It
+cannot recover the first attempt's failed application stack and its retained
+database. Update the original connector stack with the new values.
+
 **Connector update required or available.** The deployment page shows the
 alert when the connector reports no release evidence (it cannot verify
 releases) or reports a build other than the published one

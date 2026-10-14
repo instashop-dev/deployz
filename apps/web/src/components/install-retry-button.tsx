@@ -10,8 +10,9 @@ import { InstallRetryError, retryInstallAttempt } from '@/lib/install-data';
 
 // Customer-facing "Retry connection" for an install whose connector never
 // connected (ux-guidelines §1: the one action once the wait is stale): starts a fresh
-// attempt (new enrollment code, new stack name) and refreshes the page so it
-// re-renders the pre-install state with the new Quick Create link.
+// attempt (new enrollment code) and refreshes the page so it re-renders the
+// pre-install state: a new Quick Create link, or the update instructions for
+// the connector stack that is already in the customer's account.
 export function InstallRetryButton({
   installLinkId,
   deployLink = null,

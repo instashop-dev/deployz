@@ -138,8 +138,9 @@ export class InstallRetryError extends Error {
 }
 
 /**
- * Customer-facing retry for an install that never connected: fresh attempt
- * (new enrollment code, attempt+1, new stack name). 409
+ * Customer-facing retry for a failed install: fresh attempt (new enrollment
+ * code, attempt+1). A connector that already registered keeps its stack
+ * (the page then shows the update instructions); otherwise a new stack name. 409
  * INSTALL_ALREADY_SUCCEEDED when the deployment was ever installed
  * successfully.
  */
