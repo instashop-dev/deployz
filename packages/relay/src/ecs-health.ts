@@ -102,7 +102,7 @@ export interface HealthObservation {
  * HEALTHY   — full running count, every target healthy, no failed rollout; or a
  *             rollout in progress that keeps serving.
  * DEGRADED  — still serving (runningCount > 0), but with unhealthy, pending
- *             (`initial`/`draining`) or unclassified targets, or fewer running
+ *             (`initial`) or unclassified targets, or fewer running
  *             tasks than desired outside a rollout: reachable but not fully
  *             healthy. `initial` is the ALB's "registering" state — it must
  *             never count as healthy, or the first POST-install heartbeat
@@ -309,21 +309,21 @@ export async function observeRuntimeHealth(
   let targetsRead = false;
   if (targetGroupArn) {
     try {
-      const { targets } = await deps.elb.describeTargetHealth({ targetGroupArn });
+      const described = await deps.elb.describeTargetHealth({ targetGroupArn });
+      // A `draining` target is a deregistering task leaving after a rollout:
+      // neither serving nor pending, so it is left out of every count.
+      const targets = described.targets.filter((t) => t.state !== 'draining');
       targetsRead = true;
       targetCount = targets.length;
       healthyTargetCount = targets.filter((t) => t.state === 'healthy').length;
       unhealthyTargetCount = targets.filter((t) => t.state === 'unhealthy').length;
       // 'initial' means the target is still registering (health checks have
-      // not passed yet); 'draining' marks a target being drained before
-      // deregistration. Both mean "not serving yet", never "healthy".
-      pendingTargetCount = targets.filter(
-        (t) => t.state === 'initial' || t.state === 'draining',
-      ).length;
+      // not passed yet): not serving yet, never "healthy".
+      pendingTargetCount = targets.filter((t) => t.state === 'initial').length;
       // Everything ELB does not classify as healthy/unhealthy/pending
       // (unknown, unused, unavailable) means the verdict cannot be told.
       unknownTargetCount = targets.filter(
-        (t) => !['healthy', 'unhealthy', 'initial', 'draining'].includes(t.state ?? ''),
+        (t) => !['healthy', 'unhealthy', 'initial'].includes(t.state ?? ''),
       ).length;
     } catch {
       // Target health unreadable: derive from ECS counts alone.

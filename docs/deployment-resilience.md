@@ -467,7 +467,9 @@ still roll, and would hide a crash loop.
   deployment of every service that has tasks, records each service's new
   PRIMARY deployment id on the pending marker, and settles with
   `settleConfigRollouts`: that deployment is PRIMARY and COMPLETED with the
-  expected task count, and every ALB target is healthy. A service at zero
+  expected task count, and every ALB target is healthy; a `draining` target
+  is a replaced task leaving and is ignored, but at least one other target
+  must be healthy. A service at zero
   tasks has nothing to replace and is skipped; if every service is at zero,
   the restart succeeds at once.
 - **Deferred while it runs.** The command stays in progress, and the

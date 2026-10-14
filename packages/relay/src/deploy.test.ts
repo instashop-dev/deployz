@@ -1861,7 +1861,7 @@ describe('createEcsDeployResumer', () => {
     expect(await d.pending.read()).not.toBeNull();
 
     // Once the last target registers healthy the same settle call succeeds.
-    state.targetHealth = ['healthy', 'healthy'];
+    state.targetHealth = ['healthy', 'draining'];
     const settled = await createEcsDeployResumer(d)();
     expect(settled).toHaveLength(1);
     expect(settled[0]?.success).toBe(true);

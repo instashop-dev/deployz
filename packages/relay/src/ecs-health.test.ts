@@ -54,12 +54,6 @@ describe('deriveHealthStatus', () => {
     );
   });
 
-  it('DEGRADED while targets are draining', () => {
-    expect(deriveHealthStatus(observation({ targetCount: 1, pendingTargetCount: 1 }))).toBe(
-      'DEGRADED',
-    );
-  });
-
   it('DEGRADED when some targets are healthy and some pending', () => {
     expect(
       deriveHealthStatus(observation({ targetCount: 2, pendingTargetCount: 1 })),
@@ -123,7 +117,7 @@ describe('deriveComponents', () => {
       application: 'HEALTHY',
       loadBalancer: 'UNKNOWN',
     });
-    // initial/draining targets keep the ALB from claiming healthy.
+    // initial targets keep the ALB from claiming healthy.
     expect(deriveComponents(observation({ targetCount: 2, pendingTargetCount: 2 }))).toEqual({
       application: 'HEALTHY',
       loadBalancer: 'DEGRADED',
@@ -380,7 +374,7 @@ describe('observeRuntimeHealth', () => {
     expect(health.components.loadBalancer).toBe('UNKNOWN');
   });
 
-  it('maps initial/draining targets to pending, unknown to unknown, and never reports HEALTHY while pending', async () => {
+  it('maps initial targets to pending, unknown to unknown, ignores draining, and never reports HEALTHY while pending', async () => {
     const health = await observeRuntimeHealth(
       {
         cfn: cfnWith([...STACK]),
@@ -393,10 +387,38 @@ describe('observeRuntimeHealth', () => {
     // unclassified one. The overall verdict stays DEGRADED...
     expect(health.healthStatus).toBe('DEGRADED');
     expect(health.unhealthyTargetCount).toBe(0);
-    expect(health.pendingTargetCount).toBe(2);
+    expect(health.pendingTargetCount).toBe(1);
     expect(health.unknownTargetCount).toBe(1);
     // ...while the loadBalancer component cannot be told healthy or
     // degraded because one target's state is unknown.
+    expect(health.components.loadBalancer).toBe('UNKNOWN');
+  });
+
+  it('reports HEALTHY after a completed rollout while the old task target is draining', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['healthy', 'draining']),
+      },
+      'deployz-app',
+    );
+    expect(health.healthStatus).toBe('HEALTHY');
+    expect(health.pendingTargetCount).toBe(0);
+    expect(health.components.loadBalancer).toBe('HEALTHY');
+  });
+
+  it('counts no healthy target when only draining targets remain', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['draining']),
+      },
+      'deployz-app',
+    );
+    expect(health.pendingTargetCount).toBe(0);
+    expect(health.unhealthyTargetCount).toBe(0);
     expect(health.components.loadBalancer).toBe('UNKNOWN');
   });
 

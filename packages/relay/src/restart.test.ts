@@ -57,7 +57,7 @@ function cfnWith(arns: string[] | null): CloudFormationReader {
   };
 }
 
-function setup(services: Record<string, FakeService>, options: { unreadableStack?: boolean; targetState?: string } = {}) {
+function setup(services: Record<string, FakeService>, options: { unreadableStack?: boolean; targetState?: string | string[] } = {}) {
   const updates: { service: string; forceNewDeployment?: boolean; taskDefinition?: string }[] = [];
   let sequence = 1;
   const ecs = {
@@ -101,7 +101,7 @@ function setup(services: Record<string, FakeService>, options: { unreadableStack
     ecs,
     elb: {
       async describeTargetHealth() {
-        return { targets: [{ state: options.targetState ?? 'healthy' }] };
+        return { targets: [options.targetState ?? 'healthy'].flat().map((state) => ({ state })) };
       },
     },
     pending: memoryPendingStore(),
@@ -253,6 +253,19 @@ describe('createRestartExecutor', () => {
   it('waits while an ALB target is not healthy yet', async () => {
     const { deps } = setup({ [WEB_ARN]: service() }, { targetState: 'initial' });
     expect((await createRestartExecutor(deps)(command)).deferred).toBe(true);
+    expect(await createRestartResumer(deps)()).toEqual([]);
+  });
+
+  it('settles without waiting for a draining target', async () => {
+    const { deps } = setup({ [WEB_ARN]: service() }, { targetState: ['healthy', 'draining'] });
+    await createRestartExecutor(deps)(command);
+    const [result] = await createRestartResumer(deps)();
+    expect(result).toMatchObject({ commandId: 'job-restart', success: true });
+  });
+
+  it('still waits for a registering target next to a draining one', async () => {
+    const { deps } = setup({ [WEB_ARN]: service() }, { targetState: ['initial', 'draining'] });
+    await createRestartExecutor(deps)(command);
     expect(await createRestartResumer(deps)()).toEqual([]);
   });
 

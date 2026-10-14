@@ -215,6 +215,14 @@ describe('releaseEvidence in the relay heartbeat', () => {
     expect(verdict(body)).toEqual({ pass: false, reason: 'DIGEST_MIXED' });
   });
 
+  it('ignores a draining target of the replaced task', async () => {
+    expect(verdict(await heartbeat({ targets: ['healthy', 'draining'] }))).toEqual({ pass: true, digest: DIGEST });
+  });
+
+  it('fails when only a draining target remains', async () => {
+    expect(verdict(await heartbeat({ targets: ['draining'] })).pass).toBe(false);
+  });
+
   it('fails while a target is still registering', async () => {
     expect(verdict(await heartbeat({ targets: ['healthy', 'initial'] }))).toEqual({
       pass: false,
