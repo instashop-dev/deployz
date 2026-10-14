@@ -4,7 +4,7 @@ import type { FailureCode } from '@deployz/contracts';
  * How long an installed deployment may stay INSTALLING without passing
  * release evidence. The load balancer alone allows 300 s of health-check
  * grace and an ECS rollout takes 3-5 minutes; a first start may also run
- * migrations. 30 minutes is six five-minute heartbeats past all of that.
+ * migrations. 30 minutes leaves room for all of that.
  */
 export const INSTALL_VERIFICATION_WINDOW_MS = 30 * 60 * 1000;
 
