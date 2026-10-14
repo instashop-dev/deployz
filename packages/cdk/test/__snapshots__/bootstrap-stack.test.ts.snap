@@ -2007,26 +2007,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             {
               "Action": "ecs:DeregisterTaskDefinition",
               "Effect": "Allow",
-              "Resource": {
-                "Fn::Join": [
-                  "",
-                  [
-                    "arn:",
-                    {
-                      "Ref": "AWS::Partition",
-                    },
-                    ":ecs:",
-                    {
-                      "Ref": "AWS::Region",
-                    },
-                    ":",
-                    {
-                      "Ref": "AWS::AccountId",
-                    },
-                    ":task-definition/DeployzApp*:*",
-                  ],
-                ],
-              },
+              "Resource": "*",
               "Sid": "RelayDeregisterRevisions",
             },
           ],
