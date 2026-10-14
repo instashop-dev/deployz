@@ -81,6 +81,7 @@ import {
   type RdsPurgeClient,
   type S3PurgeClient,
   type SecretsPurgeClient,
+  type TaskRevisionPurgeClient,
 } from './purge.js';
 import {
   createConfigUpdateExecutor,
@@ -287,6 +288,7 @@ function getPurgeClients(
   secrets: SecretsPurgeClient;
   acm: AcmPurgeClient;
   network: NetworkPurgeClient;
+  taskRevisions: TaskRevisionPurgeClient;
 } {
   return createRealPurgeClients(installationId, previousInstallationId);
 }

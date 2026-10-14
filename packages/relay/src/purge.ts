@@ -35,6 +35,11 @@ import {
   ListTagsForCertificateCommand,
 } from '@aws-sdk/client-acm';
 import {
+  DeregisterTaskDefinitionCommand,
+  ECSClient,
+  ListTaskDefinitionsCommand,
+} from '@aws-sdk/client-ecs';
+import {
   DeleteInternetGatewayCommand,
   DeleteNatGatewayCommand,
   DeleteRouteTableCommand,
@@ -76,6 +81,8 @@ import {
   ListSecretsCommand,
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
+
+import { taskFamilySuffix } from '@deployz/contracts';
 
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
@@ -189,6 +196,17 @@ export interface AcmPurgeClient {
   deleteCertificate(certificateArn: string): Promise<void>;
 }
 
+/**
+ * ACTIVE task-definition revisions in this installation's own families. The
+ * relay registers a revision per update, so these outlive the stack. Shared
+ * (unsuffixed) families and other installations' families are never listed.
+ */
+export interface TaskRevisionPurgeClient {
+  /** At most `limit` owned ACTIVE revision ARNs. */
+  listOwnedActiveRevisions(limit: number): Promise<string[]>;
+  deregisterRevision(taskDefinitionArn: string): Promise<void>;
+}
+
 export interface PurgeDeps {
   readonly cfn: CloudFormationReader;
   readonly deleter: StackDeleter;
@@ -206,16 +224,23 @@ export interface PurgeDeps {
   readonly secrets: SecretsPurgeClient;
   readonly acm: AcmPurgeClient;
   readonly network: NetworkPurgeClient;
+  /** Optional: a relay without it skips the task-revision pass. */
+  readonly taskRevisions?: TaskRevisionPurgeClient;
   readonly now?: () => string;
   readonly wait?: WaitOptions;
 }
 
 type PurgeOutcome =
-  | { readonly state: 'succeeded' }
+  | { readonly state: 'succeeded'; readonly leftovers?: readonly string[] }
   | { readonly state: 'failed'; readonly reason: string }
   | { readonly state: 'purging' };
 
 const INSTALLATION_TAG = 'deployz:installation';
+const TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/;
+/** Deregistrations per pass. */
+const MAX_REVISIONS_PER_PASS = 10;
+/** Leftover reported when the connector role cannot deregister task definitions. */
+const TASK_REVISIONS_LEFTOVER = 'task-definition-revisions';
 
 /**
  * Whether an AWS error is a permission rejection (AccessDenied /
@@ -385,6 +410,30 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
     return { state: 'purging' };
   }
 
+  // Task-definition revisions the relay registered (CONFIG_UPDATE, deploys).
+  // They cost nothing, so a connector whose role predates
+  // ecs:DeregisterTaskDefinition is not a purge failure — but the purge must
+  // not claim them removed, so they are reported as a leftover.
+  let leftovers: string[] = [];
+  if (deps.taskRevisions !== undefined) {
+    try {
+      const revisions = await deps.taskRevisions.listOwnedActiveRevisions(MAX_REVISIONS_PER_PASS);
+      if (revisions.length > 0) {
+        for (const arn of revisions) {
+          await deps.taskRevisions.deregisterRevision(arn);
+        }
+        console.log(
+          JSON.stringify({ event: 'relay:purge-orphans-swept', kind: 'task-definition', ids: revisions }),
+        );
+        return { state: 'purging' };
+      }
+    } catch (error) {
+      if (!isAccessDenied(error)) throw error;
+      leftovers = [TASK_REVISIONS_LEFTOVER];
+      console.log(JSON.stringify({ event: 'relay:purge-task-revisions-skipped', error: String(error) }));
+    }
+  }
+
   // Phase 2e — the RETAIN-ed RDS subnet group (CANARY-015). Only removable
   // once no DB instance references it — the instance sweep above already
   // guarantees that by running first and staying `purging` until every
@@ -525,7 +574,7 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
     }),
   );
 
-  return { state: 'succeeded' };
+  return leftovers.length > 0 ? { state: 'succeeded', leftovers } : { state: 'succeeded' };
 }
 
 function result(
@@ -596,6 +645,7 @@ export function createPurgeExecutor(deps: PurgeDeps): CommandExecutor {
           type: command.type,
           purged: true,
           connectorStackRetained: deps.bootstrapStackName,
+          ...(outcome.leftovers !== undefined ? { leftovers: outcome.leftovers } : {}),
         },
       });
     }
@@ -677,6 +727,7 @@ export function createPurgeResumer(deps: PurgeDeps): () => Promise<RelayCommandR
               type: pending.type,
               purged: true,
               connectorStackRetained: deps.bootstrapStackName,
+              ...(outcome.leftovers !== undefined ? { leftovers: outcome.leftovers } : {}),
             },
           }
         : {
@@ -708,6 +759,7 @@ export function createRealPurgeClients(
   secrets: SecretsPurgeClient;
   acm: AcmPurgeClient;
   network: NetworkPurgeClient;
+  taskRevisions: TaskRevisionPurgeClient;
 } {
   const knownIds = new Set([installationId]);
   if (previousInstallationId) knownIds.add(previousInstallationId);
@@ -916,6 +968,54 @@ export function createRealPurgeClients(
       },
     },
     network: createRealNetworkPurgeClient(installationId, previousInstallationId),
+    taskRevisions: toTaskRevisionPurgeClient(new ECSClient({}), installationId, previousInstallationId),
+  };
+}
+
+/** Upper bound on ListTaskDefinitions pages read per pass. */
+const MAX_REVISION_PAGES = 50;
+
+/**
+ * Wrap an ECS client as a `TaskRevisionPurgeClient`. A family qualifies only
+ * when it matches the relay's task-family shape AND ends with one of this
+ * installation's suffixes: unsuffixed (shared) and other installations'
+ * families are never returned.
+ */
+export function toTaskRevisionPurgeClient(
+  client: SendsEc2Commands,
+  installationId: string,
+  previousInstallationId?: string,
+): TaskRevisionPurgeClient {
+  const suffixes = [installationId, ...(previousInstallationId ? [previousInstallationId] : [])]
+    .map(taskFamilySuffix)
+    .filter((suffix) => suffix.length > 0);
+  const ownedFamily = (family: string) =>
+    TASK_FAMILY_PATTERN.test(family) && suffixes.some((suffix) => family.endsWith(suffix));
+
+  return {
+    async listOwnedActiveRevisions(limit) {
+      const owned: string[] = [];
+      let nextToken: string | undefined;
+      for (let page = 0; page < MAX_REVISION_PAGES && owned.length < limit; page++) {
+        const response = (await client.send(
+          new ListTaskDefinitionsCommand({
+            familyPrefix: 'DeployzApp',
+            status: 'ACTIVE',
+            ...(nextToken !== undefined ? { nextToken } : {}),
+          }),
+        )) as { taskDefinitionArns?: string[]; nextToken?: string };
+        for (const arn of response.taskDefinitionArns ?? []) {
+          const family = /:task-definition\/([A-Za-z0-9_-]+):\d+$/.exec(arn)?.[1];
+          if (family !== undefined && ownedFamily(family) && owned.length < limit) owned.push(arn);
+        }
+        nextToken = response.nextToken;
+        if (nextToken === undefined) break;
+      }
+      return owned;
+    },
+    async deregisterRevision(taskDefinitionArn) {
+      await client.send(new DeregisterTaskDefinitionCommand({ taskDefinition: taskDefinitionArn }));
+    },
   };
 }
 
