@@ -299,6 +299,11 @@ describe the production deployment:
   selected. An uploads, media or attachments volume is not local state when
   the app has an S3 SDK and a variable that selects it (`UPLOAD_PROVIDER`,
   `ACTIVE_STORAGE_SERVICE`, `STORAGE_TYPE`, an `S3_*_BUCKET` name). A
+  `VOLUME $VAR` that only the base image sets is decided from the Compose
+  service that runs this image (an application service, or the service whose
+  image name equals the Dockerfile's `org.opencontainers.image.title`): it is
+  not local state only when that service mounts at least as many paths and
+  every one is a configuration or cache path. A
   `*_CONFIG_DIR` that the selected Dockerfile copies into (or into whose
   parent it copies the whole build context) holds shipped configuration, not
   state the customer writes. Data, home and storage directories stay durable.

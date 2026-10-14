@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-13T23:02:13.082Z",
+  "generatedAt": "2026-10-14T07:00:43.580Z",
   "mode": "deterministic",
-  "cases": 38,
-  "passed": 38,
+  "cases": 37,
+  "passed": 37,
   "classification": {
     "correct": 94,
     "total": 94
@@ -193,8 +193,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 4355,
-      "promptChars": 3012,
+      "documentChars": 4380,
+      "promptChars": 3037,
       "pass": true
     },
     {
@@ -357,8 +357,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5380,
-      "promptChars": 3821,
+      "documentChars": 5405,
+      "promptChars": 3846,
       "pass": true
     },
     {
@@ -492,27 +492,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 9884,
-      "promptChars": 7496,
-      "pass": true
-    },
-    {
-      "id": "RB-10",
-      "snapshot": "repo-209",
-      "tags": [
-        "real",
-        "startup"
-      ],
-      "classes": [],
-      "truth": [],
-      "unsafe": [],
-      "structureProblems": [],
-      "includeMissing": [],
-      "excludePresent": [],
-      "noFixesViolated": false,
-      "guidance": null,
-      "documentChars": 4333,
-      "promptChars": 3293,
+      "documentChars": 9909,
+      "promptChars": 7521,
       "pass": true
     },
     {
@@ -569,8 +550,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5664,
-      "promptChars": 3999,
+      "documentChars": 5689,
+      "promptChars": 4024,
       "pass": true
     },
     {
@@ -800,8 +781,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 7216,
-      "promptChars": 5482,
+      "documentChars": 7241,
+      "promptChars": 5507,
       "pass": true
     },
     {
@@ -1089,8 +1070,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5956,
-      "promptChars": 4394,
+      "documentChars": 5981,
+      "promptChars": 4419,
       "pass": true
     },
     {
@@ -1217,8 +1198,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 6225,
-      "promptChars": 4580,
+      "documentChars": 6250,
+      "promptChars": 4605,
       "pass": true
     },
     {
@@ -1572,8 +1553,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5436,
-      "promptChars": 3734,
+      "documentChars": 5461,
+      "promptChars": 3759,
       "pass": true
     },
     {
@@ -1700,8 +1681,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 6751,
-      "promptChars": 5140,
+      "documentChars": 6776,
+      "promptChars": 5165,
       "pass": true
     },
     {
@@ -1770,8 +1751,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5515,
-      "promptChars": 3804,
+      "documentChars": 5540,
+      "promptChars": 3829,
       "pass": true
     },
     {
@@ -1897,8 +1878,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 4840,
-      "promptChars": 3266,
+      "documentChars": 4865,
+      "promptChars": 3291,
       "pass": true
     },
     {
@@ -1968,8 +1949,8 @@
       "excludePresent": [],
       "noFixesViolated": false,
       "guidance": null,
-      "documentChars": 5873,
-      "promptChars": 4391,
+      "documentChars": 5898,
+      "promptChars": 4416,
       "pass": true
     }
   ]

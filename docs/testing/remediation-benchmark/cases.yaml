@@ -23,6 +23,10 @@
 #   RB-02 no longer includes the suggested `python src/manage.py` command: the
 #     repository path was not the path inside the image, and startup migration
 #     now replaces the suggestion.
+# Analysis v56: RB-10 (searxng, "no port, no start command") is retired with its
+#   snapshot. The correct Dockerfile now resolves the port and the start command,
+#   and COMP-052 removed the false local-storage finding, so the repository has
+#   no unresolved finding and no document to grade.
 # `truth` are the labellers' classes after reading the repository at the
 # pinned commit; they measure the analysis, not the generator.
 version: 1
@@ -52,7 +56,6 @@ repositories:
   - { id: repo-088, role: support }
   - { id: repo-090, role: support }
   - { id: repo-098, role: support }
-  - { id: repo-209, role: support }
   - { id: repo-301, role: support }
 
 cases:
@@ -124,12 +127,6 @@ cases:
     expect:
       classes: { unsupported-no-dockerfile: CONFIGURATION_FIX, health-check: APPLICATION_FIX, localhost-binding: CONFIGURATION_FIX, database-migrations: CONFIGURATION_FIX, worker-command: NEEDS_INPUT }
       truth: { unsupported-no-dockerfile: CONFIGURATION_FIX, health-check: CONFIGURATION_FIX, localhost-binding: CONFIGURATION_FIX, database-migrations: CONFIGURATION_FIX, worker-command: CONFIGURATION_FIX }
-  - id: RB-10
-    snapshot: repo-209
-    title: searxng — no port, no start command
-    tags: [real, startup]
-    expect:
-      classes: {}
   - id: RB-11
     snapshot: repo-071
     title: chatwoot — no start command, declared Sidekiq worker

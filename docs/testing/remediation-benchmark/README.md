@@ -11,7 +11,7 @@ over real repositories. The generator itself is described in
   its analysis metadata, written by `scripts/remediation-benchmark/capture.ts`
   through the production analysis path. Names of environment variables only,
   never values. Re-capture after an analysis change that alters findings.
-- `cases.yaml` — 38 cases: 26 snapshots as analysed and 12 targeted
+- `cases.yaml` — 37 cases: 25 snapshots as analysed and 12 targeted
   mutations. Roles: three primary repositories (kutt, paperless-ngx, the
   Deployz phase-5 canary), one holdout (CTFd) that is never used to tune the
   generator, and support repositories.

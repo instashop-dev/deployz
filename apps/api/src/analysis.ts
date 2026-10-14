@@ -353,7 +353,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // Version 55 (readiness copy): the worker, message-queue and infrastructure
 // findings no longer tell the vendor to merge jobs into the web process,
 // replace a queue or remove deployment files. Stored v54 rows show the old copy.
-export const ANALYSIS_VERSION = 55;
+// Version 56 (COMP-052): a Dockerfile `VOLUME $VAR` that only the base image
+// sets is configuration or cache, not durable state, when the Compose service
+// that runs the image mounts at least as many paths and every one is a
+// configuration or cache path. Stored v55 rows reject such an app (searxng).
+export const ANALYSIS_VERSION = 56;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

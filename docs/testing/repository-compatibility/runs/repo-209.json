@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7",
-  "analysisVersion": 54,
+  "deployzSha": "3d945b478348f4c4ca29c875aa254fdf920a18f2",
+  "analysisVersion": 56,
   "tree": {
     "files": 201,
     "entries": 1216,
@@ -32,9 +32,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "container/dist.dockerfile",
@@ -57,14 +57,9 @@
       "GITHUB_REF_NAME",
       "GITHUB_REPOSITORY"
     ],
-    "unsupported": [
-      "local-filesystem"
-    ],
-    "readinessFindings": [
-      "local-file-storage"
-    ],
+    "unsupported": [],
+    "readinessFindings": [],
     "gateFindings": [
-      "unsupported",
       "dockerfile-missing-sources",
       "required-env-vars-missing"
     ],
@@ -77,9 +72,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -132,36 +126,10 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "local-filesystem"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
-  "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-052",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "local-filesystem"
-      ],
-      "finding": {
-        "id": "COMP-052",
-        "type": "ANALYSIS_BUG"
-      }
-    }
-  ],
-  "match": false
+  "mismatches": [],
+  "match": true
 }

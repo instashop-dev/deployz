@@ -218,3 +218,46 @@ describe('Dockerfile VOLUME that names an ENV path (searxng)', () => {
     expect(detectLocalFilesystem(dockerfile(['VOLUME /etc/app', 'VOLUME /srv/data'])).value).toEqual(['VOLUME /srv/data (Dockerfile)']);
   });
 });
+
+describe('Dockerfile VOLUME whose variable only the base image sets (COMP-052, searxng)', () => {
+  const tree = (mounts: string[]): FileTree => ({
+    Dockerfile: ['FROM docker.io/acme/base:app', 'VOLUME $__APP_CONFIG_PATH', 'VOLUME $__APP_DATA_PATH', 'EXPOSE 8080', 'CMD ["run"]', ''].join('\n'),
+    'docker-compose.yml': ['services:', '  core:', '    image: docker.io/acme/app:latest', '    volumes:', ...mounts.map((m) => `      - ${m}`), ''].join('\n'),
+  });
+
+  it('is not durable state when the Compose service mounts only configuration and cache paths', () => {
+    expect(detectLocalFilesystem(tree(['./core-config/:/etc/app/:Z', 'core-data:/var/cache/app/'])).detected).toBe(false);
+  });
+
+  it('stays durable state when a mount holds data, or the service mounts fewer paths than the image declares', () => {
+    expect(detectLocalFilesystem(tree(['./core-config/:/etc/app/', 'core-data:/var/lib/app'])).detected).toBe(true);
+    expect(detectLocalFilesystem(tree(['./core-config/:/etc/app/'])).detected).toBe(true);
+    expect(detectLocalFilesystem(tree([])).detected).toBe(true);
+  });
+
+  it('finds the own service by the OCI title label when its image name is on the infrastructure list', () => {
+    const searxng = (label: string): FileTree => ({
+      'container/dist.dockerfile': [
+        'FROM docker.io/searxng/base:searxng AS dist',
+        label,
+        'VOLUME $__SEARXNG_CONFIG_PATH',
+        'VOLUME $__SEARXNG_DATA_PATH',
+        'EXPOSE 8080',
+        'ENTRYPOINT ["/usr/local/searxng/entrypoint.sh"]',
+        '',
+      ].join('\n'),
+      'container/docker-compose.yml': [
+        'services:',
+        '  core:',
+        '    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}',
+        '    volumes:',
+        '      - ./core-config/:/etc/searxng/:Z',
+        '      - core-data:/var/cache/searxng/',
+        '',
+      ].join('\n'),
+    });
+    expect(detectLocalFilesystem(searxng('LABEL org.opencontainers.image.title="SearXNG"')).detected).toBe(false);
+    expect(detectLocalFilesystem(searxng('LABEL org.opencontainers.image.title="Other"')).detected).toBe(true);
+    expect(detectLocalFilesystem(searxng('')).detected).toBe(true);
+  });
+});
