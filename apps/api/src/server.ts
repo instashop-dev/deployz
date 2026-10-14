@@ -180,6 +180,7 @@ import {
   type EcrPullGrantDeps,
 } from './ecr-pull-grants.js';
 import { refineFailureCode } from './failure-classification.js';
+import { readInstallVerification, unverifiedInstall } from './install-verification.js';
 import {
   createFixtureReleaseImageClient,
   createRealReleaseImageClient,
@@ -7012,18 +7013,48 @@ export async function buildServer({
     // §61: report the code the relay actually gave for the failure. Falling
     // back to UNKNOWN when the job carried no code is honest; hardcoding it
     // when the job DOES carry one throws away the only classification we have.
-    const [failedJob] = await db
+    let [failedJob] = await db
       .select({
         id: schema.deploymentJobs.id,
         type: schema.deploymentJobs.type,
         failureCode: schema.deploymentJobs.failureCode,
         result: schema.deploymentJobs.result,
         payload: schema.deploymentJobs.payload,
+        finishedAt: schema.deploymentJobs.finishedAt,
       })
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'FAILED')))
       .orderBy(desc(schema.deploymentJobs.finishedAt))
       .limit(1);
+    // An install that never verified is failed by the control plane, not by
+    // a job: the record sits on the settled job the window was measured from
+    // and wins over any older failed job.
+    const [settledJob] = await db
+      .select({
+        id: schema.deploymentJobs.id,
+        type: schema.deploymentJobs.type,
+        result: schema.deploymentJobs.result,
+        finishedAt: schema.deploymentJobs.finishedAt,
+      })
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'SUCCEEDED')))
+      .orderBy(desc(schema.deploymentJobs.finishedAt))
+      .limit(1);
+    const unverifiedRecord = deployment.state === 'FAILED' ? readInstallVerification(settledJob?.result) : null;
+    if (
+      settledJob &&
+      unverifiedRecord !== null &&
+      (!failedJob || (failedJob.finishedAt?.getTime() ?? 0) < (settledJob.finishedAt?.getTime() ?? 0))
+    ) {
+      failedJob = {
+        id: settledJob.id,
+        type: settledJob.type,
+        failureCode: unverifiedRecord.failureCode,
+        result: null,
+        payload: {},
+        finishedAt: settledJob.finishedAt,
+      };
+    }
     // Phase 6: the one bounded, sanitised failure representation — built
     // from the failed job and the CloudFormation events persisted for it.
     const failureContext = failedJob
@@ -7682,6 +7713,89 @@ export async function buildServer({
     return verdict.pass
       ? { accepted: true, digest: verdict.digest, observedAt, reason: null, notStarted: false }
       : { accepted: false, digest: null, observedAt, reason: verdict.reason, notStarted };
+  }
+
+  /**
+   * Bounded install verification (docs/deployment-resilience.md): an installed
+   * deployment that outlives its verification window with the application
+   * still failing release evidence becomes FAILED, classified by the verdict
+   * reason. The deployment row is locked so the check and the transition are
+   * one step: a job created meanwhile, or a second heartbeat, cannot repeat it.
+   */
+  async function failUnverifiedInstall(
+    deployment: DeploymentRow,
+    evidence: { accepted: boolean; reason: string | null; notStarted: boolean },
+    rawEvidence: unknown,
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ state: schema.deployments.state })
+        .from(schema.deployments)
+        .where(eq(schema.deployments.id, deployment.id))
+        .for('update');
+      if (locked?.state !== 'INSTALLING') return;
+      const jobs = await tx
+        .select({
+          id: schema.deploymentJobs.id,
+          type: schema.deploymentJobs.type,
+          state: schema.deploymentJobs.state,
+          createdAt: schema.deploymentJobs.createdAt,
+          finishedAt: schema.deploymentJobs.finishedAt,
+          result: schema.deploymentJobs.result,
+        })
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+      const unverified = unverifiedInstall({
+        jobs,
+        verdict: { pass: evidence.accepted, reason: evidence.reason, notStarted: evidence.notStarted },
+        now: new Date(),
+      });
+      if (unverified === null) return;
+
+      const anchor = jobs.find((job) => job.id === unverified.anchorJobId);
+      await tx
+        .update(schema.deploymentJobs)
+        .set({
+          result: {
+            ...(anchor?.result ?? {}),
+            installVerification: { failureCode: unverified.failureCode, reason: unverified.reason },
+          },
+        })
+        .where(eq(schema.deploymentJobs.id, unverified.anchorJobId));
+      await tx
+        .update(schema.deployments)
+        .set({ state: 'FAILED' })
+        .where(eq(schema.deployments.id, deployment.id));
+      const parsed = releaseEvidenceSchema.safeParse(rawEvidence);
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'deployment.install_not_verified',
+        actorType: 'relay',
+        actorId: deployment.installationId ?? deployment.id,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        jobId: unverified.anchorJobId,
+        previousState: 'INSTALLING',
+        requestedState: 'FAILED',
+        result: 'failure',
+        payload: {
+          failureCode: unverified.failureCode,
+          reason: unverified.reason,
+          evidence: parsed.success
+            ? {
+                services: parsed.data.services.map((service) => ({
+                  workloadId: service.workloadId,
+                  desiredCount: service.desiredCount,
+                  runningCount: service.runningCount,
+                  rolloutState: service.rolloutState,
+                  targets: service.targets,
+                })),
+                httpProbeStatus: parsed.data.httpProbe?.status ?? null,
+              }
+            : null,
+        },
+      });
+    });
   }
 
   /**
@@ -9229,6 +9343,21 @@ export async function buildServer({
         });
       }
     });
+
+    // Bounded install verification: an application that never passes release
+    // evidence must not stay INSTALLING forever. Best-effort like the other
+    // post-write steps; the next heartbeat retries.
+    if (deployment.state === 'INSTALLING') {
+      try {
+        await failUnverifiedInstall(
+          deployment,
+          evidence,
+          (body.observedState as Record<string, unknown> | undefined)?.['releaseEvidence'],
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, 'install verification check failed');
+      }
+    }
 
     // §59 inventory persistence: the relay is the ONLY pipeline that observes
     // AWS — this stores the raw ListStackResources read it transported.

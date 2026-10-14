@@ -2127,6 +2127,41 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(diagnostics.json()).toMatchObject({ failureCode: 'ECS_DEPLOYMENT_FAILED', source: 'deterministic', confidence: null });
   });
 
+  it('diagnostics classify an install that never verified, and deploy again stays allowed', async () => {
+    const fresh = await insertDeployment(db, org.organizationId, deployment.applicationId, deployment.customerId, {
+      state: 'FAILED',
+      installationId: 'inst-unverified',
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken('relay-unverified-token'),
+      relayStatus: 'CONNECTED',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: fresh.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${fresh.id}:INSTALL`,
+      finishedAt: new Date(),
+      result: { installVerification: { failureCode: 'CONTAINER_START_FAILED', reason: 'TASKS_INSUFFICIENT' } },
+    });
+
+    const diagnostics = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${fresh.id}/diagnostics`,
+      headers: { cookie: org.cookie },
+    });
+    expect(diagnostics.statusCode).toBe(200);
+    expect(diagnostics.json()).toMatchObject({ failureCode: 'CONTAINER_START_FAILED', recoverability: 'USER_ACTION' });
+
+    const retry = await app.inject({
+      method: 'POST',
+      url: `/api/deployments/${fresh.id}/deploy`,
+      headers: { cookie: org.cookie },
+      payload: {},
+    });
+    expect(retry.statusCode).not.toBe(409);
+  });
+
   // §22/§23/§42: codes outside the AI-explained set bypass AI entirely — the
   // deterministic §65 copy map is authoritative and the gateway must never
   // be invoked.

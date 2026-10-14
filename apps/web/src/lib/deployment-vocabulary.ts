@@ -744,6 +744,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'destroy.failed': 'Removal failed',
   'deployment.reconciled': 'Running version corrected from AWS',
   'deployment.state_recovered': 'Running and healthy — failure cleared',
+  'deployment.install_not_verified': 'App never became healthy',
   'config.updated': 'Configuration updated',
   'config.failed': 'Configuration update failed',
   'health.reported': 'Health reported',

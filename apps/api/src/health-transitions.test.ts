@@ -281,6 +281,115 @@ describe('health transition events', () => {
     expect(await stateOf()).toBe('HEALTHY');
   });
 
+  describe('bounded install verification', () => {
+    const LONG_AGO = new Date(Date.now() - 31 * 60 * 1000);
+
+    async function seedInstalling(
+      jobs: { type: 'INSTALL' | 'DEPLOY_RELEASE'; state: 'SUCCEEDED' | 'RUNNING'; finishedAt: Date | null }[],
+    ) {
+      const token = 'tok-' + crypto.randomUUID();
+      const installationId = 'inst-' + crypto.randomUUID();
+      const [row] = await db
+        .insert(schema.deployments)
+        .values({
+          organizationId,
+          applicationId,
+          customerId,
+          region: 'us-east-1',
+          state: 'INSTALLING',
+          installationId,
+          enrollmentCode: crypto.randomUUID(),
+          enrollmentUsedAt: new Date(),
+          relayTokenHash: hashRelayToken(token),
+          relayStatus: 'CONNECTED',
+          healthStatus: 'UNKNOWN',
+          observedState: {},
+          specV2: spec as unknown as Record<string, unknown>,
+        })
+        .returning();
+      let offset = jobs.length;
+      for (const job of jobs) {
+        await db.insert(schema.deploymentJobs).values({
+          deploymentId: row!.id,
+          type: job.type,
+          state: job.state,
+          idempotencyKey: `${row!.id}:${job.type}`,
+          createdAt: new Date((job.finishedAt ?? new Date()).getTime() - offset-- * 1000),
+          finishedAt: job.finishedAt,
+        });
+      }
+      const stateOf = async () =>
+        (await db.select({ state: schema.deployments.state }).from(schema.deployments).where(eq(schema.deployments.id, row!.id)))[0]
+          ?.state;
+      return { id: row!.id, installationId, token, stateOf };
+    }
+
+    const probeFails = () =>
+      evidence((value) => {
+        value.httpProbe = { ok: false, status: 503, checkedAt: value.observedAt };
+      });
+
+    it('fails an install that never verified once, with a classified code', async () => {
+      const d = await seedInstalling([{ type: 'INSTALL', state: 'SUCCEEDED', finishedAt: LONG_AGO }]);
+
+      await heartbeat(d.installationId, d.token, 'UNHEALTHY', undefined, probeFails());
+      expect(await d.stateOf()).toBe('FAILED');
+      await heartbeat(d.installationId, d.token, 'UNHEALTHY', undefined, probeFails());
+
+      const recorded = (await events(d.installationId)).filter((e) => e.eventType === 'deployment.install_not_verified');
+      expect(recorded).toHaveLength(1);
+      const [install] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, d.id));
+      expect(install!.result).toMatchObject({
+        installVerification: { failureCode: 'IMAGE_HEALTH_CHECK_FAILED', reason: 'PROBE_FAILED' },
+      });
+    });
+
+    it('waits inside the window and verifies a passing app', async () => {
+      const d = await seedInstalling([{ type: 'INSTALL', state: 'SUCCEEDED', finishedAt: new Date() }]);
+      await heartbeat(d.installationId, d.token, 'UNHEALTHY', undefined, probeFails());
+      expect(await d.stateOf()).toBe('INSTALLING');
+      await heartbeat(d.installationId, d.token, 'HEALTHY', undefined, evidence());
+      expect(await d.stateOf()).toBe('HEALTHY');
+    });
+
+    it('measures the window from a later settled deploy', async () => {
+      const d = await seedInstalling([
+        { type: 'INSTALL', state: 'SUCCEEDED', finishedAt: LONG_AGO },
+        { type: 'DEPLOY_RELEASE', state: 'SUCCEEDED', finishedAt: new Date() },
+      ]);
+      await heartbeat(d.installationId, d.token, 'UNHEALTHY', undefined, probeFails());
+      expect(await d.stateOf()).toBe('INSTALLING');
+    });
+
+    it('never fails an old connector that sends no evidence', async () => {
+      const d = await seedInstalling([{ type: 'INSTALL', state: 'SUCCEEDED', finishedAt: LONG_AGO }]);
+      await heartbeat(d.installationId, d.token, 'HEALTHY');
+      expect(await d.stateOf()).toBe('INSTALLING');
+    });
+
+    it('does not fail while a mutating job is active', async () => {
+      const d = await seedInstalling([
+        { type: 'INSTALL', state: 'SUCCEEDED', finishedAt: LONG_AGO },
+        { type: 'DEPLOY_RELEASE', state: 'RUNNING', finishedAt: null },
+      ]);
+      await heartbeat(d.installationId, d.token, 'UNHEALTHY', undefined, probeFails());
+      expect(await d.stateOf()).toBe('INSTALLING');
+    });
+
+    it('does not fail a configured first start that has not been deployed yet', async () => {
+      const d = await seedInstalling([{ type: 'INSTALL', state: 'SUCCEEDED', finishedAt: LONG_AGO }]);
+      await heartbeat(d.installationId, d.token, 'UNHEALTHY', undefined, evidence((value) => {
+        for (const service of value.services) {
+          service.desiredCount = 0;
+          service.runningCount = 0;
+          service.runningDigests = [];
+          service.targets = { healthy: 0, unhealthy: 0, pending: 0, unknown: 0 };
+        }
+      }));
+      expect(await d.stateOf()).toBe('INSTALLING');
+    });
+  });
+
   it('records no outage event while every workload is intentionally at zero tasks', async () => {
     const seeded = await seedDeployment('HEALTHY');
     await db
