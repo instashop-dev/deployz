@@ -108,6 +108,7 @@ const DATABASE_PINNED_TYPES: ReadonlySet<string> = new Set([
   'AWS::EC2::SecurityGroup',
   'AWS::EC2::Subnet',
   'AWS::EC2::VPC',
+  'AWS::EC2::VPCCidrBlock',
 ]);
 
 /**

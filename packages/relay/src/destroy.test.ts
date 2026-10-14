@@ -390,6 +390,31 @@ describe('settleDestroy', () => {
     expect(deleter.retained).toEqual([[STUCK_SECURITY_GROUP.logicalId]]);
   });
 
+  it('retains the secondary VPC CIDR block the retained database subnet still uses', async () => {
+    const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS'], [
+      { ...DB_ORPHAN, status: 'DELETE_SKIPPED' },
+      { logicalId: 'NetworkDbSubnet3', type: 'AWS::EC2::Subnet', status: 'DELETE_SKIPPED' },
+      { logicalId: 'NetworkVpc', type: 'AWS::EC2::VPC', status: 'CREATE_COMPLETE' },
+      { logicalId: 'NetworkDbVpcCidrBlock', type: 'AWS::EC2::VPCCidrBlock', status: 'DELETE_FAILED' },
+    ]);
+
+    const outcome = await settleDestroy(deps(cfn, deleter));
+
+    expect(outcome).toEqual({ state: 'deleting' });
+    expect(deleter.retained).toEqual([['NetworkDbVpcCidrBlock']]);
+  });
+
+  it('treats a VPC CIDR block failing with no database as a genuine failure', async () => {
+    const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS'], [
+      { logicalId: 'NetworkDbVpcCidrBlock', type: 'AWS::EC2::VPCCidrBlock', status: 'DELETE_FAILED' },
+    ]);
+
+    const outcome = await settleDestroy(deps(cfn, deleter));
+
+    expect(outcome.state).toBe('failed');
+    expect(deleter.retained).toEqual([]);
+  });
+
   it('re-running destroy after a cleared DELETE_FAILED stack is harmless', async () => {
     const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS', 'DELETE_COMPLETE'], [
       DB_ORPHAN,

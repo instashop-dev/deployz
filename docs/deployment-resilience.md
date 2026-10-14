@@ -714,12 +714,12 @@ expected pacing (45+ minutes of CloudFormation retrying), not a failure.
 The relay lists the `DELETE_FAILED` resources and re-issues
 `delete-stack` with `RetainResources`, repeating the pass on each poll
 until the stack reaches `DELETE_COMPLETE`. Only the RDS instance and the
-network it pins (DB subnet group, security group, subnet, VPC — and the
+network it pins (DB subnet group, security group, subnet, VPC and the secondary VPC CIDR
+block the database-only subnets use — and the
 network only while a database is blocked or already retained) may be
 retained. Any other `DELETE_FAILED` resource is a real failure:
 `STACK_DELETE_FAILED` naming its logical id, type and reason, nothing retained. The deployment then settles
-`DELETED` — truthfully: the application, network and cache are gone; the
-database, its credential secrets and the bucket are deliberately retained
+`DELETED` — truthfully: the application and cache are gone; the database, the network it pins (including the secondary VPC CIDR block), its credential secrets and the bucket are deliberately retained
 (no final snapshot is ever taken), clearly visible, and removable by
 PURGE.
 

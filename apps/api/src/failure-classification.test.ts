@@ -348,6 +348,16 @@ describe('isRetainedDataDeleteBlocked', () => {
     expect(isRetainedDataDeleteBlocked([dbDeletionProtected, sgPinnedByEni, subnetPinnedByEni])).toBe(true);
   });
 
+  it('accepts the secondary VPC CIDR block only beside retained-data evidence', () => {
+    const cidrBlock: FailureStackEvent = {
+      resourceType: 'AWS::EC2::VPCCidrBlock',
+      resourceStatus: 'DELETE_FAILED',
+      resourceStatusReason: 'The CIDR block is still in use by a subnet',
+    };
+    expect(isRetainedDataDeleteBlocked([dbDeletionProtected, cidrBlock])).toBe(true);
+    expect(isRetainedDataDeleteBlocked([cidrBlock])).toBe(false);
+  });
+
   it('reads an ENI pin from a security group alone — the database itself need not be among the failed events', () => {
     expect(isRetainedDataDeleteBlocked([sgPinnedByEni])).toBe(true);
   });
