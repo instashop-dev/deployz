@@ -747,6 +747,31 @@ describe('default-https service', () => {
       expect((await stateOf(deployment.id))?.checkCycle).toBe(1);
     });
 
+    it('ensureDefaultHttpsConfigureJob after a state reset creates a job above every earlier cycle', async () => {
+      const deployment = await seedDeployment();
+      const hostname = defaultHttpsHostname(deployment.id, apex);
+      const prefix = `${deployment.id}:CONFIGURE_DOMAIN:default-https:`;
+      // History of the failed first attempt: cycle 0 cancelled, cycle 1 succeeded.
+      for (const [cycle, state] of [[0, 'CANCELLED'], [1, 'SUCCEEDED']] as const) {
+        await db.insert(schema.deploymentJobs).values({
+          deploymentId: deployment.id,
+          type: 'CONFIGURE_DOMAIN',
+          state,
+          idempotencyKey: `${prefix}${cycle}`,
+          payload: {},
+          requestedBy: null,
+          finishedAt: new Date(),
+        });
+      }
+      // The retry dropped the state; the next pass starts again at cycle 0.
+      const state = { hostname, status: 'PENDING', checkCycle: 0, lastError: null };
+      expect(await ensureDefaultHttpsConfigureJob(db, deployment, state)).toBe(true);
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      expect(jobs).toHaveLength(3);
+      expect(jobs.some((job) => job.idempotencyKey === `${prefix}2` && job.state === 'REQUESTED')).toBe(true);
+      expect((await stateOf(deployment.id))?.checkCycle).toBe(2);
+    });
+
     it('uses the production apex by default', () => {
       expect(defaultHttpsHostname('dep-1', DEFAULT_HTTPS_APEX)).toBe('d-dep-1.deployz.dev');
     });
