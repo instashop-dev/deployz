@@ -411,9 +411,9 @@ currently completed by the web app; see
   `GetRandomPassword`, log retention, task-definition deregistration,
   ElastiCache replication-group lifecycle, `ecs:RunTask`,
   `ecs:ListTaskDefinitions`). The relay role's
-  `ecs:DeregisterTaskDefinition` is scoped by ARN to `DeployzApp*` task
-  definitions (the boundary carries it as a wildcard to stay under the
-  policy-size quota). The bootstrap
+  `ecs:DeregisterTaskDefinition` is granted on `*` (the boundary does the
+  same) because ECS supports no resource-level scoping for it; the relay code
+  restricts it to the installation's own suffixed task families. The bootstrap
   stack attaches the provisioner policy at install; nothing is attached
   later. The relay reads and writes its own credential secret by that
   secret's ARN only. It reads and writes other secret values only on secrets

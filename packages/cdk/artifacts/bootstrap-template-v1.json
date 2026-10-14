@@ -1472,26 +1472,7 @@
             {
               "Action": "ecs:DeregisterTaskDefinition",
               "Effect": "Allow",
-              "Resource": {
-                "Fn::Join": [
-                  "",
-                  [
-                    "arn:",
-                    {
-                      "Ref": "AWS::Partition"
-                    },
-                    ":ecs:",
-                    {
-                      "Ref": "AWS::Region"
-                    },
-                    ":",
-                    {
-                      "Ref": "AWS::AccountId"
-                    },
-                    ":task-definition/DeployzApp*:*"
-                  ]
-                ]
-              },
+              "Resource": "*",
               "Sid": "RelayDeregisterRevisions"
             }
           ],
@@ -1920,7 +1901,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "89bdb5b612b542d319a0d0c6ee576cdccacd09fca37c4131f025a167b364701f.zip"
+          "S3Key": "0d1141a0914d190b373a2231161406bd60052ec0a3c7f06dc89e065fb0189bc1.zip"
         },
         "Environment": {
           "Variables": {

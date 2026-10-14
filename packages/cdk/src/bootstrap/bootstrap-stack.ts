@@ -1202,20 +1202,14 @@ export class BootstrapStack extends Stack {
       },
     });
 
-    // Revision cleanup deregisters superseded revisions of the application's
-    // own task families. DeregisterTaskDefinition does not evaluate tags, so
-    // the grant is scoped by ARN to the DeployzApp* families instead.
+    // ECS does not support resource-level permissions or tags for
+    // DeregisterTaskDefinition, so an ARN-scoped grant never matches. The
+    // relay code restricts it to this installation's suffixed task families.
     const phase4DeregisterRevisions = new PolicyStatement({
       sid: 'RelayDeregisterRevisions',
       effect: Effect.ALLOW,
       actions: ['ecs:DeregisterTaskDefinition'],
-      resources: [
-        Stack.of(this).formatArn({
-          service: 'ecs',
-          resource: 'task-definition',
-          resourceName: 'DeployzApp*:*',
-        }),
-      ],
+      resources: ['*'],
     });
 
     const phase4MigrationRun = new PolicyStatement({
