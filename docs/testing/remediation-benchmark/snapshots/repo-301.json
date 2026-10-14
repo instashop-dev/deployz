@@ -2,7 +2,7 @@
   "id": "repo-301",
   "repository": "Klarline/retail-inventory-platform",
   "commit": "3a2b8a3004991d50dfb475200164906d511536e6",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "Klarline/retail-inventory-platform",
     "containerPort": 8080,
@@ -18,7 +18,7 @@
         }
       ],
       "analysisCommitSha": "3a2b8a3004991d50dfb475200164906d511536e6",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [
         {
           "id": "queue-sqs-queue-url",
@@ -289,8 +289,8 @@
             "severity": "recommended",
             "confidence": "likely",
             "whyItMatters": "Deployz runs your migration command automatically on every deploy, so each customer database always matches the code that talks to it.",
-            "suggestedOutcome": "Add a script that applies database migrations non-interactively (for example a \"db:migrate\" entry in package.json).",
-            "technicalEvidence": "A PostgreSQL library is present (@prisma/client) but no migration script was found in any package.json.",
+            "suggestedOutcome": "If the app already updates its database when it starts, change nothing. Otherwise set a command that applies the migrations non-interactively in the application settings.",
+            "technicalEvidence": "A PostgreSQL library is present (@prisma/client) but no migration command was found in the image start path or any package.json.",
             "plainEnglishExplanation": "This app uses a database, but Deployz could not find a command that updates the database structure during deploys."
           },
           {

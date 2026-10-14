@@ -2,7 +2,7 @@
   "id": "repo-052",
   "repository": "laurent22/joplin",
   "commit": "21a7dd4307d235373d1aaf6b4675dec66f0faabc",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "laurent22/joplin",
     "containerPort": null,
@@ -38,7 +38,7 @@
         }
       ],
       "analysisCommitSha": "21a7dd4307d235373d1aaf6b4675dec66f0faabc",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [
         {
           "id": "queue-unnamed-packages-app-clipper-content-scripts-ind",

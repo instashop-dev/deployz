@@ -2,7 +2,7 @@
   "id": "repo-080",
   "repository": "vllm-project/vllm",
   "commit": "560ef78bfe734ea894f8a866e50406574021b9f5",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "vllm-project/vllm",
     "containerPort": null,
@@ -30,7 +30,7 @@
         }
       ],
       "analysisCommitSha": "560ef78bfe734ea894f8a866e50406574021b9f5",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

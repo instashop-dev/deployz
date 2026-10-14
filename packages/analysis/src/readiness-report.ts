@@ -618,10 +618,10 @@ export function buildReadinessReport(
           ? 'A MySQL library is present but no migration command was found in the image start path or any package.json.'
           : `A PostgreSQL library is present (${
               Array.isArray(drivers) ? drivers.join(', ') : 'detected'
-            }) but no migration script was found in any package.json.`,
+            }) but no migration command was found in the image start path or any package.json.`,
         suggestedOutcome: suggestedMigration
           ? `Set the migration command to "${suggestedMigration}" in the application's settings, or make the image run it when it starts.`
-          : 'Add a script that applies database migrations non-interactively (for example a "db:migrate" entry in package.json).',
+          : 'If the app already updates its database when it starts, change nothing. Otherwise set a command that applies the migrations non-interactively in the application settings.',
         // When the database requirement itself is unconfirmed (driver present
         // but no corroborating signal), the whole finding is uncertain.
         confidence: databaseRequired ? 'likely' : 'needs_confirmation',

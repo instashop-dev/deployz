@@ -2,7 +2,7 @@
   "id": "repo-059",
   "repository": "go-vikunja/vikunja",
   "commit": "c82715c36a30ef40cff8a957302f671e9563a54a",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "go-vikunja/vikunja",
     "containerPort": 3456,
@@ -34,7 +34,7 @@
         }
       ],
       "analysisCommitSha": "c82715c36a30ef40cff8a957302f671e9563a54a",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

@@ -2,7 +2,7 @@
   "id": "repo-016",
   "repository": "outline/outline",
   "commit": "012188635b0a0fabbd446d4a9aad12eba588c630",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "outline/outline",
     "containerPort": 3000,
@@ -30,7 +30,7 @@
         }
       ],
       "analysisCommitSha": "012188635b0a0fabbd446d4a9aad12eba588c630",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

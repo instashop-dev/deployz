@@ -2,7 +2,7 @@
   "id": "repo-084",
   "repository": "NangoHQ/nango",
   "commit": "f9667ac2be24667df6ee89259c08748f4b08cf9e",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "NangoHQ/nango",
     "containerPort": 8080,
@@ -35,7 +35,7 @@
         }
       ],
       "analysisCommitSha": "f9667ac2be24667df6ee89259c08748f4b08cf9e",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],

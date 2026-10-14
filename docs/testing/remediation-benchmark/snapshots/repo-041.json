@@ -2,7 +2,7 @@
   "id": "repo-041",
   "repository": "coder/coder",
   "commit": "07f9018c617af5c15bffaf25fefdb64c1490f471",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "coder/coder",
     "containerPort": 7080,
@@ -35,7 +35,7 @@
         }
       ],
       "analysisCommitSha": "07f9018c617af5c15bffaf25fefdb64c1490f471",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
