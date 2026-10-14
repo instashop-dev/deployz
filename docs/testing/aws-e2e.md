@@ -272,7 +272,8 @@ FAILED.
 ### Teardown pacing
 
 Disconnect and Purge run inside the customer account, on the relay's
-5-minute EventBridge schedule, and Purge sweeps one orphan kind per poll —
+one-minute EventBridge schedule (five minutes on a connector published
+before the one-minute change), and Purge sweeps one orphan kind per poll —
 most of a teardown's wall clock is waiting for the next tick. Teardown steps
 therefore invoke the relay once between polls (the same handler the schedule
 invokes, synchronously, so nudges cannot overlap). The deploy/rollback

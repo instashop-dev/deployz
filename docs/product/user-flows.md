@@ -79,7 +79,7 @@ behind each step is in [`../architecture.md`](../architecture.md).
    which also opens for a public link or an invitation before a deployment
    exists) and the installation reference are under Technical details.
 4. **Quick Create** in the customer's own AWS console creates the
-   `deployz-bootstrap-…` stack: the relay Lambda on a 5-minute schedule, its
+   `deployz-bootstrap-…` stack: the relay Lambda on a one-minute schedule, its
    IAM role with a permissions boundary, the CloudFormation execution role,
    and the relay credential in Secrets Manager.
 5. **Relay enrollment**: the relay registers with a single-use enrollment
