@@ -1,16 +1,16 @@
 # Repository compatibility audit — run summary
 
-Deployz commit: `d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7` · analysis version: 54
+Deployz commit: `3d945b478348f4c4ca29c875aa254fdf920a18f2` · analysis version: 56
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 123 |
 | Analysed | 123 |
 | Failed to analyse | 0 |
-| Verdict matches | 95 / 123 (77.2%) |
-| All facts match | 5 |
+| Verdict matches | 96 / 123 (78%) |
+| All facts match | 6 |
 | False acceptances | 7 |
-| False rejections | 11 |
+| False rejections | 10 |
 | Configuration-detection mismatches | 10 |
 | Unexplained mismatches | 108 |
 
@@ -18,7 +18,7 @@ Deployz commit: `d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7` · analysis version: 
 
 | Type | Mismatches |
 | --- | --- |
-| ANALYSIS_BUG | 69 |
+| ANALYSIS_BUG | 67 |
 | ANALYSIS_MISSING_SIGNAL | 158 |
 | MVP_CAPABILITY_GAP | 0 |
 | CORRECTLY_UNSUPPORTED | 0 |
@@ -30,7 +30,7 @@ Deployz commit: `d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7` · analysis version: 
 | --- | --- | --- | --- | --- |
 | improvement | 83 | 83 | 64 | 3 |
 | unseen | 20 | 20 | 16 | 2 |
-| unseen2 | 20 | 20 | 15 | 0 |
+| unseen2 | 20 | 20 | 16 | 1 |
 
 ## By cohort
 
@@ -38,7 +38,7 @@ Deployz commit: `d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7` · analysis version: 
 | --- | --- | --- | --- | --- |
 | boundary | 24 | 24 | 21 | 2 |
 | messy | 27 | 27 | 24 | 1 |
-| realistic | 72 | 72 | 50 | 2 |
+| realistic | 72 | 72 | 51 | 3 |
 
 ## Repositories
 
@@ -152,7 +152,7 @@ Deployz commit: `d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7` · analysis version: 
 | repo-206 | nocobase/nocobase@4901246 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | storage (expected false, actual true) → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>healthPath (expected "/api/__health_check", actual null) → UNEXPLAINED |
 | repo-207 | khoj-ai/khoj@ae229ca | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>dockerfilePath (expected "Dockerfile", actual "prod.Dockerfile") → UNEXPLAINED<br>port (expected 42110, actual 5900) → UNEXPLAINED<br>healthPath (expected "/api/health", actual "/health") → UNEXPLAINED<br>unsupported (expected [], actual ["docker-compose-multi-service","local-filesystem"]) → UNEXPLAINED |
 | repo-208 | baserow/baserow@c8f7827 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected false, actual true) → UNEXPLAINED<br>worker (expected false, actual true) → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>dockerfilePath (expected "backend/Dockerfile", actual "heroku.Dockerfile") → UNEXPLAINED<br>healthPath (expected "/api/_health/", actual null) → UNEXPLAINED<br>unsupported (expected ["local-filesystem"], actual ["background-worker","docker-compose-multi-service"]) → UNEXPLAINED |
-| repo-209 | searxng/searxng@23e7e4d | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-052 ANALYSIS_BUG<br>unsupported (expected [], actual ["local-filesystem"]) → COMP-052 ANALYSIS_BUG |
+| repo-209 | searxng/searxng@23e7e4d | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | match |
 | repo-210 | FreshRSS/FreshRSS@e5f9906 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected false, actual true) → UNEXPLAINED |
 | repo-211 | toeverything/AFFiNE@2365c36 | messy | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → UNEXPLAINED<br>redis (expected true, actual false) → UNEXPLAINED<br>worker (expected false, actual true) → UNEXPLAINED<br>migration (expected true, actual false) → UNEXPLAINED<br>appRoot (expected ".", actual ".render") → UNEXPLAINED<br>dockerfilePath (expected ".github/deployment/node/Dockerfile", actual ".render/Dockerfile") → UNEXPLAINED<br>unsupported (expected [], actual ["local-filesystem"]) → UNEXPLAINED |
 | repo-212 | NodeBB/NodeBB@7457d23 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | unsupported (expected ["local-filesystem"], actual ["local-filesystem","mongodb"]) → UNEXPLAINED |

@@ -2307,6 +2307,11 @@ function volumeCalledOptional(composeContent: string, volume: string): boolean {
   return /\bnot (?:required|needed) in (?:a |the )?production\b/i.test(comments.join(' '));
 }
 
+/** The container side of a Compose volume entry (`./config:/etc/app:ro` → `/etc/app`). */
+function composeMountTarget(volume: string): string {
+  return volume.includes(':') ? volume.slice(volume.indexOf(':') + 1).replace(/:(?:rw|ro|z|Z)+$/, '') : volume;
+}
+
 /** Every value under `volume` is a SQLite/DB file path: the volume only holds the embedded database. */
 function holdsOnlyEmbeddedDatabase(volume: string, texts: string[]): boolean {
   const escaped = volume.replace(/\/$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2335,15 +2340,22 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
   const hasObjectStorageOption = (): boolean => (objectStorage ??= offersObjectStorageOption(tree));
 
   const dockerfile = selectedDockerfile(tree);
+  // `VOLUME $VAR` whose value only the base image sets: decided below from the Compose mounts.
+  const unresolvedVolumes: string[] = [];
   for (const match of dockerfile?.content.matchAll(DOCKERFILE_VOLUME_REGEX) ?? []) {
     const raw = match[1]?.trim() ?? '';
     const paths = raw.startsWith('[') ? raw.match(/"([^"]+)"/g)?.map((p) => p.slice(1, -1)) ?? [] : raw.split(/\s+/);
     for (const declared of paths) {
       // `VOLUME $DATA_PATH` is the path the same Dockerfile sets with `ENV`.
       const variable = /^\$(?:\{(\w+)\}|(\w+))$/.exec(declared);
-      const volume =
-        (variable && dockerfileEnvValues(dockerfile?.content ?? '').find(([name]) => name === (variable[1] ?? variable[2]))?.[1]) ||
-        declared;
+      const resolved = variable
+        ? dockerfileEnvValues(dockerfile?.content ?? '').find(([name]) => name === (variable[1] ?? variable[2]))?.[1]
+        : undefined;
+      if (variable && !resolved) {
+        unresolvedVolumes.push(declared);
+        continue;
+      }
+      const volume = resolved || declared;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
       if (hasPostgresDriver && holdsOnlyEmbeddedDatabase(volume, [dockerfile?.content ?? ''])) continue;
       if (UPLOAD_VOLUME_REGEX.test(volume) && hasObjectStorageOption()) continue;
@@ -2355,12 +2367,18 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
   }
 
   const compose = composeApplicationServices(tree);
+  const mountTargets: string[] = [];
   for (const service of compose?.services ?? []) {
     // A service that builds a different Dockerfile packages the app another
     // way (a compose-only wrapper image); its volumes are not this image's.
     const built = compose && composeBuildDockerfile(compose.file, service.build);
     if (built && dockerfile && built !== dockerfile.path) continue;
     for (const volume of service.volumes) {
+      // The container-side mount target decides what the volume holds — a
+      // named volume at `/tmp/…`, `…/logs`, `…/cache` or `…/.cache` is a
+      // log/cache volume (transient), not durable app data.
+      const target = composeMountTarget(volume);
+      mountTargets.push(target);
       if (NON_STATE_MOUNT_REGEX.test(volume)) continue;
       if (compose && volumeCalledOptional(tree[compose.file] ?? '', volume)) continue;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
@@ -2368,15 +2386,29 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
       // carries project files, not state written at runtime.
       const source = volume.includes(':') ? volume.slice(0, volume.indexOf(':')).replace(/^\.\//, '') : null;
       if (source && !source.startsWith('/') && Object.keys(tree).some((path) => path.startsWith(`${source}/`))) continue;
-      // The container-side mount target decides what the volume holds — a
-      // named volume at `/tmp/…`, `…/logs`, `…/cache` or `…/.cache` is a
-      // log/cache volume (transient), not durable app data.
-      const target = volume.includes(':') ? volume.slice(volume.indexOf(':') + 1).replace(/:(?:rw|ro|z|Z)+$/, '') : volume;
       if (EPHEMERAL_CONTAINER_PATH_REGEX.test(target)) continue;
       if (hasPostgresDriver && holdsOnlyEmbeddedDatabase(target, [service.body])) continue;
       if (UPLOAD_VOLUME_REGEX.test(volume) && hasObjectStorageOption()) continue;
       detected.push(`volume ${volume} (${compose?.file} ${service.name})`);
     }
+  }
+  // The image's own service can carry an infrastructure image name (searxng runs `searxng/searxng`): the
+  // Dockerfile's OCI title label names it.
+  const title = /org\.opencontainers\.image\.title="?([\w.-]+)/i.exec(dockerfile?.content ?? '')?.[1]?.toLowerCase();
+  const ownService = title
+    ? composeServices(tree)?.services.find(
+        (service) => !service.build && service.image?.replace(/[@:][^/]*$/, '').split('/').pop()?.toLowerCase() === title,
+      )
+    : undefined;
+  if (ownService && !compose?.services.some((service) => service.name === ownService.name)) {
+    mountTargets.push(...ownService.volumes.map(composeMountTarget));
+  }
+  // The Compose service that runs this image mounts the paths the base image declares: when it mounts at
+  // least as many and every one is configuration or cache, the unresolved VOLUMEs hold no durable state.
+  const unresolvedAreNonState =
+    mountTargets.length >= unresolvedVolumes.length && mountTargets.every((target) => EPHEMERAL_CONTAINER_PATH_REGEX.test(target));
+  if (!unresolvedAreNonState) {
+    for (const volume of unresolvedVolumes) detected.push(`VOLUME ${volume} (${dockerfile?.path})`);
   }
 
   if (detected.length === 0 || detectS3(tree).detected) {

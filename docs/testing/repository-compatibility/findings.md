@@ -1499,5 +1499,7 @@ cleaner verdict signal but a noisier fact signal.
 - Actual (analysis version 54): NOT_COMPATIBLE with `local-filesystem`
 - Evidence: the correctly selected `container/dist.dockerfile` declares `VOLUME $__SEARXNG_CONFIG_PATH` and `VOLUME $__SEARXNG_DATA_PATH`. The values (`/etc/searxng`, `/var/cache/searxng`) come from the base image `docker.io/searxng/base`, which is not in the repository. A `VOLUME $VAR` that the same Dockerfile sets is resolved; this one cannot be. Before v54 the wrong Dockerfile (`builder.dockerfile`) was selected and the verdict matched by chance.
 - Customer relevance: medium — a false rejection of a stateless app. Guessing the path from the variable name would risk a false acceptance on a real data path, so it is not done.
-- Recommended action: decide an unresolved `VOLUME $VAR` from the production Compose mount of the same service, or ask the vendor. Rerun repo-209.
-- Status: open
+- Fix: an unresolved `VOLUME $VAR` is decided from the Compose service that runs this image: an application service, or the service whose image name equals the Dockerfile's `org.opencontainers.image.title` label (searxng's own service uses `searxng/searxng`, an image on the infrastructure list). It is not durable state only when that service mounts at least as many paths as there are unresolved volumes and every mount is a configuration or cache path. Otherwise it stays durable. `ANALYSIS_VERSION` 56.
+- Regression: `packages/analysis/test/selector-safety.test.ts`.
+- Verification: Stage A at v56 — repo-209 NEEDS_CONFIGURATION, `unsupported: []`; no other repository changes.
+- Status: fixed
