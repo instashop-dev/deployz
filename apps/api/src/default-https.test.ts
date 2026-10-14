@@ -220,6 +220,191 @@ describe('default-https service', () => {
     });
   });
 
+  describe('runDefaultHttpsCheck — certificate during the install', () => {
+    async function installing(installState: 'REQUESTED' | 'RUNNING' = 'RUNNING') {
+      const deployment = await seedDeployment({ state: 'INSTALLING' });
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment.id,
+        type: 'INSTALL',
+        state: installState,
+        idempotencyKey: `${deployment.id}:INSTALL`,
+        payload: {},
+        requestedBy: null,
+      });
+      return deployment;
+    }
+
+    async function settleNewestConfigureJob(deploymentId: string, output: Record<string, unknown>) {
+      const jobs = (await jobsFor(deploymentId)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      const job = jobs[jobs.length - 1]!;
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, job.id));
+      await applyDefaultHttpsJobResult(db, deploymentId, job, { success: true, output });
+    }
+
+    it('waits until the relay has claimed the INSTALL', async () => {
+      const deployment = await installing('REQUESTED');
+      await runDefaultHttpsCheck(db, deployment, deps());
+      expect(await stateOf(deployment.id)).toBeNull();
+      expect(await jobsFor(deployment.id)).toHaveLength(1);
+    });
+
+    it('requests the certificate while the INSTALL runs, asking the relay to defer the listener', async () => {
+      const deployment = await installing();
+      await runDefaultHttpsCheck(db, deployment, deps());
+
+      const state = await stateOf(deployment.id);
+      expect(state?.status).toBe('PENDING');
+      expect(state?.configureAttempts).toBe(0);
+      const configure = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      expect(configure).toHaveLength(1);
+      expect(configure[0]!.payload).toMatchObject({ deferListener: true });
+    });
+
+    function makeInstallClock() {
+      let current = Date.now();
+      return {
+        now: () => current,
+        advance: (ms: number) => {
+          current += ms;
+        },
+      };
+    }
+
+    const MINUTE = 60_000;
+
+    it('writes the validation CNAME at once, the routing CNAME only once the load balancer is known, and spends no budget', async () => {
+      const deployment = await installing();
+      const dns = new FakeDnsClient();
+      const clock = makeInstallClock();
+      await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
+      const validationName = `_x1.${defaultHttpsHostname(deployment.id, apex)}`;
+      await settleNewestConfigureJob(deployment.id, {
+        certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
+        validationName,
+        validationValue: '_y1.acm-validations.aws.',
+      });
+      expect((await stateOf(deployment.id))?.status).toBe('WAITING_FOR_DNS');
+
+      // Several heartbeats while the stack is still being created.
+      for (let pass = 0; pass < 5; pass += 1) {
+        clock.advance(2 * DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS);
+        await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
+        await settleNewestConfigureJob(deployment.id, {
+          certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
+          certificateStatus: 'PENDING_VALIDATION',
+          httpsConfigured: false,
+        });
+      }
+      expect(dns.upserts.every((upsert) => upsert.name === validationName)).toBe(true);
+      expect(dns.upserts.length).toBeGreaterThan(0);
+      const waiting = await stateOf(deployment.id);
+      expect(waiting).toMatchObject({ status: 'WAITING_FOR_DNS', lastError: null, configureAttempts: 0 });
+
+      // The load balancer appears: the routing CNAME follows on the next pass.
+      await settleNewestConfigureJob(deployment.id, { routingTarget: 'alb.us-east-1.elb.amazonaws.com' });
+      clock.advance(2 * DEFAULT_HTTPS_MIN_ATTEMPT_INTERVAL_MS);
+      await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
+      expect(dns.upserts.at(-1)).toEqual({
+        name: defaultHttpsHostname(deployment.id, apex),
+        value: 'alb.us-east-1.elb.amazonaws.com',
+      });
+    });
+
+    it('after the install settles the same certificate is wired normally and the budget counts again', async () => {
+      const deployment = await installing();
+      const dns = new FakeDnsClient();
+      await runDefaultHttpsCheck(db, deployment, deps({ dns }));
+      await settleNewestConfigureJob(deployment.id, {
+        certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
+        validationName: `_x1.${defaultHttpsHostname(deployment.id, apex)}`,
+        validationValue: '_y1.acm-validations.aws.',
+        routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+      });
+
+      await db
+        .update(schema.deployments)
+        .set({ state: 'HEALTHY' })
+        .where(eq(schema.deployments.id, deployment.id));
+      await runDefaultHttpsCheck(db, { ...deployment, state: 'HEALTHY' }, deps({ dns }));
+
+      const latest = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN').at(-1)!;
+      expect(latest.payload).not.toHaveProperty('deferListener');
+      expect(latest.payload).toMatchObject({ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early' });
+      expect((await stateOf(deployment.id))?.configureAttempts).toBe(1);
+    });
+
+    async function settleInstall(deployment: Awaited<ReturnType<typeof installing>>) {
+      await db
+        .update(schema.deployments)
+        .set({ state: 'HEALTHY' })
+        .where(eq(schema.deployments.id, deployment.id));
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+      return { ...deployment, state: 'HEALTHY' as const };
+    }
+
+    async function waitForInstall(deployment: Awaited<ReturnType<typeof installing>>, clock: ReturnType<typeof makeInstallClock>, dns: CloudflareDnsClient) {
+      await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
+      await settleNewestConfigureJob(deployment.id, {
+        certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
+        validationName: `_x1.${defaultHttpsHostname(deployment.id, apex)}`,
+        validationValue: '_y1.acm-validations.aws.',
+      });
+      for (let elapsed = 0; elapsed < 40 * MINUTE; elapsed += 2 * MINUTE) {
+        clock.advance(2 * MINUTE);
+        await runDefaultHttpsCheck(db, deployment, deps({ dns, now: clock.now }));
+      }
+    }
+
+    it('an install lasting 40 minutes does not use up the budget, and a certificate issued meanwhile still reaches ACTIVE', async () => {
+      const deployment = await installing();
+      const dns = new FakeDnsClient();
+      const clock = makeInstallClock();
+      await waitForInstall(deployment, clock, dns);
+      expect(await stateOf(deployment.id)).toMatchObject({ status: 'WAITING_FOR_DNS', configureAttempts: 0 });
+
+      const installed = await settleInstall(deployment);
+      await settleNewestConfigureJob(deployment.id, { routingTarget: 'alb.us-east-1.elb.amazonaws.com' });
+      clock.advance(2 * MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      const started = await stateOf(deployment.id);
+      expect(started?.status).toBe('WAITING_FOR_DNS');
+      expect(started?.configureStartedAt).toBe(new Date(clock.now()).toISOString());
+
+      await settleNewestConfigureJob(deployment.id, {
+        certificateStatus: 'ISSUED',
+        httpsConfigured: true,
+      });
+      expect((await stateOf(deployment.id))?.status).toBe('CONFIGURING');
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      expect((await stateOf(deployment.id))?.status).toBe('ACTIVE');
+    });
+
+    it('times out only after the budget has elapsed since the install settled', async () => {
+      const deployment = await installing();
+      const dns = new FakeDnsClient();
+      const clock = makeInstallClock();
+      await waitForInstall(deployment, clock, dns);
+      const installed = await settleInstall(deployment);
+      dns.failUpserts = true;
+
+      clock.advance(MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      clock.advance(DEFAULT_HTTPS_CONFIGURE_BUDGET_MS - MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      expect((await stateOf(deployment.id))?.status).toBe('WAITING_FOR_DNS');
+
+      clock.advance(MINUTE);
+      await runDefaultHttpsCheck(db, installed, deps({ dns, now: clock.now }));
+      expect(await stateOf(deployment.id)).toMatchObject({ status: 'ERROR', lastError: 'DEFAULT_DNS_TIMEOUT' });
+    });
+  });
+
   describe('runDefaultHttpsCheck — progression', () => {
     async function install() {
       const deployment = await seedDeployment();

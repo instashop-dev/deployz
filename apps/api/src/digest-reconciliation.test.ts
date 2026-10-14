@@ -627,7 +627,7 @@ describe('runtime digest reconciliation and the promotion gate', () => {
 
     const detail = await app.inject({ method: 'GET', url: `/api/deployments/${deployment.id}`, headers: { cookie } });
     const status = (detail.json() as { deploymentStatus: { connector: unknown } }).deploymentStatus;
-    expect(status.connector).toEqual({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' });
+    expect(status.connector).toMatchObject({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' });
   });
 
   it('never reuses evidence stored by an earlier heartbeat', async () => {

@@ -60,6 +60,20 @@ ACM reports ISSUED, the relay creates the 443 listener (or adds the
 certificate to an existing one) and turns the port-80 listener into a 301
 redirect. The control plane never touches the customer's load balancer.
 
+The certificate request starts while the INSTALL is still running (the relay
+has claimed the INSTALL and the deployment is `INSTALLING`), so ACM validation
+overlaps stack creation. In that window the job carries `deferListener`: the
+relay requests and describes the certificate and reports the load balancer when
+it exists, but creates no 443 listener. The control plane writes the validation
+CNAME as soon as the relay reports it and the routing CNAME once the load
+balancer is known. Waiting for the stack spends none of the configure budget.
+After the install settles, the next job attaches the listener to the same
+certificate. A fresh first-install attempt (customer retry, deploy-link retry,
+reset of a never-installed deployment) replaces the relay credential, so it
+drops this state, cancels its queued domain jobs and removes its DNS records;
+the unused certificate stays in the customer account until a purge. A
+retry-install keeps the state and reuses the certificate.
+
 ### State machine
 
 State lives in `deployments.default_https` (JSON). Statuses: `PENDING`,
@@ -68,8 +82,8 @@ domains use the same six values in the `custom_domains` table.
 
 | From | Trigger | To |
 | --- | --- | --- |
-| (none), deployment HEALTHY / UPDATING / UPDATE_AVAILABLE | INSTALL success or a heartbeat | `PENDING`, a `CONFIGURE_DOMAIN` job is queued |
-| `PENDING` | job result carries the ACM validation record | `WAITING_FOR_DNS`; the validation CNAME, then the routing CNAME, are upserted; a new job cycle starts |
+| (none), deployment INSTALLING with a running INSTALL, or HEALTHY / UPDATING / UPDATE_AVAILABLE | a heartbeat, or INSTALL success | `PENDING`, a `CONFIGURE_DOMAIN` job is queued |
+| `PENDING` | job result carries the ACM validation record | `WAITING_FOR_DNS`; the validation CNAME is upserted, the routing CNAME once the load balancer is known; a new job cycle starts |
 | `WAITING_FOR_DNS` | job result: certificate ISSUED and listener configured | `CONFIGURING` |
 | `CONFIGURING` | the control plane's HTTPS probe succeeds | `ACTIVE`; the deployment can be READY |
 | any non-ACTIVE | a configure job fails (`CONFIGURE_FAILED`, `AWS_PERMISSION_DENIED`) or the 30-minute configure budget is spent (`DEFAULT_DNS_TIMEOUT`) | `ERROR` (terminal; while Cloudflare answers 429 the machine keeps waiting) |

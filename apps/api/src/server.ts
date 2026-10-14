@@ -3,7 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { createHash } from 'node:crypto';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, getTableColumns, gt, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, gte, inArray, isNull, like, ne, notInArray, sql } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -276,11 +276,13 @@ import {
   toDomainView,
   type CustomDomainRow,
 } from './domains.js';
+import { connectorUpdateLinks, connectorUpdateOffer, type ConnectorUpdateOffer } from './connector-update.js';
 import {
   deriveDeploymentStatus,
   endpointHttpsState,
   endpointStatusForHttpsState,
   mergeComponentState,
+  primaryServiceLogicalIds,
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
   type DerivedDeploymentStatus,
@@ -718,11 +720,18 @@ function deployLinkQuickCreateUrl(input: {
   appName: string;
   attemptNumber: number;
   bootstrapStackName: string | null;
+  previousBootstrapStackName?: string | null;
   enrollmentCode: string;
   enrollmentUsedAt: Date | null;
   relayCredential?: string | null;
 }): string | null {
   if (input.enrollmentUsedAt !== null) return null;
+  if (
+    input.bootstrapStackName !== null &&
+    input.bootstrapStackName === input.previousBootstrapStackName
+  ) {
+    return null;
+  }
   const stackName =
     input.bootstrapStackName ??
     bootstrapStackName({
@@ -744,6 +753,58 @@ function deployLinkQuickCreateUrl(input: {
         stackName,
       })
     : null;
+}
+
+// The connector update the customer may approve for this deployment's
+// existing bootstrap stack (null before enrollment or after removal).
+function connectorUpdateFor(deployment: DeploymentRow): ConnectorUpdateOffer | null {
+  return connectorUpdateOffer(deployment, {
+    buildId: env.bootstrapBuildId,
+    legacyUrl: env.bootstrapTemplateUrl,
+    deployableRegions: env.deployableAwsRegions,
+  });
+}
+
+// A reset of a deployment that was installed before keeps its bootstrap stack
+// name, because the connector stack still exists in the customer's account: a
+// Quick Create would fail with AlreadyExists. The customer instead UPDATES that
+// stack with the new relay credential and enrollment code. Null for any other
+// deployment (including a never-installed reset, which gets a fresh stack name).
+function existingStackUpdateFor(input: {
+  region: DeploymentRow['region'];
+  bootstrapStackName: string | null;
+  previousBootstrapStackName: string | null;
+  enrollmentCode: string;
+  enrollmentUsedAt: Date | null;
+  relayCredential: string | null;
+}): {
+  stackName: string;
+  consoleUrl: string;
+  templateUrl: string | null;
+  enrollmentCode: string;
+  relayCredential: string | null;
+  controlPlaneUrl: string;
+} | null {
+  if (
+    input.enrollmentUsedAt !== null ||
+    input.bootstrapStackName === null ||
+    input.bootstrapStackName !== input.previousBootstrapStackName
+  ) {
+    return null;
+  }
+  const links = connectorUpdateLinks(input.region, input.bootstrapStackName, {
+    buildId: env.bootstrapBuildId,
+    legacyUrl: env.bootstrapTemplateUrl,
+    deployableRegions: env.deployableAwsRegions,
+  });
+  return {
+    stackName: input.bootstrapStackName,
+    consoleUrl: links.updateUrl,
+    templateUrl: links.templateUrl,
+    enrollmentCode: input.enrollmentCode,
+    relayCredential: input.relayCredential,
+    controlPlaneUrl: env.apiUrl,
+  };
 }
 
 /**
@@ -2869,6 +2930,7 @@ export async function buildServer({
         customerId: schema.deployments.customerId,
         attemptNumber: schema.deployments.attemptNumber,
         bootstrapStackName: schema.deployments.bootstrapStackName,
+        previousBootstrapStackName: schema.deployments.previousBootstrapStackName,
         installStartedAt: schema.deployments.installStartedAt,
         installLinkExpiresAt: schema.deployments.installLinkExpiresAt,
         installLinkRevokedAt: schema.deployments.installLinkRevokedAt,
@@ -2994,7 +3056,7 @@ export async function buildServer({
       // DZ-AUDIT-013: the relayCredential is carried alongside the enrollment
       // code whenever one has been established. Spent codes get no link.
       quickCreateUrl:
-        !alreadyInstalled
+        !alreadyInstalled && existingStackUpdateFor(row) === null
           ? (() => {
               const templateUrl = resolveBootstrapTemplate(row.region, {
                 ...(env.bootstrapTemplateUrl
@@ -3014,6 +3076,7 @@ export async function buildServer({
                 : null;
             })()
           : null,
+      existingStackUpdate: existingStackUpdateFor(row),
       alreadyInstalled,
     };
     },
@@ -3301,6 +3364,7 @@ export async function buildServer({
         },
       });
     });
+    await dropDefaultHttpsForFreshAttempt(deployment);
     return reply.code(200).send({
       state: 'NOT_INSTALLED',
       attemptNumber: nextAttempt,
@@ -4477,10 +4541,12 @@ export async function buildServer({
           appName: application.name,
           attemptNumber: deployment.attemptNumber,
           bootstrapStackName: deployment.bootstrapStackName,
+          previousBootstrapStackName: deployment.previousBootstrapStackName,
           enrollmentCode: deployment.enrollmentCode,
           enrollmentUsedAt: deployment.enrollmentUsedAt,
           relayCredential: deployment.relayCredential,
         }),
+        existingStackUpdate: existingStackUpdateFor(deployment),
         domain: domain ? toDomainView(domain) : null,
         routingTarget: domain?.routingTarget ?? null,
         status: toCustomerDeploymentStatus(derived),
@@ -4720,6 +4786,7 @@ export async function buildServer({
           },
         });
       });
+      await dropDefaultHttpsForFreshAttempt(deployment);
       return {
         state: 'NOT_INSTALLED',
         attemptNumber: nextAttempt,
@@ -5077,7 +5144,15 @@ export async function buildServer({
         // fleet's component list and derived status can never disagree with
         // what this deployment was actually created with.
         const derivedRow = { ...row, ...derivationApplicationFor(row.deployment, row) };
-        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: derivedRow, jobs, domain, defaultHttps, appUrl });
+        const derived = deriveDeploymentStatus({
+          deployment: row.deployment,
+          application: derivedRow,
+          jobs,
+          domain,
+          defaultHttps,
+          connectorUpdate: connectorUpdateFor(row.deployment),
+          appUrl,
+        });
         // Spec components from the existing component states only — the list
         // endpoint does no per-row stack-event query (see the detail route).
         const specComponents = specComponentsForStatus(row.deployment.specV2, derived.components, []);
@@ -5136,6 +5211,7 @@ export async function buildServer({
       jobs,
       domain,
       defaultHttps,
+      connectorUpdate: connectorUpdateFor(rows[0]!.deployment),
       appUrl,
     });
     const specComponents = specComponentsForStatus(rows[0]!.deployment.specV2, derived.components, []);
@@ -6332,6 +6408,42 @@ export async function buildServer({
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
+  // A fresh first-install attempt (customer retry, deploy-link retry, reset of
+  // a never-installed deployment) replaces the relay credential, so the
+  // certificate requested for the previous attempt belongs to a relay that no
+  // longer polls. Drop that default-HTTPS state, stop its queued domain jobs
+  // and remove its control-plane DNS records; the next attempt requests a new
+  // certificate. The old certificate is unused and stays in the customer's
+  // account, tagged for a later purge.
+  async function dropDefaultHttpsForFreshAttempt(deployment: DeploymentRow): Promise<void> {
+    const previous = parseDefaultHttps(deployment.defaultHttps);
+    if (!previous) return;
+    await db
+      .update(schema.deployments)
+      .set({ defaultHttps: null })
+      .where(eq(schema.deployments.id, deployment.id));
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'CANCELLED', finishedAt: new Date() })
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.type, ['CONFIGURE_DOMAIN', 'REMOVE_DOMAIN']),
+          like(schema.deploymentJobs.idempotencyKey, `${deployment.id}:%:default-https:%`),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED']),
+        ),
+      );
+    try {
+      await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
+      if (previous.validationName) {
+        await defaultHttpsDeps.dns.deleteDefaultValidationRecord(deployment.id, previous.validationName);
+      }
+    } catch (error) {
+      // Purge reconciliation removes any record this misses.
+      console.error(JSON.stringify({ event: 'default-https:fresh-attempt-record-cleanup-failed', error: String(error) }));
+    }
+  }
+
   // §14 re-enrollment, for an already-loaded, already-owned deployment.
   // Shared by the vendor relay/reset route and the admin recovery action.
   //
@@ -6428,6 +6540,8 @@ export async function buildServer({
         },
       });
     });
+
+    if (neverInstalled) await dropDefaultHttpsForFreshAttempt(deployment);
 
     return { installLinkId: deployment.installLinkId, attemptNumber: nextAttempt };
   }
@@ -7100,11 +7214,32 @@ export async function buildServer({
       // A configured first start (DEPLOY-009) creates the service with zero
       // tasks: its CloudFormation rows complete before any task has run, so
       // the application is not "ready" until a deploy has started it.
+      const deploymentSpec = readStoredDeploymentSpec(deployment.specV2);
+      // The task definition and roles complete before the services do, so the
+      // application is only ready once the public service the spec expects is
+      // in the inventory — a worker service alone never stands in for it.
+      const primaryServiceMissing =
+        deployment.state !== 'DELETED' &&
+        primaryServiceLogicalIds(deploymentSpec).some(
+          (logicalId) =>
+            !resources.some(
+              (row) =>
+                row.logicalResourceId === logicalId &&
+                row.resourceType === 'AWS::ECS::Service' &&
+                row.resourceStatus !== 'removed',
+            ),
+        );
       const applicationNeverStarted =
         deployment.currentReleaseId === null &&
         aggregate.components.some((c) => c.kind === 'application' && c.status === 'ready') &&
         (await awaitsFirstStart(db, id));
       const components = aggregate.components.map((component) => {
+        if (primaryServiceMissing && component.kind === 'application' && component.status === 'ready') {
+          return {
+            ...component,
+            status: deployment.state === 'INSTALLING' ? ('provisioning' as const) : ('unknown' as const),
+          };
+        }
         if (applicationNeverStarted && component.kind === 'application') {
           return { ...component, status: 'pending' as const };
         }
@@ -7112,7 +7247,12 @@ export async function buildServer({
           return component;
         }
         const httpsState = endpointHttpsState(domain, defaultHttps);
-        return { ...component, status: endpointStatusForHttpsState(httpsState), httpsState };
+        return {
+          ...component,
+          status: endpointStatusForHttpsState(httpsState),
+          httpsState,
+          ...(defaultHttps ? { defaultHttpsStatus: defaultHttps.status } : {}),
+        };
       });
       const rollup = summarizeInfrastructureStatus(components);
 
@@ -7129,7 +7269,6 @@ export async function buildServer({
       // manifest's requirement booleans stand in; with neither, there is
       // nothing to compare against.
       const storedManifest = readStoredManifest(deployment.desiredState);
-      const deploymentSpec = readStoredDeploymentSpec(deployment.specV2);
       const expectations = (() => {
         const expectedKinds = deploymentSpec?.verificationContract
           ? [...new Set(deploymentSpec.verificationContract.checks.map((check) => check.componentKind))]
@@ -7140,7 +7279,10 @@ export async function buildServer({
               }).map((definition) => definition.kind)
             : null;
         if (expectedKinds === null) return null;
-        const comparison = compareInfrastructureExpectations(expectedKinds, components);
+        const comparison = compareInfrastructureExpectations(
+          expectedKinds,
+          primaryServiceMissing ? components.filter((c) => c.kind !== 'application') : components,
+        );
         // A removed component is never "missing" after destroy — once
         // the deployment is DELETED, the simplest honest rule is that
         // nothing is missing.
@@ -7737,7 +7879,7 @@ export async function buildServer({
       // Anything else is a second party trying to take the deployment over.
       // Refusing (rather than rebinding, which is what this route used to do)
       // is what keeps the real relay connected; the vendor recovers with
-      // "Reconnect relay", which mints a fresh code.
+      // "Issue new install link", which mints a fresh code and credential.
       await recordEvent(db, {
         organizationId: deployment.organizationId,
         eventType: 'install.enrollment.rejected',
@@ -7751,7 +7893,7 @@ export async function buildServer({
       throw new ApiError(
         409,
         'RELAY_ALREADY_ENROLLED',
-        'This installation is already connected. Ask the vendor to reconnect it before installing again.',
+        'This installation is already connected. To install again, ask the software provider to issue a new install link, then update the existing connector stack in your AWS account with the new RelayCredential and EnrollmentCode. Do not create a second stack.',
       );
     }
 
@@ -7924,7 +8066,7 @@ export async function buildServer({
       throw new ApiError(
         409,
         'RELAY_ALREADY_ENROLLED',
-        'This installation is already connected. Ask the vendor to reconnect it before installing again.',
+        'This installation is already connected. To install again, ask the software provider to issue a new install link, then update the existing connector stack in your AWS account with the new RelayCredential and EnrollmentCode. Do not create a second stack.',
       );
     }
 
@@ -9181,8 +9323,10 @@ export async function buildServer({
     // Phase 11 default-HTTPS driver rides the same cadence: every heartbeat
     // on an installed deployment nudges the machine one step (request the
     // cert, write the deployz-zone records, re-describe, probe, activate).
-    // Best-effort for the same reason as the custom-domain check above.
-    if (['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE'].includes(deployment.state)) {
+    // A running INSTALL starts it early so certificate validation overlaps
+    // stack creation. Best-effort for the same reason as the custom-domain
+    // check above.
+    if (['INSTALLING', 'HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE'].includes(deployment.state)) {
       try {
         await runDefaultHttpsCheck(db, deployment, defaultHttpsDeps);
       } catch {

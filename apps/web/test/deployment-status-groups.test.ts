@@ -54,6 +54,21 @@ describe('deploymentDisplayStatus — precise labels', () => {
   });
 });
 
+describe('deploymentDisplayStatus — not started', () => {
+  it('reads Not started in a neutral tone, never as not responding', () => {
+    const deployment = withState('HEALTHY', {
+      healthStatus: 'UNHEALTHY',
+      deploymentStatus: { health: { status: 'UNHEALTHY', notStarted: true } },
+    });
+    expect(deploymentDisplayStatus(deployment)).toMatchObject({
+      label: 'Not started',
+      group: 'in-progress',
+      badge: 'secondary',
+    });
+    expect(customerBucket(deployment)).toBe('pending');
+  });
+});
+
 describe('deploymentDisplayStatus — FAILED kinds', () => {
   it('reads as "Install failed" for a first install with no prior release', () => {
     const status = deploymentDisplayStatus(withState('FAILED', { currentReleaseId: null }));

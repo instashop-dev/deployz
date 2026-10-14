@@ -9,6 +9,7 @@
  * full publish flow with a mock and no AWS credentials.
  */
 import { App } from 'aws-cdk-lib';
+import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -102,7 +103,7 @@ export interface SynthesizeOptions {
   readonly controlPlaneUrl?: string;
   /** CDK stack id. Defaults to `DeployzBootstrap`. */
   readonly stackId?: string;
-  /** Build identity the relay reports (source commit when publishing). */
+  /** Build identity the relay reports (the content-hash id when publishing). */
   readonly buildId?: string;
 }
 
@@ -181,6 +182,49 @@ export async function synthesizeBootstrapStack(
     assets: await readZipAssets(assembly.directory, stack.artifactId),
     ...(options.buildId !== undefined ? { buildId: options.buildId } : {}),
   };
+}
+
+/** Sorted-key JSON, so the same template always serializes to the same bytes. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * The connector build id: the first 12 hex characters of the SHA-256 of the
+ * bootstrap template synthesized with the placeholder id `dev`. The template
+ * embeds the content-addressed relay asset hash, so the id changes only when
+ * the connector itself changes, not on every commit.
+ */
+export function buildIdOfTemplate(template: JsonObject): string {
+  return createHash('sha256').update(canonicalJson(template)).digest('hex').slice(0, 12);
+}
+
+/** Synthesizes the template with the placeholder id and hashes it. */
+export async function computeBootstrapBuildId(
+  options: Omit<SynthesizeOptions, 'buildId'>,
+): Promise<string> {
+  const { template } = await synthesizeBootstrapStack({
+    ...options,
+    outdir: join(options.outdir, 'build-id'),
+    buildId: 'dev',
+  });
+  return buildIdOfTemplate(template);
+}
+
+/** `BOOTSTRAP_BUILD_ID` when set, else the content-hash build id. */
+export async function resolveBootstrapBuildId(
+  options: Omit<SynthesizeOptions, 'buildId'>,
+  env: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return env['BOOTSTRAP_BUILD_ID'] || (await computeBootstrapBuildId(options));
 }
 
 /**

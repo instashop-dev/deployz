@@ -193,6 +193,13 @@ export class DeployzStack extends Stack {
       (this.node.tryGetContext('bootstrapTemplateUrl') as string | undefined) ??
       process.env.BOOTSTRAP_TEMPLATE_URL;
 
+    // Build id of the connector template the publisher uploads in the same
+    // deploy. Set only when that republish runs; the API offers a connector
+    // update to a versioned template only once it exists.
+    const bootstrapBuildId =
+      (this.node.tryGetContext('bootstrapBuildId') as string | undefined) ??
+      process.env.BOOTSTRAP_BUILD_ID;
+
     // Regions whose regional bootstrap artifacts are confirmed published
     // (see @deployz/contracts resolveBootstrapTemplate). Unset → the API
     // fail-closes to us-east-1 only. The publisher prints the exact value.
@@ -213,6 +220,7 @@ export class DeployzStack extends Stack {
         // from. The API builds every install link off this value, so an
         // unpublished template yields no link rather than a broken one.
         ...(bootstrapTemplateUrl ? { BOOTSTRAP_TEMPLATE_URL: bootstrapTemplateUrl } : {}),
+        ...(bootstrapBuildId ? { BOOTSTRAP_BUILD_ID: bootstrapBuildId } : {}),
         // The API rejects deployment creation in regions whose regional
         // artifacts are not confirmed published (fail closed). The publisher
         // prints this value after verifying every region.

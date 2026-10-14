@@ -24,6 +24,7 @@ import * as schema from '@deployz/db/schema';
 import { ANALYSIS_VERSION } from './analysis.js';
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
+import { primaryServiceLogicalIds } from './deployment-status.js';
 import { readStoredDeploymentSpec, readStoredManifest } from './manifest.js';
 import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
@@ -143,6 +144,14 @@ async function insertRelease(
     .returning();
   return row!;
 }
+
+/** The compiled web service's logical id — the primary service the inventory must carry. */
+const WEB_SERVICE_ID = primaryServiceLogicalIds(
+  compileDeploymentIntent({
+    manifest: READY_MANIFEST as unknown as Parameters<typeof compileDeploymentIntent>[0]['manifest'],
+    region: 'us-east-1',
+  }).spec,
+)[0]!;
 
 /** A READY release with an image: deployment creation and every INSTALL refuse without one. */
 async function insertDeployableRelease(
@@ -4308,6 +4317,7 @@ describe('server — organization settings, public install page, and bulk deploy
       // published, so there is no link to hand out. The enrollment code
       // travels inside that link, never as a field of its own.
       quickCreateUrl: null,
+      existingStackUpdate: null,
       // The install link already identifies exactly this deployment, so
       // handing back its own id/state/domain does not cross a tenant
       // boundary — it's the same scope the link already grants.
@@ -5344,6 +5354,98 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(dep!.enrollmentCode).not.toBe(deployment.enrollmentCode);
   });
 
+  it('relay/reset of an installed deployment offers an update of the existing connector stack, never a Quick Create', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Update Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const installLinkId = crypto.randomUUID();
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      installLinkId,
+      installationId: 'inst-installed',
+      bootstrapStackName: 'deployz-update-reset-app-1',
+      enrollmentUsedAt: new Date(),
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+    const reset = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(reset.statusCode).toBe(200);
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.bootstrapStackName).toBe('deployz-update-reset-app-1');
+
+    const page = (await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })).json() as {
+      quickCreateUrl: string | null;
+      existingStackUpdate: Record<string, unknown> | null;
+    };
+    expect(page.quickCreateUrl).toBeNull();
+    expect(page.existingStackUpdate).toMatchObject({
+      stackName: 'deployz-update-reset-app-1',
+      enrollmentCode: dep!.enrollmentCode,
+      relayCredential: dep!.relayCredential,
+    });
+    expect(String(page.existingStackUpdate!.consoleUrl)).toContain('filteringText=deployz-update-reset-app-1');
+  });
+
+  it('relay/reset of a never-installed deployment drops the certificate requested for the dead attempt', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Early Cert Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      defaultHttps: {
+        hostname: 'd-early.deployz.dev',
+        status: 'WAITING_FOR_DNS',
+        certificateArn: 'arn:aws:acm:us-east-1:1:certificate/early',
+        validationName: '_x.d-early.deployz.dev',
+        validationValue: '_y.acm-validations.aws.',
+        checkCycle: 2,
+        lastError: null,
+      },
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'CONFIGURE_DOMAIN',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:CONFIGURE_DOMAIN:default-https:2`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const reset = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(reset.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.defaultHttps).toBeNull();
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job!.state).toBe('CANCELLED');
+  });
+
+  it('relay/reset of a never-installed deployment keeps a Quick Create link with a fresh stack name', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Fresh Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const installLinkId = crypto.randomUUID();
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installLinkId,
+      bootstrapStackName: 'deployz-fresh-reset-app-0',
+    });
+    const reset = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(reset.statusCode).toBe(200);
+    const page = (await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })).json() as {
+      quickCreateUrl: string | null;
+      existingStackUpdate: unknown;
+    };
+    expect(page.existingStackUpdate).toBeNull();
+    expect(page.quickCreateUrl).not.toBeNull();
+  });
+
   it('relay/reset records the PREVIOUS installationId/bootstrapStackName for a later purge (§9.6)', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'Reset Tracking App' });
     const customer = await insertCustomer(db, org.organizationId);
@@ -5724,6 +5826,39 @@ describe('server — infrastructure inventory (§59)', () => {
     expect(register.statusCode, register.body).toBe(200);
   }
 
+  it('primary service — a task definition, roles and a worker service never make the application ready', async () => {
+    const deployment = await newDeployment({
+      state: 'HEALTHY',
+      relayStatus: 'CONNECTED',
+      lastHealthAt: new Date(),
+    });
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'TaskDef', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE' },
+        { logicalId: 'TaskRole', type: 'AWS::IAM::Role', status: 'CREATE_COMPLETE' },
+        { logicalId: 'WorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      ],
+      new Date().toISOString(),
+    );
+    const missing = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(missing.components.find((c) => c.kind === 'application')!.status).toBe('unknown');
+    expect(missing.summary.status).toBe('unknown');
+    expect(missing.expectations?.missing).toContain('application');
+
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'TaskDef', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      ],
+      new Date().toISOString(),
+    );
+    const present = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(present.components.find((c) => c.kind === 'application')!.status).toBe('ready');
+    expect(present.expectations?.missing ?? []).not.toContain('application');
+  });
+
   it('authorization — 401 without a session, 404 for another organization', async () => {
     const deployment = await newDeployment();
     const url = `/api/deployments/${deployment.id}/infrastructure`;
@@ -5746,7 +5881,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
         { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
       ],
@@ -5784,7 +5919,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_IN_PROGRESS' },
       ],
       new Date().toISOString(),
@@ -5800,7 +5935,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_FAILED', statusReason: 'No space left on device' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_FAILED', statusReason: 'No space left on device' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
       ],
       new Date().toISOString(),
@@ -5823,7 +5958,7 @@ describe('server — infrastructure inventory (§59)', () => {
     // staleness window.
     await persistRows(
       deployment.id,
-      [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+      [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
       new Date(Date.now() - 60 * 60 * 1000).toISOString(),
     );
     await db
@@ -5845,7 +5980,7 @@ describe('server — infrastructure inventory (§59)', () => {
     await persistRows(
       deployment.id,
       [
-        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+        { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
         { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
         { logicalId: 'BackupBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
       ],
@@ -5883,7 +6018,7 @@ describe('server — infrastructure inventory (§59)', () => {
               stackId: STACK_ID,
               observedAt,
               resources: [
-                { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+                { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
                 { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
               ],
             },
@@ -5918,7 +6053,7 @@ describe('server — infrastructure inventory (§59)', () => {
     // never disturb.
     await persistRows(
       deployment.id,
-      [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+      [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
       new Date().toISOString(),
     );
 
@@ -5953,7 +6088,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
         ],
@@ -5978,7 +6113,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
         ],
@@ -5999,7 +6134,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
@@ -6023,7 +6158,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       // resources; a deployment past DELETED reports nothing outstanding).
       await persistRows(
         deployment.id,
-        [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+        [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
         new Date().toISOString(),
       );
 
@@ -6046,7 +6181,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       await persistRows(
         deployment.id,
         [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
           { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
@@ -6064,7 +6199,7 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       const deployment = await newDeployment({ state: 'HEALTHY', desiredState: {} });
       await persistRows(
         deployment.id,
-        [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+        [{ logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
         new Date().toISOString(),
       );
 
@@ -6984,7 +7119,7 @@ describe('server — P0 hardening', () => {
         deploymentId: deployment.id,
         stackId: STACK_ID,
         resources: [
-          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: WEB_SERVICE_ID, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
           { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
           { logicalId: 'Listener', type: 'AWS::ElasticLoadBalancingV2::Listener', status: 'CREATE_COMPLETE' },
         ],
@@ -7048,6 +7183,25 @@ describe('server — P0 hardening', () => {
         summary: 'failed',
         endpoint: { status: 'failed', httpsState: 'FAILED' },
       });
+    });
+
+    it('reports the default-HTTPS status apart from a custom domain error', async () => {
+      const deployment = await deploymentWithAlb({
+        defaultHttps: { hostname: 'd-p0-split.deployz.dev', status: 'ACTIVE', checkCycle: 1, lastError: null },
+      });
+      await db.insert(schema.customDomains).values({
+        deploymentId: deployment.id,
+        organizationId: org.organizationId,
+        hostname: 'broken.acme.example',
+        status: 'ERROR',
+      });
+      expect((await endpoint(deployment.id)).endpoint).toMatchObject({ httpsState: 'READY', defaultHttpsStatus: 'ACTIVE' });
+
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: { hostname: 'd-p0-split.deployz.dev', status: 'CONFIGURING', checkCycle: 1, lastError: null } })
+        .where(eq(schema.deployments.id, deployment.id));
+      expect((await endpoint(deployment.id)).endpoint).toMatchObject({ defaultHttpsStatus: 'CONFIGURING' });
     });
 
     it('an ACTIVE custom domain makes the endpoint ready while the default machine is still pending', async () => {

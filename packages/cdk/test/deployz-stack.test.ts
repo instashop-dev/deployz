@@ -222,6 +222,21 @@ describe('DeployzStack', () => {
     });
   });
 
+  it('passes the connector build id to the API only when one is set', () => {
+    const lambdaEnvironments = (template: Template) =>
+      Object.values(template.findResources('AWS::Lambda::Function')).map(
+        (resource) => (resource.Properties as { Environment?: { Variables?: Record<string, unknown> } })
+          .Environment?.Variables ?? {},
+      );
+    const without = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+    expect(lambdaEnvironments(without).some((env) => 'BOOTSTRAP_BUILD_ID' in env)).toBe(false);
+
+    const withId = Template.fromStack(
+      new DeployzStack(new App({ context: { bootstrapBuildId: 'abc123def456' } }), 'DeployzTest'),
+    );
+    expect(lambdaEnvironments(withId).some((env) => env['BOOTSTRAP_BUILD_ID'] === 'abc123def456')).toBe(true);
+  });
+
   // Failed-release evidence: the API reads the release build project's log
   // group, and only that group, and only GetLogEvents.
   it('lets the API read only the release build log group', () => {

@@ -43,7 +43,7 @@ const baseStatus: VendorDeploymentStatus = {
     notStarted: false,
   },
   servingRelease: { releaseId: null, confirmedAt: null, confirmed: false },
-  connector: { upgradeRequired: false, reason: null },
+  connector: { upgradeRequired: false, reason: null, updateAvailable: false, updateUrl: null, updateTemplateUrl: null },
   url: null,
   failure: null,
 };

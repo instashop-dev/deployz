@@ -139,6 +139,20 @@ new deployment.
 unset or the Region is not in `DEPLOYABLE_AWS_REGIONS`
 ([`control-plane.md`](control-plane.md)).
 
+**Quick Create fails with `AlreadyExists` after "Issue new install link".** The
+deployment was installed before, so its connector stack is still in the
+customer account. The install page then shows an update of that stack instead
+of a Quick Create link: the customer chooses Update, then Replace existing
+template, and enters the new `RelayCredential` and `EnrollmentCode`. Creating a
+second stack for the same installation is not supported.
+
+**Connector update required or available.** The deployment page shows the
+alert when the connector reports no release evidence (it cannot verify
+releases) or reports a build other than the published one
+(`BOOTSTRAP_BUILD_ID`). The customer updates the existing stack with the
+versioned template and keeps every parameter at "Use existing value",
+especially `RelayCredential`. This is not a reset and issues no new credential.
+
 **CloudFormation refuses the Quick Create parameters.** The customer's
 bootstrap template predates a parameter the control plane now sends;
 republish the bootstrap template and have the customer create a new stack.
@@ -173,7 +187,7 @@ per source address; the build retries three times. Configure
 authenticate pulls.
 
 **Default HTTPS stays "Setting up" or fails with `DEFAULT_DNS_TIMEOUT`.**
-Five configure cycles are the budget. Check that the ACM validation record
+Five configure cycles are the budget (waiting for a running install spends none). Check that the ACM validation record
 is unproxied, the routing record is proxied, and the ALB answers on 443.
 Retry from the deployment page resets the counter but keeps the certificate;
 a certificate ACM has marked FAILED is not replaced by retry. See

@@ -21,6 +21,9 @@ import { repackTemplate } from '../src/quick-create/repack.js';
 import { phaseOf, QuickCreateOrchestrator } from '../src/quick-create/orchestration.js';
 import {
   BootstrapPublisher,
+  buildIdOfTemplate,
+  computeBootstrapBuildId,
+  resolveBootstrapBuildId,
   parsePublishRegions,
   publishBootstrapToAllRegions,
   synthesizeBootstrapStack,
@@ -890,6 +893,71 @@ describe('quick-create', () => {
         }
 
         expect(synth.template.Parameters).toHaveProperty('BootstrapVersion');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('connector build id (content hash)', () => {
+    const controlPlaneUrl = 'https://api.deployz.dev';
+
+    it('is the same for the same inputs and 12 hex characters long', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-qc-'));
+      try {
+        const first = await computeBootstrapBuildId({ outdir, controlPlaneUrl });
+        const second = await computeBootstrapBuildId({ outdir, controlPlaneUrl });
+        expect(first).toMatch(/^[0-9a-f]{12}$/);
+        expect(second).toBe(first);
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('changes when the template changes', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-qc-'));
+      try {
+        const { template } = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, buildId: 'dev' });
+        const resources = template.Resources as Record<string, { Properties?: { Code?: { S3Key?: string } } }>;
+        const relay = Object.values(resources).find((r) => r.Properties?.Code?.S3Key);
+        expect(relay).toBeDefined();
+        const changed = structuredClone(template);
+        const changedResources = changed.Resources as typeof resources;
+        const key = Object.keys(resources).find((name) => resources[name]?.Properties?.Code?.S3Key)!;
+        changedResources[key]!.Properties!.Code!.S3Key = 'another-relay-asset-hash.zip';
+
+        expect(buildIdOfTemplate(changed)).not.toBe(buildIdOfTemplate(template));
+        expect(await computeBootstrapBuildId({ outdir, controlPlaneUrl: 'https://api.example.dev' })).not.toBe(
+          await computeBootstrapBuildId({ outdir, controlPlaneUrl }),
+        );
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not depend on the key order of the template', () => {
+      expect(buildIdOfTemplate({ a: 1, b: { c: 2, d: 3 } })).toBe(buildIdOfTemplate({ b: { d: 3, c: 2 }, a: 1 }));
+    });
+
+    it('is the id embedded in the published template', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-qc-'));
+      try {
+        const buildId = await resolveBootstrapBuildId({ outdir, controlPlaneUrl }, {});
+        const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, buildId });
+        const embedded = JSON.stringify(synth.template);
+        expect(embedded).toContain(`"DEPLOYZ_BOOTSTRAP_VERSION":"${buildId}"`);
+        expect(synth.buildId).toBe(buildId);
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps the BOOTSTRAP_BUILD_ID override', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-qc-'));
+      try {
+        expect(await resolveBootstrapBuildId({ outdir, controlPlaneUrl }, { BOOTSTRAP_BUILD_ID: 'custom-1' })).toBe(
+          'custom-1',
+        );
       } finally {
         rmSync(outdir, { recursive: true, force: true });
       }

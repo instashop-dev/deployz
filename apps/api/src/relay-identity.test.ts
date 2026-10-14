@@ -333,13 +333,13 @@ describe('relay identity + deployment serialization', () => {
     };
 
     expect((await heartbeat({})).statusCode).toBe(200);
-    expect(await connector()).toEqual({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' });
+    expect(await connector()).toMatchObject({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING', updateAvailable: true });
 
     // A connector that sends evidence (even evidence that fails) is not outdated.
     const now = new Date().toISOString();
     expect(
       (await heartbeat({ releaseEvidence: { version: 1, observedAt: now, services: [], httpProbe: null } })).statusCode,
     ).toBe(200);
-    expect(await connector()).toEqual({ upgradeRequired: false, reason: null });
+    expect(await connector()).toMatchObject({ upgradeRequired: false, reason: null, updateAvailable: false });
   });
 });

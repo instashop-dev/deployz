@@ -270,7 +270,7 @@ test('infrastructure rows appear only for the components the relay reports', asy
             observedAt: new Date().toISOString(),
             resources: [
               {
-                logicalId: 'Service',
+                logicalId: 'WebService',
                 type: 'AWS::ECS::Service',
                 status: 'CREATE_COMPLETE',
                 physicalId: 'arn:aws:ecs:us-east-1:123456789012:service/e2e-app',

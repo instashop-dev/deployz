@@ -1781,11 +1781,32 @@ describe('deriveDeploymentStatus — release evidence', () => {
     const missing = derive({
       deployment: makeDeployment({ ...healthy, observedState: verdict(false, 'EVIDENCE_MISSING') }),
     });
-    expect(missing.connector).toEqual({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING' });
+    expect(missing.connector).toMatchObject({ upgradeRequired: true, reason: 'RELEASE_EVIDENCE_MISSING', updateAvailable: true });
     const failing = derive({
       deployment: makeDeployment({ ...healthy, observedState: verdict(false, 'PROBE_FAILED') }),
     });
-    expect(failing.connector).toEqual({ upgradeRequired: false, reason: null });
+    expect(failing.connector).toEqual({ upgradeRequired: false, reason: null, updateAvailable: false, updateUrl: null, updateTemplateUrl: null });
+  });
+
+  it('offers a connector update when the reported build differs from the published one', () => {
+    const offer = { publishedBuildId: 'newbuild0001', updateUrl: 'https://console/stacks', templateUrl: 'https://tpl/new.json' };
+    const outdated = derive({ deployment: makeDeployment({ ...healthy, bootstrapVersion: 'oldbuild0001' }), connectorUpdate: offer });
+    expect(outdated.connector).toEqual({
+      upgradeRequired: false,
+      reason: null,
+      updateAvailable: true,
+      updateUrl: 'https://console/stacks',
+      updateTemplateUrl: 'https://tpl/new.json',
+    });
+    const unknownBuild = derive({ deployment: makeDeployment({ ...healthy, bootstrapVersion: null }), connectorUpdate: offer });
+    expect(unknownBuild.connector.updateAvailable).toBe(true);
+    const current = derive({ deployment: makeDeployment({ ...healthy, bootstrapVersion: 'newbuild0001' }), connectorUpdate: offer });
+    expect(current.connector).toMatchObject({ updateAvailable: false, updateUrl: null });
+    const unknownPublished = derive({
+      deployment: makeDeployment({ ...healthy, bootstrapVersion: 'oldbuild0001' }),
+      connectorUpdate: { ...offer, publishedBuildId: null },
+    });
+    expect(unknownPublished.connector.updateAvailable).toBe(false);
   });
 
   it('reports an intentional zero-task state as not started', () => {

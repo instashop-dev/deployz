@@ -10,11 +10,13 @@ import {
   DEPLOYMENT_STEP_ORDER,
   INFRASTRUCTURE_COMPONENTS,
   TYPICAL_STEP_DURATION_SECONDS,
+  workloadServicesFromSpec,
   type ComponentProgress,
   type ComponentProgressStatus,
   type CustomDomainStatus,
   type CustomerDeploymentStatus,
   type DeploymentStage,
+  type DeploymentSpecV2,
   type DeploymentState,
   type DeploymentStep,
   type HealthStatus,
@@ -28,6 +30,8 @@ import {
   type RuntimeHealthLayers,
   type VendorDeploymentStatus,
 } from '@deployz/contracts';
+
+import type { ConnectorUpdateOffer } from './connector-update.js';
 
 // Unified deployment status — the read-time derivation described in
 // packages/contracts/src/index.ts above customerDeploymentStatusSchema.
@@ -196,6 +200,8 @@ export interface DerivationDeployment {
   currentReleaseId: string | null;
   /** When relay evidence last confirmed `currentReleaseId` is serving — see servingReleaseFor. */
   currentReleaseConfirmedAt: Date | null;
+  /** Build id the connector reports (deployments.bootstrap_version); null for a connector that never reported one. */
+  bootstrapVersion?: string | null;
   observedState: Record<string, unknown> | null;
   updatedAt: Date;
   /** When the customer launched the CloudFormation Quick Create — the AWS_SETUP step's authoritative start. */
@@ -252,6 +258,8 @@ export interface DeriveDeploymentStatusInput {
   domain: DerivationDomain | null;
   /** Phase 11 Deployz-owned HTTPS endpoint, or null when not configured. */
   defaultHttps?: DerivationDefaultHttps | null;
+  /** The connector update the customer may approve, or null when none can be offered (see connector-update.ts). */
+  connectorUpdate?: ConnectorUpdateOffer | null;
   /**
    * resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE (its
    * only preferred state), else the default-HTTPS URL once ACTIVE/CONFIGURING,
@@ -332,7 +340,13 @@ export interface DerivedDeploymentStatus {
   /** Which release is serving and whether relay evidence confirms it — separate from health and from `failure`. */
   servingRelease: ServingRelease;
   /** The connector sends no release evidence, so it can neither promote a release nor verify readiness. */
-  connector: { upgradeRequired: boolean; reason: 'RELEASE_EVIDENCE_MISSING' | null };
+  connector: {
+    upgradeRequired: boolean;
+    reason: 'RELEASE_EVIDENCE_MISSING' | null;
+    updateAvailable: boolean;
+    updateUrl: string | null;
+    updateTemplateUrl: string | null;
+  };
   result: { url: string } | null;
   failure: DerivedFailure | null;
 }
@@ -612,6 +626,19 @@ export function endpointHttpsState(
     default:
       return 'SETTING_UP';
   }
+}
+
+/**
+ * CloudFormation logical ids of the ECS services that receive public
+ * ingress, from the frozen spec. Empty when there is no compiled spec or no
+ * public workload — nothing is then required of the inventory.
+ */
+export function primaryServiceLogicalIds(spec: DeploymentSpecV2 | null): string[] {
+  if (spec === null || !spec.ir.ingress.public) return [];
+  const publicIds = new Set(spec.ir.ingress.targetWorkloadIds);
+  return (workloadServicesFromSpec(spec) ?? [])
+    .filter((workload) => publicIds.has(workload.id))
+    .map((workload) => workload.serviceLogicalId);
 }
 
 /** The closed component-status vocabulary an HTTPS state maps onto. */
@@ -1117,8 +1144,25 @@ function buildHealthLayers(
  * whatever stage it last earned, so both projections can render "removed"
  * chrome around a real last-known stage instead of a placeholder.
  */
+function connectorStatus(
+  upgradeRequired: boolean,
+  deployment: Pick<DerivationDeployment, 'bootstrapVersion'>,
+  offer: ConnectorUpdateOffer | null,
+): DerivedDeploymentStatus['connector'] {
+  const newerBuild =
+    offer?.publishedBuildId != null && (deployment.bootstrapVersion ?? null) !== offer.publishedBuildId;
+  const updateAvailable = upgradeRequired || newerBuild;
+  return {
+    upgradeRequired,
+    reason: upgradeRequired ? 'RELEASE_EVIDENCE_MISSING' : null,
+    updateAvailable,
+    updateUrl: updateAvailable ? (offer?.updateUrl ?? null) : null,
+    updateTemplateUrl: updateAvailable ? (offer?.templateUrl ?? null) : null,
+  };
+}
+
 export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): DerivedDeploymentStatus {
-  const { deployment, application, jobs, domain, defaultHttps = null, appUrl, now = new Date() } = input;
+  const { deployment, application, jobs, domain, defaultHttps = null, connectorUpdate = null, appUrl, now = new Date() } = input;
 
   // deployments.state 'DISCONNECTED' is a valid enum value that nothing in
   // this codebase currently writes (the persisted liveness sweep flips
@@ -1405,10 +1449,7 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       notStarted: releaseVerdict?.notStarted === true,
     },
     servingRelease: servingReleaseFor(deployment, jobs),
-    connector: {
-      upgradeRequired: releaseVerdict?.reason === 'EVIDENCE_MISSING',
-      reason: releaseVerdict?.reason === 'EVIDENCE_MISSING' ? 'RELEASE_EVIDENCE_MISSING' : null,
-    },
+    connector: connectorStatus(releaseVerdict?.reason === 'EVIDENCE_MISSING', deployment, connectorUpdate),
     // Runtime-verified reachability is the gate for exposing an address:
     // READY's https URL always, and the temporary HTTP ALB endpoint once a
     // VERIFYING deployment's health status confirms the app is actually

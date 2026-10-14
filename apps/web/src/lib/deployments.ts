@@ -209,6 +209,8 @@ export interface InfrastructureComponent {
   /** Present only on the `endpoint` component, and only when the API
    *  applied the HTTPS truth. */
   httpsState?: InfrastructureHttpsState;
+  /** The Deployz-owned HTTPS machine's own status, apart from a custom domain's. */
+  defaultHttpsStatus?: string;
 }
 
 export interface InfrastructureSummary {

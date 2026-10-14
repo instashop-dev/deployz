@@ -309,15 +309,18 @@ test.describe('lifecycle-sweep', () => {
       expect(refused.status()).toBe(409);
       expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('RELAY_NOT_CONNECTED');
 
-      // The fresh single-use code and credential travel only inside the Quick
-      // Create link, exactly as the install page hands them to a rebuilding
-      // customer. DZ-AUDIT-013: the relay credential is also carried here.
+      // The fresh single-use code and credential travel only in the existing
+      // stack's update values, exactly as the install page hands them to a
+      // reconnecting customer. DZ-AUDIT-013: the relay credential is also carried here.
       const installInfo = await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) => r.json()) as {
         quickCreateUrl: string | null;
+        existingStackUpdate: { enrollmentCode: string; relayCredential: string | null } | null;
       };
-      expect(installInfo.quickCreateUrl).not.toBeNull();
-      const freshEnrollmentCode = extractQuickCreateParam(installInfo.quickCreateUrl!, 'EnrollmentCode');
-      const freshRelayCredential = extractQuickCreateParam(installInfo.quickCreateUrl!, 'RelayCredential');
+      expect(installInfo.quickCreateUrl).toBeNull();
+      expect(installInfo.existingStackUpdate).not.toBeNull();
+      expect(installInfo.existingStackUpdate!.relayCredential).not.toBeNull();
+      const freshEnrollmentCode = installInfo.existingStackUpdate!.enrollmentCode;
+      const freshRelayCredential = installInfo.existingStackUpdate!.relayCredential!;
 
       const relayB = startSimulatedRelay({
         scenario: getScenario('lifecycle-sweep'),

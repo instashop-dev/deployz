@@ -33,7 +33,7 @@ function status(overrides: Partial<VendorDeploymentStatus> = {}): VendorDeployme
       notStarted: false,
     },
     servingRelease: { releaseId: null, confirmedAt: null, confirmed: false },
-    connector: { upgradeRequired: false, reason: null },
+    connector: { upgradeRequired: false, reason: null, updateAvailable: false, updateUrl: null, updateTemplateUrl: null },
     url: 'https://app.example.com',
     failure: null,
     ...overrides,
@@ -251,6 +251,15 @@ describe('deriveHero', () => {
     expect(hero.liveReleaseNote).toBe(
       'Release v1.2.0 is still the running release, but its health checks are failing.',
     );
+  });
+
+  it('a deployment at zero tasks reads as not started, in a neutral tone', () => {
+    const hero = deriveHero(
+      input({
+        deploymentStatus: status({ health: { ...status().health, status: 'UNHEALTHY', notStarted: true } }),
+      }),
+    );
+    expect(hero).toMatchObject({ kind: 'not-started', tone: 'neutral', title: 'Your application is not started' });
   });
 
   it('a failed rollback and a failed restart are named for what they were', () => {

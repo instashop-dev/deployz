@@ -145,6 +145,9 @@ export function deploymentDisplayStatus(deployment: FleetDeployment): Deployment
     case 'UPDATE_AVAILABLE':
       return { group: 'update-available', label: 'Live', badge: 'success' };
     case 'HEALTHY':
+      if (deployment.deploymentStatus?.health?.notStarted) {
+        return { group: 'in-progress', label: 'Not started', badge: 'secondary' };
+      }
       return { group: 'healthy', label: 'Live', badge: 'success' };
     default:
       return { group: 'attention', label: 'Needs attention · Unknown status', badge: 'warning' };

@@ -212,6 +212,64 @@ describe('createDomainExecutors — CONFIGURE_DOMAIN', () => {
     expect(elb.addListenerCertificateCalls).toHaveLength(0);
   });
 
+  it('before the load balancer exists: requests the cert and reports the validation record, with no listener and no failure', async () => {
+    const acm = new FakeAcmClient();
+    const elb = new FakeElbClient();
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const first = await executors.CONFIGURE_DOMAIN(configureCommand());
+    const arn = first.output?.certificateArn as string;
+    acm.certificates.set(arn, {
+      status: 'PENDING_VALIDATION',
+      validationRecord: { name: '_v.custom.example.com.', value: '_v.acm-validations.aws.' },
+    });
+
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: arn }));
+
+    expect(result.success).toBe(true);
+    expect(result.output).toMatchObject({
+      certificateArn: arn,
+      validationName: '_v.custom.example.com.',
+      validationValue: '_v.acm-validations.aws.',
+      httpsConfigured: false,
+    });
+    expect(result.output).not.toHaveProperty('routingTarget');
+    expect(elb.createHttpsListenerCalls).toHaveLength(0);
+  });
+
+  it('once the load balancer exists the same certificate gets its routing target and, when issued, the listener', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const early = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+    expect(early.output?.httpsConfigured).toBe(false);
+
+    elb.loadBalancer = makeLb();
+    elb.listeners = [{ arn: 'listener-80', port: 80, redirectsToHttps: false, forwardTargetGroupArn: 'tg-1' }];
+    const later = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(later.output).toMatchObject({ routingTarget: 'lb-abc.us-east-1.elb.amazonaws.com', httpsConfigured: true });
+    expect(elb.createHttpsListenerCalls).toHaveLength(1);
+  });
+
+  it('deferListener: an issued cert and an existing load balancer still get no listener while the install runs', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+    elb.listeners = [{ arn: 'listener-80', port: 80, redirectsToHttps: false, forwardTargetGroupArn: 'tg-1' }];
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+
+    const result = await executors.CONFIGURE_DOMAIN(
+      configureCommand({ certificateArn: 'arn:cert-1', deferListener: true }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toMatchObject({ routingTarget: 'lb-abc.us-east-1.elb.amazonaws.com', httpsConfigured: false });
+    expect(elb.createHttpsListenerCalls).toHaveLength(0);
+    expect(elb.setHttpRedirectCalls).toHaveLength(0);
+  });
+
   it('configure with certificateArn in payload does not request a new certificate', async () => {
     const acm = new FakeAcmClient();
     acm.certificates.set('arn:existing-cert', { status: 'PENDING_VALIDATION' });
