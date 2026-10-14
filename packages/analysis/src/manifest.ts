@@ -485,7 +485,8 @@ export function normalizeDeploymentManifest(
   // nothing is auto-provisioned from weak evidence such as a queue-library
   // dependency alone.
   const declaredWorkers = toDeclaredWorkers(meta, overrides);
-  const workerNeedsCommand = meta['hasWorkerProcesses'] === true && declaredWorkers.length === 0;
+  const workerNeedsCommand =
+    meta['hasWorkerProcesses'] === true && meta['workerNeedsProcess'] !== false && declaredWorkers.length === 0;
   const ignoredDeploymentFiles = stringArray(meta['ignoredDeploymentFiles']);
   // Phase 5 — SQS queues and scheduled jobs, resolved by async-detection.ts.
   const {

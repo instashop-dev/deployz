@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7",
+  "analysisVersion": 54,
   "tree": {
     "files": 201,
     "entries": 2452,
@@ -56,18 +56,22 @@
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "HD_DATABASE_TYPE"
+    ],
     "unsupported": [
       "docker-compose-multi-service"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
       "health-check",
+      "dockerfile-target-unresolved",
       "database-migrations"
     ],
     "gateFindings": [
       "unsupported",
       "health-path-required",
+      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [

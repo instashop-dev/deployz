@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7",
+  "analysisVersion": 54,
   "tree": {
     "files": 201,
     "entries": 4774,
@@ -41,11 +41,11 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "go",
-    "appRoot": "apps/checker",
-    "dockerfilePath": "apps/checker/Dockerfile",
-    "port": 8080,
-    "startCommand": "CMD: [ \"/opt/bin/checker\" ]",
+    "runtime": "node",
+    "appRoot": "apps/dashboard",
+    "dockerfilePath": "apps/dashboard/Dockerfile",
+    "port": 3000,
+    "startCommand": "CMD: [\"node\", \"server.js\"]",
     "healthDetected": true,
     "healthPath": "/",
     "postgres": true,
@@ -110,11 +110,13 @@
     ],
     "readinessFindings": [
       "unsupported-database-sqlite",
-      "unsupported-multi-service"
+      "unsupported-multi-service",
+      "dockerfile-target-unresolved"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
+      "dockerfile-missing-sources",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
@@ -167,23 +169,21 @@
     {
       "fact": "appRoot",
       "expected": ".",
-      "actual": "apps/checker",
+      "actual": "apps/dashboard",
       "match": false,
       "kind": "fact"
     },
     {
       "fact": "dockerfilePath",
       "expected": "apps/dashboard/Dockerfile",
-      "actual": "apps/checker/Dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "apps/dashboard/Dockerfile",
+      "match": true
     },
     {
       "fact": "port",
       "expected": 3000,
-      "actual": 8080,
-      "match": false,
-      "kind": "fact"
+      "actual": 3000,
+      "match": true
     },
     {
       "fact": "healthPath",
@@ -248,29 +248,9 @@
       "fact": "appRoot",
       "kind": "fact",
       "expected": ".",
-      "actual": "apps/checker",
+      "actual": "apps/dashboard",
       "finding": {
         "id": "COMP-020",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "dockerfilePath",
-      "kind": "fact",
-      "expected": "apps/dashboard/Dockerfile",
-      "actual": "apps/checker/Dockerfile",
-      "finding": {
-        "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 3000,
-      "actual": 8080,
-      "finding": {
-        "id": "COMP-027",
         "type": "ANALYSIS_BUG"
       }
     },

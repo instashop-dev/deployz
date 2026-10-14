@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7",
+  "analysisVersion": 54,
   "tree": {
     "files": 201,
     "entries": 7342,
@@ -39,7 +39,7 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "go",
+    "runtime": "node",
     "appRoot": "web",
     "dockerfilePath": "web/Dockerfile",
     "port": 3000,
@@ -76,6 +76,7 @@
     ],
     "readinessFindings": [
       "unsupported-database-other",
+      "dockerfile-target-unresolved",
       "database-migrations",
       "worker-command"
     ],

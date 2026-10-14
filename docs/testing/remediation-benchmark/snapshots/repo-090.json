@@ -2,7 +2,7 @@
   "id": "repo-090",
   "repository": "sosedoff/pgweb",
   "commit": "e4858a16d8e032730055289596ea9059a91bca64",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "sosedoff/pgweb",
     "containerPort": 8081,
@@ -22,7 +22,7 @@
         }
       ],
       "analysisCommitSha": "e4858a16d8e032730055289596ea9059a91bca64",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -257,7 +257,7 @@
       "usesPostgresql": true,
       "usesRedis": false,
       "usesS3": false,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }

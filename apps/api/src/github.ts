@@ -712,6 +712,11 @@ const SCHEDULE_FILE_REGEX =
 // that is the detectors' own pattern.
 const PROCFILE_REGEX = /(?:^|\/)Procfile$/;
 
+// The extension-less scripts an s6-overlay image runs at start (`/init`): a
+// service's `run` or `up` file and a `cont-init.d` step. detectStartupMigrationEvidence
+// reads them for a migration the image runs before the app (paperless-ngx).
+const S6_SCRIPT_REGEX = /(?:^|\/)s6-rc\.d\/[^/]+\/(?:run|up)$|(?:^|\/)cont-init\.d\/[^/]+$/;
+
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
 }
@@ -732,6 +737,7 @@ function isRelevantPath(path: string): boolean {
   if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
   if (SCHEDULE_FILE_REGEX.test(path)) return true;
   if (PROCFILE_REGEX.test(path)) return true;
+  if (S6_SCRIPT_REGEX.test(path)) return true;
   const isRoot = !path.includes('/');
   if (isRoot) {
     if (/^\.env(\.\w+)?$/i.test(path)) return true;
@@ -775,7 +781,7 @@ function isLockfilePath(path: string): boolean {
 // the ones the port/health/env detectors need most on a repository with far
 // more source files than the cap (a Go or Django tree can carry hundreds).
 const ENTRY_FILE_REGEX =
-  /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\//i;
+  /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\/|(?:^|\/)(?:init|initialize|bootstrap)\.go$|(?:^|\/)cmd\/(?:web|serve|server|start|run)\.go$/i;
 // Files that read the environment and name the datastore the app uses:
 // `environment.service.ts`, `env/GlobalValues.ts`, `configs/database.config.ts`. They are few
 // and small, and a deep one would otherwise lose its slot to hundreds of `index.ts`. A plain
@@ -806,7 +812,7 @@ function relevancePriority(path: string, protectedPaths: ReadonlySet<string>): n
   if (MANIFEST_REGEX.test(path)) return 1;
   if (OTHER_MANIFEST_REGEX.test(path)) return 1;
   if (!path.includes('/')) return 2; // generic (unnamed) root files
-  if (PRISMA_SCHEMA_REGEX.test(path) || CONFIG_ENV_FILE_REGEX.test(path)) return 3;
+  if (PRISMA_SCHEMA_REGEX.test(path) || CONFIG_ENV_FILE_REGEX.test(path) || S6_SCRIPT_REGEX.test(path)) return 3;
   if (HEALTH_ROUTE_FILE_REGEX.test(path) || ENV_CONFIG_FILE_REGEX.test(path)) return 4;
   if (ENTRY_FILE_REGEX.test(path)) return 5; // entry, routing and configuration source
   return 6; // other source files

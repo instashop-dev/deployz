@@ -99,6 +99,18 @@ const ENV_BINDING_KIND: Partial<Record<string, RedisEnvBindingKind>> = {
  * the suffix decides what the value is. A password is never one of them.
  */
 const PREFIXED_REDIS_ENV_REGEX = /(?:^|_)REDIS_(URL|URI|DSN|HOST|PORT)$/;
+/**
+ * A prefixed name with no suffix (`PAPERLESS_REDIS`) is a connection URL,
+ * unless a switch word names it a flag (`APP_USE_REDIS`, `ENABLE_REDIS`).
+ */
+const BARE_REDIS_ENV_REGEX = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_REDIS$/;
+const REDIS_SWITCH_WORD_REGEX = /(?:^|_)(?:ENABLE|USE|WITH|HAS|DISABLE|NO|SKIP)_/;
+
+function appRedisBindingKind(name: string): RedisEnvBinding['kind'] | undefined {
+  const suffix = PREFIXED_REDIS_ENV_REGEX.exec(name)?.[1];
+  if (suffix !== undefined) return suffix === 'HOST' ? 'host' : suffix === 'PORT' ? 'port' : 'url';
+  return BARE_REDIS_ENV_REGEX.test(name) && !REDIS_SWITCH_WORD_REGEX.test(name) ? 'url' : undefined;
+}
 
 const DEFAULT_ENV_BINDINGS: RedisEnvBinding[] = [
   { name: 'REDIS_URL', kind: 'url' },
@@ -887,7 +899,7 @@ export function assessRedis(tree: FileTree): RedisRequirement {
   // Names the app reads (or its env sample documents) outside the known list.
   const appConnectionEnvVars = detectEnvVarModel(tree)
     .map((variable) => variable.key)
-    .filter((key) => PREFIXED_REDIS_ENV_REGEX.test(key) && !(KNOWN_REDIS_ENV_VARS as readonly string[]).includes(key))
+    .filter((key) => appRedisBindingKind(key) !== undefined && !(KNOWN_REDIS_ENV_VARS as readonly string[]).includes(key))
     .sort();
   const orderedConnectionEnvVars = [...knownConnectionEnvVars, ...appConnectionEnvVars];
 
@@ -926,9 +938,9 @@ export function resolveRedisEnvBindings(connectionEnvVars: string[]): RedisEnvBi
     bindings.push({ name, kind });
   }
   for (const name of [...present].sort()) {
-    const suffix = PREFIXED_REDIS_ENV_REGEX.exec(name)?.[1];
-    if (suffix === undefined || (KNOWN_REDIS_ENV_VARS as readonly string[]).includes(name)) continue;
-    bindings.push({ name, kind: suffix === 'HOST' ? 'host' : suffix === 'PORT' ? 'port' : 'url' });
+    const kind = appRedisBindingKind(name);
+    if (kind === undefined || (KNOWN_REDIS_ENV_VARS as readonly string[]).includes(name)) continue;
+    bindings.push({ name, kind });
   }
 
   return bindings.length > 0 ? bindings : DEFAULT_ENV_BINDINGS;

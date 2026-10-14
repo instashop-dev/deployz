@@ -56,6 +56,9 @@ findings:
   - { id: COMP-047, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
   - { id: COMP-048, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
   - { id: COMP-049, type: ANALYSIS_BUG, facts: [migration] }
+  - { id: COMP-050, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
+  - { id: COMP-051, type: ANALYSIS_BUG, facts: [postgres, compatibility] }
+  - { id: COMP-052, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
 
 repositories:
   - id: repo-001
@@ -3364,6 +3367,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 1
+    findings: [COMP-052]
     notes:
       - "SEARXNG_BASE_URL and a secret_key (settings.yml) are required."
   - id: repo-210

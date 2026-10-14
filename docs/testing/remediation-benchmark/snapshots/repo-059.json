@@ -2,7 +2,7 @@
   "id": "repo-059",
   "repository": "go-vikunja/vikunja",
   "commit": "c82715c36a30ef40cff8a957302f671e9563a54a",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "go-vikunja/vikunja",
     "containerPort": 3456,
@@ -34,12 +34,12 @@
         }
       ],
       "analysisCommitSha": "c82715c36a30ef40cff8a957302f671e9563a54a",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
-      "bindAddress": "localhost",
-      "bindsLocalhost": true,
+      "bindAddress": null,
+      "bindsLocalhost": false,
       "buildCommands": [
         "vite build && workbox copyLibraries dist/"
       ],
@@ -1045,12 +1045,13 @@
           "key": "VIKUNJA_FILES_TYPE",
           "secret": false,
           "source": [
+            "storage selector: default \"local\" stores files on the container disk — set a value that stores files outside the container",
             "read in pkg/config/config.go"
           ],
           "purpose": "optional_configuration",
-          "required": false,
+          "required": true,
           "confidence": "medium",
-          "classification": "optional"
+          "classification": "customer_required"
         },
         {
           "key": "VIKUNJA_KEYVALUE_TYPE",
@@ -2437,7 +2438,7 @@
       "externalServices": [
         "sentry"
       ],
-      "framework": "express",
+      "framework": null,
       "hasBuildCommand": true,
       "hasDockerfile": true,
       "hasEnvVars": true,
@@ -2559,7 +2560,14 @@
           "applicationVariable": "VIKUNJA_FILES_S3_REGION"
         }
       ],
-      "migrationMode": "unknown",
+      "migrationMode": "startup",
+      "migrationStartupEvidence": [
+        {
+          "source": "pkg/initialize/init.go",
+          "pattern": "go migrator call on the start path",
+          "fromDockerCommand": true
+        }
+      ],
       "mysql": {
         "detected": false,
         "evidence": [],
@@ -2579,15 +2587,11 @@
         "lib/pq"
       ],
       "readiness": {
-        "state": "ALMOST_READY",
+        "state": "READY",
         "passed": [
           {
             "id": "dockerfile",
             "label": "Container setup found"
-          },
-          {
-            "id": "framework",
-            "label": "Framework detected"
           },
           {
             "id": "port",
@@ -2634,34 +2638,22 @@
             "label": "Redis detected — provisioned automatically on install"
           }
         ],
-        "summary": "Deployz found a few things to address before this app can be deployed reliably.",
+        "summary": "This app can be deployed through Deployz.",
         "findings": [
           {
-            "id": "localhost-binding",
-            "title": "Your app only listens on localhost",
-            "blocking": false,
-            "category": "network",
-            "severity": "required",
-            "confidence": "likely",
-            "whyItMatters": "Deployz sends customer traffic and health checks to the container over the network. A server bound to 127.0.0.1 or localhost never answers them, so every deployment would fail its health check.",
-            "suggestedOutcome": "Bind the server to all network interfaces (0.0.0.0) instead of 127.0.0.1 or localhost.",
-            "technicalEvidence": "Server binds only to a loopback address: listen(port, '127.0.0.1', () (desktop/main.js); listen(port, '127.0.0.1') (desktop/portInUse.js)",
-            "plainEnglishExplanation": "This app accepts connections only from inside its own container, so Deployz cannot reach it."
-          },
-          {
             "id": "database-migrations",
-            "title": "Give Deployz a way to update your database",
+            "title": "Database migrations run when the application starts",
             "blocking": false,
             "category": "database",
             "severity": "recommended",
             "confidence": "likely",
-            "whyItMatters": "Deployz runs your migration command automatically on every deploy, so each customer database always matches the code that talks to it.",
-            "suggestedOutcome": "Add a script that applies database migrations non-interactively (for example a \"db:migrate\" entry in package.json).",
-            "technicalEvidence": "A PostgreSQL library is present (lib/pq) but no migration script was found in any package.json.",
-            "plainEnglishExplanation": "This app uses a database, but Deployz could not find a command that updates the database structure during deploys."
+            "whyItMatters": "Deployz does not run a migration step of its own for this app — the running application updates its own database schema on boot.",
+            "suggestedOutcome": "No action needed — migrations run on application startup and Deployz monitors the app until it reports healthy.",
+            "technicalEvidence": "Migrations run at startup: go migrator call on the start path (pkg/initialize/init.go).",
+            "plainEnglishExplanation": "This app applies its database migrations when the application itself starts, not as a separate deploy step."
           }
         ],
-        "requiredCount": 1,
+        "requiredCount": 0,
         "recommendedCount": 1
       },
       "redis": {
@@ -2695,7 +2687,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": true,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }

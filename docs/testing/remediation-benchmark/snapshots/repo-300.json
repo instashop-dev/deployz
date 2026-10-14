@@ -2,7 +2,7 @@
   "id": "repo-300",
   "repository": "instashop-dev/deployz-phase5-canary",
   "commit": "6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "instashop-dev/deployz-phase5-canary",
     "containerPort": 3000,
@@ -18,12 +18,12 @@
         }
       ],
       "analysisCommitSha": "6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [
         {
           "id": "orders-queue",
-          "source": "src/orders-consumer.ts",
+          "source": "src/server.ts",
           "consumers": [
             "worker"
           ],
@@ -83,8 +83,8 @@
             ".env.example declares DATABASE_URL",
             "read in prisma/schema.prisma",
             "read in src/orders-consumer.ts",
-            "read in src/schema.ts",
-            "read in src/scheduled.ts"
+            "read in src/scheduled.ts",
+            "read in src/schema.ts"
           ],
           "purpose": "infrastructure_binding",
           "required": true,
@@ -108,8 +108,8 @@
           "secret": false,
           "source": [
             ".env.example declares ORDERS_QUEUE_URL",
-            "read in src/orders-consumer.ts",
             "read in src/server.ts",
+            "read in src/orders-consumer.ts",
             "read in src/web.ts"
           ],
           "purpose": "optional_configuration",
@@ -212,10 +212,10 @@
       "postgres": {
         "evidence": [
           "pg dependency in package.json",
+          "DATABASE_URL referenced in .env.example",
           "process.env.DATABASE_URL referenced in src/orders-consumer.ts",
-          "process.env.DATABASE_URL referenced in src/schema.ts",
           "process.env.DATABASE_URL referenced in src/scheduled.ts",
-          "DATABASE_URL referenced in .env.example"
+          "process.env.DATABASE_URL referenced in src/schema.ts"
         ],
         "required": true
       },
@@ -338,7 +338,7 @@
       "usesPostgresql": true,
       "usesRedis": false,
       "usesS3": false,
-      "vendorOverrides": [],
+      "workerNeedsProcess": true,
       "workerPatterns": [
         "declared worker process (Procfile)"
       ]

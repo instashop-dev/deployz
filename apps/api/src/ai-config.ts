@@ -87,6 +87,13 @@ export type FixInstructionsAiProvider = 'openrouter' | 'gateway';
 /** Why the fix-instructions model is not configured, for the startup warning. */
 export type FixInstructionsAiProblem = 'invalid-provider' | 'missing-openrouter-key' | 'missing-gateway';
 
+/** What to set for each problem. The startup warning and the local-only API message both use it. */
+export const FIX_INSTRUCTIONS_AI_PROBLEMS = {
+  'invalid-provider': 'FIX_INSTRUCTIONS_AI_PROVIDER must be "openrouter" or "gateway"',
+  'missing-openrouter-key': 'OPENROUTER_API_KEY is not set',
+  'missing-gateway': 'FIX_INSTRUCTIONS_AI_PROVIDER=gateway but AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY are not both set',
+} as const satisfies Record<FixInstructionsAiProblem, string>;
+
 /**
  * Resolve the fix-instructions model. There is no fallback between
  * providers: a provider without its credentials leaves fix instructions

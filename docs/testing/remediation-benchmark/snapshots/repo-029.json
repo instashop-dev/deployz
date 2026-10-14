@@ -2,7 +2,7 @@
   "id": "repo-029",
   "repository": "postalsys/emailengine",
   "commit": "1933e5d9952fab26fbd3f4a630adfc0ca341717a",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "postalsys/emailengine",
     "containerPort": null,
@@ -23,14 +23,10 @@
         {
           "kind": "BUILD_COMMAND",
           "detail": "A package manager is pinned but no build command was detected."
-        },
-        {
-          "kind": "ARCHITECTURE_REQUIREMENT",
-          "detail": "Worker code was detected but no command resolves how a worker process starts."
         }
       ],
       "analysisCommitSha": "1933e5d9952fab26fbd3f4a630adfc0ca341717a",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -112,8 +108,8 @@
           "key": "EENGINE_LOG_LEVEL",
           "secret": false,
           "source": [
-            ".env.production declares EENGINE_LOG_LEVEL",
             ".env.development declares EENGINE_LOG_LEVEL",
+            ".env.production declares EENGINE_LOG_LEVEL",
             "read in lib/logger.js"
           ],
           "purpose": "optional_configuration",
@@ -158,13 +154,13 @@
           "key": "EENGINE_REDIS",
           "secret": false,
           "source": [
-            ".env.production declares EENGINE_REDIS",
-            ".env.development declares EENGINE_REDIS"
+            ".env.development declares EENGINE_REDIS",
+            ".env.production declares EENGINE_REDIS"
           ],
           "purpose": "optional_configuration",
           "required": false,
           "confidence": "medium",
-          "classification": "unknown"
+          "classification": "deployz_managed"
         },
         {
           "key": "EENGINE_REDIS_PREFIX",
@@ -181,8 +177,8 @@
           "key": "EENGINE_SECRET",
           "secret": true,
           "source": [
-            ".env.production declares EENGINE_SECRET",
-            ".env.development declares EENGINE_SECRET"
+            ".env.development declares EENGINE_SECRET",
+            ".env.production declares EENGINE_SECRET"
           ],
           "purpose": "internal_secret",
           "required": false,
@@ -193,8 +189,8 @@
           "key": "EENGINE_SETTINGS",
           "secret": false,
           "source": [
-            ".env.production declares EENGINE_SETTINGS",
-            ".env.development declares EENGINE_SETTINGS"
+            ".env.development declares EENGINE_SETTINGS",
+            ".env.production declares EENGINE_SETTINGS"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -260,8 +256,8 @@
           "key": "EENGINE_WORKERS",
           "secret": false,
           "source": [
-            ".env.production declares EENGINE_WORKERS",
-            ".env.development declares EENGINE_WORKERS"
+            ".env.development declares EENGINE_WORKERS",
+            ".env.production declares EENGINE_WORKERS"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -300,8 +296,8 @@
           "key": "EMAILENGINE_API_BIND",
           "secret": false,
           "source": [
-            ".env.production declares EMAILENGINE_API_BIND",
-            ".env.development declares EMAILENGINE_API_BIND"
+            ".env.development declares EMAILENGINE_API_BIND",
+            ".env.production declares EMAILENGINE_API_BIND"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -312,8 +308,8 @@
           "key": "EMAILENGINE_IMAP_BIND",
           "secret": false,
           "source": [
-            ".env.production declares EMAILENGINE_IMAP_BIND",
-            ".env.development declares EMAILENGINE_IMAP_BIND"
+            ".env.development declares EMAILENGINE_IMAP_BIND",
+            ".env.production declares EMAILENGINE_IMAP_BIND"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -324,8 +320,8 @@
           "key": "EMAILENGINE_SMTP_BIND",
           "secret": false,
           "source": [
-            ".env.production declares EMAILENGINE_SMTP_BIND",
-            ".env.development declares EMAILENGINE_SMTP_BIND"
+            ".env.development declares EMAILENGINE_SMTP_BIND",
+            ".env.production declares EMAILENGINE_SMTP_BIND"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -348,8 +344,8 @@
           "key": "HEALTHCHECK_INTERVAL",
           "secret": false,
           "source": [
-            ".env.production declares HEALTHCHECK_INTERVAL",
-            ".env.development declares HEALTHCHECK_INTERVAL"
+            ".env.development declares HEALTHCHECK_INTERVAL",
+            ".env.production declares HEALTHCHECK_INTERVAL"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -426,8 +422,8 @@
           "key": "REDIS_HEALTHCHECK",
           "secret": false,
           "source": [
-            ".env.production declares REDIS_HEALTHCHECK",
-            ".env.development declares REDIS_HEALTHCHECK"
+            ".env.development declares REDIS_HEALTHCHECK",
+            ".env.production declares REDIS_HEALTHCHECK"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -438,8 +434,8 @@
           "key": "REDIS_LOG_LEVEL",
           "secret": false,
           "source": [
-            ".env.production declares REDIS_LOG_LEVEL",
-            ".env.development declares REDIS_LOG_LEVEL"
+            ".env.development declares REDIS_LOG_LEVEL",
+            ".env.production declares REDIS_LOG_LEVEL"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -577,25 +573,11 @@
       "ignoredDeploymentFiles": [],
       "infrastructureBindings": [
         {
-          "source": "explicit",
+          "source": "detected",
           "resource": "redis",
           "semantic": "url",
           "confidence": "high",
-          "applicationVariable": "REDIS_URL"
-        },
-        {
-          "source": "explicit",
-          "resource": "redis",
-          "semantic": "host",
-          "confidence": "high",
-          "applicationVariable": "REDIS_HOST"
-        },
-        {
-          "source": "explicit",
-          "resource": "redis",
-          "semantic": "port",
-          "confidence": "high",
-          "applicationVariable": "REDIS_PORT"
+          "applicationVariable": "EENGINE_REDIS"
         }
       ],
       "migrationMode": "none",
@@ -675,22 +657,10 @@
             "suggestedOutcome": "Declare the port the app listens on (for example an EXPOSE instruction in the Dockerfile), or set it in the application details.",
             "technicalEvidence": "No port was found in the Dockerfile (EXPOSE or ENV PORT), an env file, a compose file, or a process.env.PORT default in source.",
             "plainEnglishExplanation": "Deployz could not find the network port this app listens on."
-          },
-          {
-            "id": "worker-command",
-            "title": "Background job runner",
-            "blocking": false,
-            "category": "workers",
-            "severity": "recommended",
-            "confidence": "likely",
-            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
-            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
-            "technicalEvidence": "Worker patterns detected: bullmq",
-            "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
           }
         ],
         "requiredCount": 2,
-        "recommendedCount": 1
+        "recommendedCount": 0
       },
       "redis": {
         "evidence": [
@@ -708,7 +678,9 @@
         "compatibility": {
           "supported": true
         },
-        "connectionEnvVars": []
+        "connectionEnvVars": [
+          "EENGINE_REDIS"
+        ]
       },
       "resolvedWorkerCommand": null,
       "resolvedWorkerCommands": null,
@@ -724,7 +696,7 @@
       "usesPostgresql": false,
       "usesRedis": true,
       "usesS3": false,
-      "vendorOverrides": [],
+      "workerNeedsProcess": false,
       "workerPatterns": [
         "bullmq"
       ]

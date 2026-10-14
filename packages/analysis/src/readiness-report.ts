@@ -124,6 +124,10 @@ export interface ReadinessResolution {
   startCommand: string | null;
   /** The vendor entered a migration command or chose no separate migration. */
   migrationCommandDecided?: boolean | undefined;
+  /** The vendor set the health check path. */
+  healthPathDecided?: boolean | undefined;
+  /** The vendor set the Dockerfile path. */
+  dockerfilePathDecided?: boolean | undefined;
 }
 
 // ── Passed-check labels ─────────────────────────────────────────────────────
@@ -206,7 +210,7 @@ const OTHER_DB_COPY: RejectionCopy = {
   plainEnglishExplanation:
     'This app uses a database Deployz cannot host. Deployz provides managed PostgreSQL or MySQL databases.',
   suggestedOutcome:
-    'Move the data layer to PostgreSQL, or remove the unsupported dependency if it is not actually used.',
+    'Move the data layer to PostgreSQL or MySQL, or remove the unsupported dependency if it is not actually used.',
 };
 
 const SQLITE_COPY: RejectionCopy = {
@@ -493,6 +497,29 @@ export function buildReadinessReport(
     });
   }
 
+  const tiedDockerfiles = Array.isArray(metadata['dockerfileSelectionTied'])
+    ? metadata['dockerfileSelectionTied'].filter((path): path is string => typeof path === 'string')
+    : [];
+  if (tiedDockerfiles.length > 1) {
+    const selected = typeof metadata['dockerfilePath'] === 'string' ? metadata['dockerfilePath'] : null;
+    findings.push({
+      id: 'dockerfile-target-unresolved',
+      category: 'container',
+      title: 'Confirm which Dockerfile Deployz builds',
+      severity: 'recommended',
+      blocking: false,
+      plainEnglishExplanation: `Deployz found several Dockerfiles that could be the application image and picked ${
+        selected !== null ? `"${selected}"` : 'one of them'
+      }.`,
+      whyItMatters:
+        'Deployz builds one Dockerfile for every release. If it builds the wrong one, the app starts the wrong program or never becomes healthy.',
+      technicalEvidence: `These Dockerfiles match equally well: ${tiedDockerfiles.join(', ')}.`,
+      suggestedOutcome:
+        'Check that this Dockerfile builds the application. If it does not, name the application Dockerfile Dockerfile.production, which Deployz prefers, and analyse again.',
+      confidence: 'needs_confirmation',
+    });
+  }
+
   if (metadata['hasHealthEndpoint'] !== true) {
     findings.push({
       id: 'health-check',
@@ -545,7 +572,10 @@ export function buildReadinessReport(
   const mysql = metadata['mysql'] as { required?: unknown } | undefined;
   const databaseRequired = postgres?.required === true || mysql?.required === true;
   const migrationMode = metadata['migrationMode'];
-  const usesMysqlOnly = metadata['usesPostgresql'] !== true && metadata['usesMysql'] === true;
+  const usesMysqlOnly =
+    postgres?.required === true
+      ? false
+      : mysql?.required === true || (metadata['usesPostgresql'] !== true && metadata['usesMysql'] === true);
   const drivers = metadata['postgresqlDrivers'];
   if (migrationMode === 'startup') {
     const evidence = metadata['migrationStartupEvidence'] as
@@ -636,7 +666,9 @@ export function buildReadinessReport(
       suggestedOutcome: 'No change needed — Deployz will start the worker process alongside your app.',
       confidence: 'confirmed',
     });
-  } else if (worker?.detected) {
+  } else if (worker?.detected && metadata['workerNeedsProcess'] !== false) {
+    // `workerNeedsProcess` is false when the only evidence is an in-process job
+    // library or worker_threads; rows analysed before it existed lack the key.
     findings.push({
       id: 'worker-command',
       category: 'workers',
@@ -737,12 +769,16 @@ const RESOLVABLE_FINDINGS: Record<string, (resolution: ReadinessResolution) => b
   'port-unresolved': (resolution) => resolution.containerPort !== null,
   'start-command-missing': (resolution) => resolution.startCommand !== null,
   'migration-command-needs-input': (resolution) => resolution.migrationCommandDecided === true,
+  'health-check': (resolution) => resolution.healthPathDecided === true,
+  'dockerfile-target-unresolved': (resolution) => resolution.dockerfilePathDecided === true,
 };
 
 const RESOLVED_LABELS: Partial<Record<string, string>> = {
   'port-unresolved': 'Application port set in the application details',
   'start-command-missing': 'Start command set in the application details',
   'migration-command-needs-input': 'Migration choice set in the application details',
+  'health-check': 'Health check path set in the application details',
+  'dockerfile-target-unresolved': 'Dockerfile set in the application details',
 };
 
 /**

@@ -141,7 +141,7 @@ describe('phase 4 composition — the full topology from real evidence', () => {
 });
 
 describe('phase 4 composition — ambiguity and false positives stay inert', () => {
-  it('a bullmq dependency with no declared process raises needs-input and provisions NO worker', () => {
+  it('a bullmq dependency with no declared process runs in the web process: no question and NO worker (REM-103)', () => {
     const analysis = analyseRepo({
       ...COMPOSED,
       'Procfile': 'web: node dist/index.js\n',
@@ -164,13 +164,11 @@ describe('phase 4 composition — ambiguity and false positives stay inert', () 
     const manifest = normalizeDeploymentManifest(analysis, { migrationCommand: 'node migrate.js' });
     expect(manifest.workers).toBeUndefined();
     expect(manifest.worker.command).toBeNull();
-    expect(manifest.worker.needsCommand).toBe(true);
+    expect(manifest.worker.needsCommand).toBeUndefined();
 
     const graph = manifestToApplicationGraph(manifest);
     expect(graph.workloads.map((w) => w.id)).toEqual(['web', 'migration']);
-    const unresolved = graph.unresolved.find((u) => u.id === 'worker-command');
-    expect(unresolved).toBeDefined();
-    expect(unresolved!.blocking).toBe(false);
+    expect(graph.unresolved.find((u) => u.id === 'worker-command')).toBeUndefined();
   });
 
   it('ioredis alone is cache evidence, not worker evidence — no worker, no question', () => {

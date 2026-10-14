@@ -2,7 +2,7 @@
   "id": "repo-031",
   "repository": "gethomepage/homepage",
   "commit": "ddc5adc91ccd8026c7250619febc564953b4481a",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "gethomepage/homepage",
     "containerPort": 3000,
@@ -26,7 +26,7 @@
         }
       ],
       "analysisCommitSha": "ddc5adc91ccd8026c7250619febc564953b4481a",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -407,7 +407,7 @@
       "usesPostgresql": false,
       "usesRedis": false,
       "usesS3": false,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }

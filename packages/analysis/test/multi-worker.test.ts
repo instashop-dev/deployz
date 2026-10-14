@@ -160,21 +160,18 @@ describe('multi-worker manifest — compose evidence', () => {
 });
 
 describe('multi-worker manifest — weak evidence needs input, never auto-provisions', () => {
-  it('a queue library with no declared process stays out of workloads and raises the question', () => {
+  it('a Node queue library with no declared process stays out of workloads and raises no question (REM-103)', () => {
     const analysis = analyseRepo(BASE);
     const manifest = normalizeDeploymentManifest(analysis, {});
 
     expect(manifest.workers).toBeUndefined();
     expect(manifest.worker.command).toBeNull();
-    expect(manifest.worker.needsCommand).toBe(true);
+    expect(manifest.worker.needsCommand).toBeUndefined();
     expect(manifest.unsupported).toEqual([]);
 
     const graph = manifestToApplicationGraph(manifest);
     expect(graph.workloads.map((w) => w.id)).toEqual(['web']);
-    const unresolved = graph.unresolved.find((u) => u.id === 'worker-command');
-    expect(unresolved).toBeDefined();
-    expect(unresolved!.blocking).toBe(false);
-    expect(unresolved!.field).toBe('worker_command');
+    expect(graph.unresolved.find((u) => u.id === 'worker-command')).toBeUndefined();
   });
 });
 

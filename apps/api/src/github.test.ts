@@ -806,6 +806,48 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     for (const path of wanted) expect(tree).toHaveProperty(path);
   });
 
+  it('keeps s6 service scripts, Go init files and Go start commands inside the ANALYSIS_MAX_FILES cap, and not their look-alikes', async () => {
+    const services = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
+      path: `pkg/feature${i}/service.go`,
+      type: 'blob' as const,
+      sha: `sha-service-${i}`,
+      size: 10,
+    }));
+    const wanted = [
+      'docker/rootfs/etc/s6-overlay/s6-rc.d/init-migrations/run',
+      'docker/rootfs/etc/s6-overlay/s6-rc.d/svc-web/up',
+      'rootfs/etc/cont-init.d/10-migrate',
+      'pkg/initialize/init.go',
+      'pkg/boot/bootstrap.go',
+      'pkg/cmd/web.go',
+      'cmd/serve.go',
+    ];
+    const lookalikes = [
+      'docker/rootfs/etc/s6-overlay/s6-rc.d/init-migrations/finish',
+      'docker/rootfs/etc/s6-overlay/s6-rc.d/init-migrations/type',
+      'bin/run',
+      'pkg/initialize/init_test.go',
+      'test/helpers/init.go',
+      'a/b/cmd/migrate.go',
+      'a/b/cmd/webhook.go',
+    ];
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [...services, ...[...wanted, ...lookalikes].map((path) => ({ path, type: 'blob', sha: `sha-${path}`, size: 10 }))],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, { content: Buffer.from(`content-${sha}`).toString('base64'), encoding: 'base64' });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    for (const path of wanted) expect(tree).toHaveProperty(path);
+    for (const path of lookalikes) expect(tree).not.toHaveProperty(path);
+  });
+
   it("protects the selected Dockerfile's CMD/ENTRYPOINT script chain from the ANALYSIS_MAX_FILES trim on a large repository (DEPLOY-029)", async () => {
     // An umami-shaped 250-file repository: CMD -> scripts/start-docker.sh
     // -> scripts/check-db.js. `scripts/` sinks both to the LOWEST relevance

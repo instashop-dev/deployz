@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { analyseRepo, buildApplicationAnalysis } from '@deployz/analysis';
 import {
@@ -3656,6 +3656,98 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
     expect(response.statusCode).toBe(503);
     expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('FIX_INSTRUCTIONS_UNAVAILABLE');
 
+    await failingApp.close();
+  });
+
+  describe('with no fix-instructions provider configured', () => {
+    const original = {
+      problem: env.fixInstructionsAiProblem,
+      webUrl: env.webUrl,
+      aiFixtureMode: env.aiFixtureMode,
+    };
+
+    afterEach(() => {
+      env.fixInstructionsAiProblem = original.problem;
+      env.webUrl = original.webUrl;
+      env.aiFixtureMode = original.aiFixtureMode;
+    });
+
+    async function unconfiguredResponse(problem: typeof env.fixInstructionsAiProblem, webUrl: string) {
+      env.fixInstructionsAiProblem = problem;
+      env.webUrl = webUrl;
+      env.aiFixtureMode = false;
+      const application = await insertAnalyzedApplication();
+      const unconfiguredApp = await buildServer({ auth, db });
+      const response = await postJson(
+        unconfiguredApp,
+        `/api/applications/${application.id}/fix-instructions`,
+        {},
+        { cookie: org.cookie },
+      );
+      await unconfiguredApp.close();
+      return response;
+    }
+
+    it.each([
+      ['missing-openrouter-key', 'OPENROUTER_API_KEY'],
+      ['missing-gateway', 'AI_GATEWAY_BASE_URL'],
+      ['invalid-provider', 'FIX_INSTRUCTIONS_AI_PROVIDER'],
+    ] as const)('names the setting for %s on a local API', async (problem, setting) => {
+      const response = await unconfiguredResponse(problem, 'http://localhost:3000');
+      expect(response.statusCode).toBe(503);
+      const error = errorEnvelopeSchema.parse(response.json()).error;
+      expect(error.code).toBe('FIX_INSTRUCTIONS_UNAVAILABLE');
+      expect(error.message).toContain(setting);
+      expect(error.details).toEqual({ reason: 'not_configured' });
+    });
+
+    it('keeps the generic message on a non-local API', async () => {
+      const response = await unconfiguredResponse('missing-openrouter-key', 'https://app.deployz.dev');
+      expect(response.statusCode).toBe(503);
+      const error = errorEnvelopeSchema.parse(response.json()).error;
+      expect(error.code).toBe('FIX_INSTRUCTIONS_UNAVAILABLE');
+      expect(error.message).not.toContain('OPENROUTER_API_KEY');
+      expect(error.details).toEqual({ reason: 'not_configured' });
+    });
+
+    it('answers 200 in AI fixture mode', async () => {
+      env.fixInstructionsAiProblem = 'missing-openrouter-key';
+      env.webUrl = 'http://localhost:3000';
+      env.aiFixtureMode = true;
+      const application = await insertAnalyzedApplication();
+      const fixtureApp = await buildServer({ auth, db });
+      const response = await postJson(
+        fixtureApp,
+        `/api/applications/${application.id}/fix-instructions`,
+        {},
+        { cookie: org.cookie },
+      );
+      await fixtureApp.close();
+      expect(response.statusCode).toBe(200);
+    });
+  });
+
+  it('keeps the generic message when a configured gateway fails', async () => {
+    const application = await insertAnalyzedApplication();
+    const failingApp = await buildServer({
+      auth,
+      db,
+      fixInstructionsAiGateway: {
+        async generate() {
+          throw new Error('gateway unreachable');
+        },
+      },
+    });
+    const response = await postJson(
+      failingApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    const error = errorEnvelopeSchema.parse(response.json()).error;
+    expect(response.statusCode).toBe(503);
+    expect(error.message).toBe("We couldn't generate the instructions right now. Try again in a moment.");
+    expect(error.details).toBeUndefined();
     await failingApp.close();
   });
 

@@ -1,31 +1,31 @@
 {
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7",
+  "analysisVersion": 54,
   "total": 123,
   "analysed": 123,
   "failed": 0,
   "fullMatch": 5,
-  "verdictMatch": 93,
-  "verdictAccuracy": 75.6,
+  "verdictMatch": 95,
+  "verdictAccuracy": 77.2,
   "falseAcceptances": 7,
   "falseRejections": 11,
-  "configurationMismatches": 12,
+  "configurationMismatches": 10,
   "factMismatches": {
-    "appRoot": 12,
-    "compatibility": 30,
-    "dockerfilePath": 17,
-    "healthPath": 44,
-    "migration": 99,
-    "port": 17,
+    "appRoot": 11,
+    "compatibility": 28,
+    "dockerfilePath": 14,
+    "healthPath": 41,
+    "migration": 98,
+    "port": 14,
     "postgres": 17,
     "redis": 11,
-    "storage": 30,
-    "unsupported": 42,
+    "storage": 29,
+    "unsupported": 41,
     "worker": 31
   },
   "byFindingType": {
-    "ANALYSIS_BUG": 75,
-    "ANALYSIS_MISSING_SIGNAL": 163,
+    "ANALYSIS_BUG": 69,
+    "ANALYSIS_MISSING_SIGNAL": 158,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
@@ -75,12 +75,6 @@
     },
     {
       "id": "repo-012",
-      "fact": "compatibility",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY"
-    },
-    {
-      "id": "repo-012",
       "fact": "migration",
       "expected": true,
       "actual": false
@@ -99,12 +93,6 @@
     },
     {
       "id": "repo-014",
-      "fact": "migration",
-      "expected": true,
-      "actual": false
-    },
-    {
-      "id": "repo-015",
       "fact": "migration",
       "expected": true,
       "actual": false
@@ -408,18 +396,6 @@
         "background-worker",
         "docker-compose-multi-service"
       ]
-    },
-    {
-      "id": "repo-209",
-      "fact": "dockerfilePath",
-      "expected": "container/dist.dockerfile",
-      "actual": "container/builder.dockerfile"
-    },
-    {
-      "id": "repo-209",
-      "fact": "port",
-      "expected": 8080,
-      "actual": 5000
     },
     {
       "id": "repo-210",
@@ -764,19 +740,19 @@
     "improvement": {
       "total": 83,
       "analysed": 83,
-      "verdictMatch": 62,
+      "verdictMatch": 64,
       "fullMatch": 3
     },
     "unseen": {
       "total": 20,
       "analysed": 20,
-      "verdictMatch": 15,
+      "verdictMatch": 16,
       "fullMatch": 2
     },
     "unseen2": {
       "total": 20,
       "analysed": 20,
-      "verdictMatch": 16,
+      "verdictMatch": 15,
       "fullMatch": 0
     }
   },
@@ -790,13 +766,13 @@
     "messy": {
       "total": 27,
       "analysed": 27,
-      "verdictMatch": 23,
+      "verdictMatch": 24,
       "fullMatch": 1
     },
     "realistic": {
       "total": 72,
       "analysed": 72,
-      "verdictMatch": 49,
+      "verdictMatch": 50,
       "fullMatch": 2
     }
   }

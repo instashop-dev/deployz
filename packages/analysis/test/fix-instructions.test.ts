@@ -17,9 +17,11 @@ import {
   assembleFixInstructions,
   buildFixInstructionsAiPrompt,
   generateFixInstructions,
+  guidanceVerdict,
   isSafeGuidance,
   planRemediation,
   summariseEnvRequirements,
+  type DroppedGuidance,
   type FixInstructionsAiOutput,
   type FixInstructionsContext,
   type FixInstructionsFacts,
@@ -174,6 +176,23 @@ describe('planRemediation — classification', () => {
     ['some-future-finding', 'NEEDS_INPUT'],
   ])('%s → %s', (id, expected) => {
     expect(classOf(context([finding(id)]), id)).toBe(expected);
+  });
+
+  it('a *_CONFIG_DIR in the persistent-volume evidence is CONFIGURATION_FIX with a COPY action', () => {
+    const ctx = context([
+      finding('unsupported-persistent-volume', { technicalEvidence: 'The app declares durable local state (HOMEPAGE_CONFIG_DIR (runtime source)).' }),
+    ]);
+    expect(classOf(ctx, 'unsupported-persistent-volume')).toBe('CONFIGURATION_FIX');
+    const doc = assembleFixInstructions(ctx, NO_AI);
+    expect(doc).toContain('COPY them into the image; do not move them to object storage');
+  });
+
+  it('other persistent-volume evidence stays APPLICATION_FIX without the COPY action', () => {
+    const ctx = context([
+      finding('unsupported-persistent-volume', { technicalEvidence: 'The app declares durable local state (APP_DATA_DIR (runtime source)).' }),
+    ]);
+    expect(classOf(ctx, 'unsupported-persistent-volume')).toBe('APPLICATION_FIX');
+    expect(assembleFixInstructions(ctx, NO_AI)).not.toContain('COPY them into the image');
   });
 
   // Regression: informational findings ("No change needed — Deployz will
@@ -385,6 +404,30 @@ describe('planRemediation — safety', () => {
   });
 });
 
+describe('guidanceVerdict', () => {
+  it('names the rule of unsafe guidance and never carries the text', () => {
+    expect(guidanceVerdict('Delete the worker entry point and run jobs in the web process.')).toEqual({
+      ok: false,
+      reason: 'unsafe',
+      rule: 'remove-job-code',
+      length: 'Delete the worker entry point and run jobs in the web process.'.length,
+    });
+  });
+
+  it('reports empty and too_long without a rule', () => {
+    expect(guidanceVerdict('  ')).toEqual({ ok: false, reason: 'empty', length: 0 });
+    expect(guidanceVerdict('a'.repeat(FIX_INSTRUCTIONS_MAX_GUIDANCE_CHARS + 1))).toEqual({
+      ok: false,
+      reason: 'too_long',
+      length: FIX_INSTRUCTIONS_MAX_GUIDANCE_CHARS + 1,
+    });
+  });
+
+  it('accepts safe guidance', () => {
+    expect(guidanceVerdict('For gunicorn, set --bind 0.0.0.0:$PORT in the Dockerfile CMD.')).toEqual({ ok: true });
+  });
+});
+
 describe('isSafeGuidance', () => {
   it.each([
     'Delete the worker entry point and run jobs in the web process.',
@@ -449,6 +492,63 @@ describe('buildFixInstructionsAiPrompt', () => {
 // ==========================================================================
 // assembleFixInstructions
 // ==========================================================================
+
+describe('assembleFixInstructions — onDropped', () => {
+  const ctx = context([finding('health-check')]);
+  const unsafe = 'Disable CSRF protection for the health route.';
+
+  it('reports each dropped entry without any guidance text', () => {
+    const dropped: DroppedGuidance[] = [];
+    const ai: FixInstructionsAiOutput = {
+      items: [
+        { id: 'health-check', guidance: unsafe },
+        { id: 'not-in-plan', guidance: 'Check the Express router file.' },
+        { id: 'health-check', guidance: '   ' },
+      ],
+    };
+    assembleFixInstructions(ctx, ai, undefined, { onDropped: (entry) => dropped.push(entry) });
+
+    expect(dropped).toEqual([
+      { itemId: 'health-check', reason: 'unsafe', rule: 'disable-security', length: unsafe.length },
+      { itemId: 'not-in-plan', reason: 'unknown_item', length: 'Check the Express router file.'.length },
+      { itemId: 'health-check', reason: 'empty', length: 0 },
+    ]);
+    const payload = JSON.stringify(dropped);
+    for (const word of ['Disable', 'CSRF', 'protection', 'Express', 'router']) expect(payload).not.toContain(word);
+  });
+
+  it('does not call back for safe guidance and renders it', () => {
+    const dropped: DroppedGuidance[] = [];
+    const doc = assembleFixInstructions(
+      ctx,
+      { items: [{ id: 'health-check', guidance: 'Register GET /health in src/app.ts.' }] },
+      undefined,
+      { onDropped: (entry) => dropped.push(entry) },
+    );
+    expect(dropped).toEqual([]);
+    expect(doc).toContain('Repository detail: Register GET /health in src/app.ts.');
+  });
+
+  it('renders the same document with and without the callback', () => {
+    const ai: FixInstructionsAiOutput = {
+      items: [
+        { id: 'health-check', guidance: unsafe },
+        { id: 'not-in-plan', guidance: 'Check the Express router file.' },
+      ],
+    };
+    expect(assembleFixInstructions(ctx, ai, undefined, { onDropped: () => undefined })).toBe(assembleFixInstructions(ctx, ai));
+  });
+
+  it('generateFixInstructions passes onDropped through', async () => {
+    const dropped: DroppedGuidance[] = [];
+    await generateFixInstructions(
+      ctx,
+      fixtureGateway({ object: { items: [{ id: 'health-check', guidance: unsafe }] }, usage: { promptTokens: 10, completionTokens: 5 } }),
+      { onDropped: (entry) => dropped.push(entry) },
+    );
+    expect(dropped.map((entry) => entry.rule)).toEqual(['disable-security']);
+  });
+});
 
 describe('assembleFixInstructions', () => {
   const ctx = context([

@@ -2,7 +2,7 @@
   "id": "repo-013",
   "repository": "louislam/uptime-kuma",
   "commit": "5df2a3c0a8c883f362dd48f6fd422b3ee60e685b",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "louislam/uptime-kuma",
     "containerPort": 3000,
@@ -36,7 +36,7 @@
         }
       ],
       "analysisCommitSha": "5df2a3c0a8c883f362dd48f6fd422b3ee60e685b",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -90,9 +90,9 @@
           "secret": false,
           "source": [
             "read in server/server.js",
-            "read in src/main.js",
             "read in server/uptime-kuma-server.js",
-            "read in server/util-server.js"
+            "read in server/util-server.js",
+            "read in src/main.js"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -726,7 +726,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": false,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }

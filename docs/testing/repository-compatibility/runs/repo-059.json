@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7",
+  "analysisVersion": 54,
   "tree": {
     "files": 202,
     "entries": 2324,
@@ -34,8 +34,8 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -57,11 +57,11 @@
       "sentry"
     ],
     "requiredEnvVars": [
-      "VIKUNJA_DATABASE_TYPE"
+      "VIKUNJA_DATABASE_TYPE",
+      "VIKUNJA_FILES_TYPE"
     ],
     "unsupported": [],
     "readinessFindings": [
-      "localhost-binding",
       "database-migrations"
     ],
     "gateFindings": [

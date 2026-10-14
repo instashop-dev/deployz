@@ -281,7 +281,7 @@ const REGION_NAME_REGEX = /^AWS_REGION$|^S3_REGION$|_S3_REGION$/i;
 const ENDPOINT_NAME_REGEX = /^S3_ENDPOINT$|^S3_ENDPOINT_URL$|^AWS_S3_ENDPOINT$/i;
 
 /** The s3 semantic a variable name carries, when the name is a known convention. */
-function s3Semantic(name: string): BindingSemantic | null {
+export function s3Semantic(name: string): BindingSemantic | null {
   const upper = name.toUpperCase();
   if (BUCKET_NAME_REGEX.test(upper)) return 'bucket';
   if (REGION_NAME_REGEX.test(upper)) return 'region';

@@ -10,6 +10,8 @@ import { posix as posixPath } from 'node:path';
 
 import type { ManifestEnvVariable } from '@deployz/contracts';
 
+import { s3Semantic } from './bindings.js';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 /** A file tree: path → file contents (strings only; directories are implicit via path keys). */
@@ -383,13 +385,18 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
  * (Stage A COMP-026).
  */
 export const INFRA_COMPOSE_IMAGE_REGEX =
-  /postgres|postgis|pgvector|pgadmin|adminer|mysql|mariadb|mssql|sqlserver|sql-edge|oracle|cockroach|mongo|redis|valkey|keydb|elasticsearch|opensearch|rabbitmq|kafka|zookeeper|nats|minio|seaweedfs|garage|memcached|localstack|azurite|mailhog|mailpit|maildev|mailcatcher|smtp|postfix|clickhouse|dynamodb|meilisearch|typesense|qdrant|weaviate|milvus|chroma|nginx|caddy|traefik|haproxy|httpd|keycloak|gotenberg|tika|browserless|chrome|chromium|playwright|searxng|rustfs|ollama|vllm|prometheus|grafana|loki|jaeger|tempo|otel|temporalio|getsentry\/spotlight|pictrs|spicedb|authzed|cubejs|hashicorp\/vault/i;
+  /postgres|postgis|pgvector|pgadmin|adminer|mysql|mariadb|mssql|sqlserver|sql-edge|oracle|cockroach|mongo|redis|valkey|keydb|elasticsearch|opensearch|rabbitmq|kafka|zookeeper|nats|minio|seaweedfs|garage|memcached|localstack|azurite|mailhog|mailpit|maildev|mailcatcher|smtp|postfix|clickhouse|dynamodb|meilisearch|typesense|qdrant|weaviate|milvus|chroma|nginx|caddy|traefik|haproxy|httpd|keycloak|gotenberg|tika|browserless|chrome|chromium|playwright|searxng|rustfs|ollama|vllm|prometheus|grafana|loki|jaeger|tempo|otel|temporalio|paradedb|pgautoupgrade|getsentry\/spotlight|pictrs|spicedb|authzed|cubejs|hashicorp\/vault/i;
 
 // A bare language runtime image or a front-end/ORM dev server is a tool the
 // stack runs next to the app (a build helper, a dev server, a database
 // studio), never the application image.
 const TOOL_COMPOSE_IMAGE_REGEX =
   /^(?:docker\.io\/)?(?:library\/)?(?:node|python|ruby|golang|php|openjdk|eclipse-temurin|maven|gradle|bun|deno|alpine|busybox|ubuntu|debian)(?:[:@]|$)/i;
+// A service that runs a database or cache server (its command, its health probe or its data
+// volume) is infrastructure even when its image name does not say so (`paradedb`). The
+// `POSTGRES_*` keys are not a signal: an application sets them to connect.
+const INFRA_COMPOSE_COMMAND_REGEX = /^(?:postgres|mysqld|mariadbd|mongod|redis-server|valkey-server|memcached)\b/i;
+const INFRA_COMPOSE_BODY_REGEX = /\bpg_isready\b|\bmysqladmin\s+ping\b|:\/var\/lib\/(?:postgresql|mysql)\b/;
 const DEV_TOOL_COMMAND_REGEX =
   /\b(?:vite|webpack(?:-dev-server)?|storybook|nodemon|ts-node-dev|tsx\s+watch|jest|vitest|prisma\s+studio|next\s+dev|(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|watch))\b|--watch\b/i;
 
@@ -408,7 +415,8 @@ export function composeApplicationServices(tree: FileTree): { file: string; serv
       (s) =>
         !s.optional &&
         (!s.image || (!INFRA_COMPOSE_IMAGE_REGEX.test(s.image) && !TOOL_COMPOSE_IMAGE_REGEX.test(s.image))) &&
-        !(s.command !== null && DEV_TOOL_COMMAND_REGEX.test(s.command)),
+        !(s.command !== null && (DEV_TOOL_COMMAND_REGEX.test(s.command) || INFRA_COMPOSE_COMMAND_REGEX.test(s.command))) &&
+        !INFRA_COMPOSE_BODY_REGEX.test(s.body),
     ),
   };
 }
@@ -502,8 +510,10 @@ const PY_DEV_GROUP_REGEX = new RegExp(String.raw`^\s*(?:${PY_DEV_GROUP})\s*=`);
 const PY_DEV_REQUIREMENTS_REGEX = /(?:^|\/)requirements[-_.](?:dev|test|tests|lint|docs|ci)[\w.-]*\.txt$/i;
 
 /** A dependency manifest's content without the Python dev-only declarations. */
-function runtimeManifestContent(path: string, content: string): string {
+function runtimeManifestContent(path: string, content: string, directOnly: boolean): string {
   if (PY_DEV_REQUIREMENTS_REGEX.test(path)) return '';
+  // A `// indirect` go.mod line is a transitive module, not something the app imports.
+  if (directOnly && GO_DEPENDENCY_FILES.test(path)) return content.split('\n').filter((line) => !/\/\/\s*indirect\b/.test(line)).join('\n');
   if (!/(?:^|\/)pyproject\.toml$/.test(path)) return content;
   let inDevTable = false;
   let inGroups = false;
@@ -529,9 +539,10 @@ function runtimeManifestContent(path: string, content: string): string {
  * specifier, a Python `import x` statement, or a language package-manager
  * install in a Dockerfile. Prose (READMEs, comments that
  * merely mention a product name) never counts — an undeclared mention is not
- * a dependency the app runs on.
+ * a dependency the app runs on. With `directOnly`, a `// indirect` go.mod
+ * line (a transitive module) is not a declaration.
  */
-export function findDependencyEvidence(tree: FileTree, token: string): string[] {
+export function findDependencyEvidence(tree: FileTree, token: string, directOnly = false): string[] {
   const evidence: string[] = [];
   for (const [path, content] of Object.entries(tree)) {
     if (!content) continue;
@@ -543,7 +554,7 @@ export function findDependencyEvidence(tree: FileTree, token: string): string[] 
       }
       continue;
     }
-    if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(runtimeManifestContent(path, content))) {
+    if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(runtimeManifestContent(path, content, directOnly))) {
       evidence.push(path);
       continue;
     }
@@ -639,33 +650,39 @@ function productionStageText(content: string): string {
   const clean = normalizeDockerfile(content);
   const stages = parseDockerfileStages(clean);
   if (stages.length === 0) return clean;
-  const lineageOf = (index: number): number[] => {
-    const chain = [index];
-    for (let current = index; ; ) {
-      const image = stages[current]!.image.toLowerCase();
-      let parent = -1;
-      for (let i = current - 1; i >= 0; i -= 1) {
-        if (stages[i]!.name === image || String(i) === image) {
-          parent = i;
-          break;
-        }
+  const firstFrom = clean.search(/^\s*FROM\s/im);
+  return `${firstFrom > 0 ? clean.slice(0, firstFrom) : ''}\n${stageLineageText(stages, productionStageIndex(stages))}`;
+}
+
+/** Stage indexes from the root of a stage's `FROM <stage>` lineage down to the stage itself. */
+function stageLineage(stages: DockerfileStage[], index: number): number[] {
+  const chain = [index];
+  for (let current = index; ; ) {
+    const image = stages[current]!.image.toLowerCase();
+    let parent = -1;
+    for (let i = current - 1; i >= 0; i -= 1) {
+      if (stages[i]!.name === image || String(i) === image) {
+        parent = i;
+        break;
       }
-      if (parent < 0) return chain.reverse();
-      chain.push(parent);
-      current = parent;
     }
-  };
-  const textOf = (index: number): string => lineageOf(index).map((i) => stages[i]!.body).join('\n');
-  let selected = stages.length - 1;
+    if (parent < 0) return chain.reverse();
+    chain.push(parent);
+    current = parent;
+  }
+}
+
+function stageLineageText(stages: DockerfileStage[], index: number): string {
+  return stageLineage(stages, index).map((i) => stages[i]!.body).join('\n');
+}
+
+/** The stage `docker build` produces: the last non-tooling stage whose lineage starts something, else the last stage. */
+function productionStageIndex(stages: DockerfileStage[]): number {
   for (let i = stages.length - 1; i >= 0; i -= 1) {
     const name = stages[i]!.name;
-    if ((name === null || !NON_RUNTIME_STAGE_NAME_REGEX.test(name)) && /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/im.test(textOf(i))) {
-      selected = i;
-      break;
-    }
+    if ((name === null || !NON_RUNTIME_STAGE_NAME_REGEX.test(name)) && /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/im.test(stageLineageText(stages, i))) return i;
   }
-  const firstFrom = clean.search(/^\s*FROM\s/im);
-  return `${firstFrom > 0 ? clean.slice(0, firstFrom) : ''}\n${textOf(selected)}`;
+  return stages.length - 1;
 }
 
 // A base image whose default command is a shell, and an interpreter or launcher that
@@ -738,7 +755,17 @@ function isUnusableDockerfile(path: string, content: string): boolean {
   return installsSystemPackages && !startsSomething && !copiesApp;
 }
 
-function compareDockerfileCandidates(tree: FileTree): (a: string, b: string) => number {
+function dockerfileStartsSomething(content: string): boolean {
+  return /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/im.test(productionStageText(content));
+}
+
+function dockerfileDeclaresPort(content: string): boolean {
+  const stage = productionStageText(content);
+  return exposedPorts(stage).length > 0 || DOCKERFILE_ENV_PORT_REGEX.test(stage);
+}
+
+// `tied` keeps the alphabetical tie unresolved, so the caller can see which candidates no signal separates.
+function compareDockerfileCandidates(tree: FileTree, tied = false): (a: string, b: string) => number {
   return (a, b) => {
     const aUnusable = isUnusableDockerfile(a, tree[a] ?? '');
     const bUnusable = isUnusableDockerfile(b, tree[b] ?? '');
@@ -767,8 +794,28 @@ function compareDockerfileCandidates(tree: FileTree): (a: string, b: string) => 
     const segmentDiff = (a.split('/').pop() ?? '').split('.').length - (b.split('/').pop() ?? '').split('.').length;
     if (segmentDiff !== 0) return segmentDiff;
 
-    return a.localeCompare(b);
+    // An image that starts something, and one that listens on a port, outranks one that does not.
+    const aStarts = dockerfileStartsSomething(tree[a] ?? '');
+    const bStarts = dockerfileStartsSomething(tree[b] ?? '');
+    if (aStarts !== bStarts) return aStarts ? -1 : 1;
+
+    const aPort = dockerfileDeclaresPort(tree[a] ?? '');
+    const bPort = dockerfileDeclaresPort(tree[b] ?? '');
+    if (aPort !== bPort) return aPort ? -1 : 1;
+
+    return tied ? 0 : a.localeCompare(b);
   };
+}
+
+/** The candidates that no ranking signal separates from the selected Dockerfile, or null when one candidate wins. */
+export function dockerfileSelectionTied(tree: FileTree): string[] | null {
+  const first = selectedDockerfile(tree)?.path;
+  if (first === undefined) return null;
+  const compare = compareDockerfileCandidates(tree, true);
+  const tiedWithFirst = listDockerfileCandidates(tree).filter(
+    (candidate) => !isUnusableDockerfile(candidate, tree[candidate] ?? '') && compare(first, candidate) === 0,
+  );
+  return tiedWithFirst.length > 1 ? tiedWithFirst : null;
 }
 
 /**
@@ -848,13 +895,14 @@ export function siblingAppFilter(tree: FileTree): (path: string) => boolean {
 // 2. Framework
 // ---------------------------------------------------------------------------
 
+// Nest runs on Express, so a Nest dependency names the framework before Express does.
 const KNOWN_FRAMEWORKS = [
+  'nest',
+  '@nestjs/core',
   'express',
   'fastify',
   'next',
   'nuxt',
-  'nest',
-  '@nestjs/core',
   'koa',
   'hapi',
   '@hapi/hapi',
@@ -863,9 +911,15 @@ const KNOWN_FRAMEWORKS = [
 
 /**
  * Detect the application framework from package.json dependencies.
- * Returns the first matching framework name.
+ * Returns the first matching framework name. An image that does not run Node
+ * has no Node framework: a desktop shell or docs site in the repository does
+ * not make a Go or Python image an Express app.
  */
 export function detectFramework(tree: FileTree): DetectorFinding {
+  if (selectedDockerfile(tree) !== null) {
+    const runtime = detectRuntime(tree);
+    if (runtime.detected && runtime.value !== 'node') return { detector: 'framework', detected: false };
+  }
   const deps = collectDependencyNames(tree);
   for (const framework of KNOWN_FRAMEWORKS) {
     if (deps.includes(framework)) {
@@ -1089,9 +1143,22 @@ export function detectPort(tree: FileTree): DetectorFinding {
     );
   }
 
-  // 4. Source code: process.env.PORT || fallback.
+  // 4. Exactly one application service of the production Compose file publishes
+  //    a port (host:container — the container side). A source default in a tree
+  //    of several apps may belong to a service behind that port.
+  const composeApps = composeApplicationServices(tree);
+  const publishers = (composeApps?.services ?? []).filter((service) => service.ports.some((mapping) => COMPOSE_PORT_MAPPING_REGEX.test(`- ${mapping}`)));
+  const publishedPort = publishers.length === 1 ? publishers[0]!.ports.map((mapping) => COMPOSE_PORT_MAPPING_REGEX.exec(`- ${mapping}`)?.[1]).find(Boolean) : undefined;
+  if (publishedPort) {
+    return result(
+      { value: publishedPort, source: 'compose', confidence: 'high', details: `Port ${publishedPort} detected in ${composeApps!.file} (ports mapping)` },
+      'compose',
+    );
+  }
+
+  // 5. Source code: process.env.PORT || fallback.
   for (const [path, content] of Object.entries(tree)) {
-    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
+    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) && isRuntimeSourcePath(path)) {
       const match = PORT_PROCESS_REGEX.exec(content);
       if (match?.[1]) {
         return result(
@@ -1102,10 +1169,9 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 5. The application service's production Compose port mapping
+  // 6. The application service's production Compose port mapping
   //    (host:container — the container side). A database, cache or proxy
   //    service's mapping is never the application's port.
-  const composeApps = composeApplicationServices(tree);
   for (const mapping of composeApps?.services.flatMap((service) => service.ports) ?? []) {
     const match = COMPOSE_PORT_MAPPING_REGEX.exec(`- ${mapping}`);
     if (match?.[1]) {
@@ -1116,7 +1182,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 6. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
+  // 7. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
   const literal = runtimeLiteralPort(tree);
   if (literal) {
     return result(
@@ -1125,7 +1191,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
     );
   }
 
-  // 7. Framework default — prefill only, never silently deployable.
+  // 8. Framework default — prefill only, never silently deployable.
   const frameworkDefault = frameworkDefaultPort(tree);
   if (frameworkDefault && LITERAL_PORT.test(frameworkDefault)) {
     return result(
@@ -1177,7 +1243,7 @@ const ROUTER_ROOT_DIRS = new Set(['routes', 'pages', 'app']);
 // The prefix is as literal as a route string, so composing mount prefix +
 // route path yields the path the app actually serves.
 const ROUTER_MOUNT_REGEX =
-  /([A-Za-z_$][\w$]*)\s*\.\s*use\s*\(\s*['"`](\/[\w/-]*)['"`]\s*,\s*([A-Za-z_$][\w$]*)/g;
+  /([A-Za-z_$][\w$]*)\s*\.\s*use\s*\(\s*['"`](\/[\w/-]*)['"`]\s*,\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)/g;
 
 // Priority for resolving a single normalized `path` when more than one
 // signal names one: an exact route registration (or NestJS adapter call) in
@@ -1278,7 +1344,8 @@ function composeMountedPath(
   let composed = false;
   while (current !== undefined && !seen.has(current)) {
     seen.add(current);
-    const mount = mounts.find((candidate) => candidate.router === current);
+    // A router mounted twice (`/api/v2` and `/api`) is served at both: the shortest prefix is deterministic.
+    const mount = mounts.filter((candidate) => candidate.router === current).sort((a, b) => a.prefix.length - b.prefix.length)[0];
     if (!mount) break;
     // `app.use('/', router)` is a root mount — joining must not double the slash.
     path = `${mount.prefix.replace(/\/+$/, '')}${path}`;
@@ -1475,11 +1542,23 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   // 0. Router mounts, collected first because a mount and the routes it
   // carries usually live in different files.
   const mounts: { mounter: string; prefix: string; router: string; file: string }[] = [];
+  // `module.exports = { api: apiRouter }` lets a mount name the router by its export key (`routes.api`).
+  const exportedRouters = new Map<string, string>();
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) || !content) continue;
+    for (const exported of content.matchAll(/module\.exports\s*=\s*\{([^}]*)\}/g)) {
+      for (const [, key, value] of (exported[1] ?? '').matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)\s*(?:,|$)/g)) {
+        if (key && value) exportedRouters.set(key, value);
+      }
+    }
+  }
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) || !content) continue;
     for (const match of content.matchAll(ROUTER_MOUNT_REGEX)) {
       if (match[1] && match[2] && match[3]) {
-        mounts.push({ mounter: match[1], prefix: match[2], router: match[3], file: path });
+        const member = match[3].split('.');
+        const router = member.length === 2 ? (exportedRouters.get(member[1]!) ?? match[3]) : match[3];
+        mounts.push({ mounter: match[1], prefix: match[2], router, file: path });
       }
     }
   }
@@ -1508,7 +1587,18 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     .split('\n')
     .filter((line) => /^\s*HEALTHCHECK\b/i.test(line) && !/^\s*HEALTHCHECK\s+NONE\b/i.test(line))
     .at(-1);
-  const probedPath = healthcheckLine === undefined ? null : healthcheckProbePath(healthcheckLine, tree);
+  let probedPath = healthcheckLine === undefined ? null : healthcheckProbePath(healthcheckLine, tree);
+  // A multi-target Dockerfile may put the HEALTHCHECK on a sibling target (`web`), not on the last
+  // stage (`cli`): use the HEALTHCHECK lines of the whole file only when every one probes one path.
+  if (healthcheckLine === undefined && dockerfile) {
+    const probes = new Set(
+      dockerfile.content
+        .split('\n')
+        .filter((line) => /^\s*HEALTHCHECK\b/i.test(line) && !/^\s*HEALTHCHECK\s+NONE\b/i.test(line))
+        .map((line) => healthcheckProbePath(line, tree)),
+    );
+    if (probes.size === 1 && !probes.has(null)) probedPath = [...probes][0]!;
+  }
   if (probedPath !== null) {
     addCandidate({ path: probedPath, priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'dockerfile', label: 'HEALTHCHECK (Dockerfile)' });
   }
@@ -1596,6 +1686,15 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     }
   }
 
+  // Go middleware that special-cases a health path: `r.URL.Path == "/healthz"`.
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.go$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    for (const match of content.matchAll(/\.URL\.Path\s*==\s*"(\/[\w/-]*)"/g)) {
+      if (!HEALTH_PATH_SEGMENT_REGEX.test(match[1]!)) continue;
+      addCandidate({ path: match[1]!, priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION, source: 'source', label: `health path check (${path})`, file: path });
+    }
+  }
+
   // ── Phoenix (Elixir): routes are declared inside `scope "/api/v1" do` ────
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.(?:ex|exs)$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
@@ -1627,9 +1726,15 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.ts$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
     const controller = /@Controller\(\s*(?:\{\s*path:\s*)?['"]([^'"]+)['"]/.exec(content)?.[1];
-    if (!controller || !/@Get\(\s*(?:['"]{2})?\s*\)/.test(content)) continue;
-    const routePath = `/${controller.replace(/^\/+/, '')}`;
-    if (!HEALTH_PATH_SEGMENT_REGEX.test(routePath)) continue;
+    if (!controller) continue;
+    const controllerPath = `/${controller.replace(/^\/+/, '')}`;
+    // `@Get()` serves the controller path; `@Get('ping')` serves a sub-path of it.
+    const getPaths = [...content.matchAll(/@Get\(\s*(?:['"]([\w/-]*)['"])?\s*\)/g)].map((m) => {
+      const sub = (m[1] ?? '').replace(/^\/+/, '');
+      return sub ? `${controllerPath}/${sub}` : controllerPath;
+    });
+    const routePath = getPaths.find((candidate) => HEALTH_PATH_SEGMENT_REGEX.test(candidate));
+    if (routePath === undefined) continue;
     const prefix = nestPrefixOptions.includes(`'${controller}'`) ? '' : nestGlobalPrefix;
     const version = /VERSION_NEUTRAL|\bversion:/.test(content) || !nestDefaultVersion ? '' : `/v${nestDefaultVersion}`;
     addCandidate({
@@ -1888,11 +1993,37 @@ function detectLanguagePostgres(tree: FileTree): string[] {
   return detected;
 }
 
-/** True when non-test, non-vendored Go source imports the module: a `go.mod` requirement alone can be unused. */
+/**
+ * True when non-test, non-vendored Go source imports the module: a `go.mod` requirement alone can be unused.
+ * A runtime Go file that the bounded fetch did not read can hold the import, so the requirement then stands.
+ */
 function goModuleImportedByRuntimeSource(tree: FileTree, module: string): boolean {
   const importPattern = new RegExp(`"${tokenPattern(module)}(?:/[^"]*)?"`);
-  return Object.entries(tree).some(
-    ([path, content]) => GO_SOURCE.test(path) && !/(?:^|\/)vendor\//.test(path) && isRuntimeSourcePath(path) && importPattern.test(content),
+  const isRuntimeGo = (path: string): boolean => GO_SOURCE.test(path) && !/(?:^|\/)vendor\//.test(path) && isRuntimeSourcePath(path);
+  if (Object.entries(tree).some(([path, content]) => isRuntimeGo(path) && importPattern.test(content))) return true;
+  const allPaths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS] ?? [];
+  return allPaths.some((path) => isRuntimeGo(path) && tree[path] === undefined);
+}
+
+/**
+ * True when runtime source or the image defaults an engine selector to a known engine
+ * (`DatabaseType.setDefault("sqlite")`): the app picks its engine at run time, so a
+ * declared driver exists for the other choice even when no fetched source imports it.
+ */
+function runtimeEngineSelectorDefault(tree: FileTree): boolean {
+  const isEngine = ([name, value]: [string, string]): boolean =>
+    DB_SELECTOR_NAME_REGEX.test(name) && (EMBEDDED_ENGINE_REGEX.test(value) || ENGINE_VALUE_REGEX.postgres.test(value));
+  const dockerfile = selectedDockerfile(tree);
+  return (
+    (dockerfile !== null && dockerfileEnvValues(dockerfile.content).some(isEngine)) ||
+    Object.entries(tree).some(
+      ([path, content]) =>
+        content &&
+        GO_SOURCE.test(path) &&
+        !/(?:^|\/)vendor\//.test(path) &&
+        isRuntimeSourcePath(path) &&
+        [...scanDefaultedEnvReads(content), ...scanViperEnvDefaults(content)].some(isEngine),
+    )
   );
 }
 
@@ -1909,7 +2040,7 @@ function languageDriverDeclaredAtRuntime(tree: FileTree, signal: string): boolea
     if (!isDependencyManifest(path) || !isRuntimeSourcePath(path)) return false;
     if (!GO_DEPENDENCY_FILES.test(path)) return true;
     const line = new RegExp(`^[^\\n]*${tokenPattern(token)}[^\\n]*$`, 'm').exec(tree[path] ?? '')?.[0] ?? '';
-    return !/\/\/\s*indirect/.test(line) && goModuleImportedByRuntimeSource(tree, token);
+    return !/\/\/\s*indirect/.test(line) && (goModuleImportedByRuntimeSource(tree, token) || runtimeEngineSelectorDefault(tree));
   });
 }
 
@@ -2167,6 +2298,15 @@ function offersObjectStorageOption(tree: FileTree): boolean {
   return hasSdk && sourceFiles.some(([, content]) => OBJECT_STORAGE_SELECTOR_REGEX.test(content));
 }
 
+/** The compose file's own comment above a volume entry says the volume is not required in production. */
+function volumeCalledOptional(composeContent: string, volume: string): boolean {
+  const lines = composeContent.split(/\r?\n/);
+  const at = lines.findIndex((line) => /^\s*-\s/.test(line) && line.includes(volume));
+  const comments: string[] = [];
+  for (let i = at - 1; at > 0 && i >= 0 && /^\s*#/.test(lines[i]!); i--) comments.push(lines[i]!);
+  return /\bnot (?:required|needed) in (?:a |the )?production\b/i.test(comments.join(' '));
+}
+
 /** Every value under `volume` is a SQLite/DB file path: the volume only holds the embedded database. */
 function holdsOnlyEmbeddedDatabase(volume: string, texts: string[]): boolean {
   const escaped = volume.replace(/\/$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2179,8 +2319,9 @@ function holdsOnlyEmbeddedDatabase(volume: string, texts: string[]): boolean {
 // a log line are all lost harmlessly (the same boundary the write-call rule
 // draws above). Named volumes whose container path is `/tmp/…`, `…/logs`,
 // `…/cache`, `…/.cache` or a search/index dir are not durable app state.
+// An `/etc/<name>` directory holds configuration the operator provides.
 const EPHEMERAL_CONTAINER_PATH_REGEX =
-  /^\/(?:tmp|var\/tmp)\b|\/(?:logs?|log|cache|\.cache|search|indexes?|sessions?|run|var\/run)(?:\/|$)/i;
+  /^\/(?:tmp|var\/tmp|etc\/[\w.-]+)\b|\/(?:logs?|log|cache|\.cache|search|indexes?|sessions?|run|var\/run)(?:\/|$)/i;
 
 /**
  * Detect durable local-disk state the image declares (Dockerfile VOLUME, a
@@ -2197,7 +2338,12 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
   for (const match of dockerfile?.content.matchAll(DOCKERFILE_VOLUME_REGEX) ?? []) {
     const raw = match[1]?.trim() ?? '';
     const paths = raw.startsWith('[') ? raw.match(/"([^"]+)"/g)?.map((p) => p.slice(1, -1)) ?? [] : raw.split(/\s+/);
-    for (const volume of paths) {
+    for (const declared of paths) {
+      // `VOLUME $DATA_PATH` is the path the same Dockerfile sets with `ENV`.
+      const variable = /^\$(?:\{(\w+)\}|(\w+))$/.exec(declared);
+      const volume =
+        (variable && dockerfileEnvValues(dockerfile?.content ?? '').find(([name]) => name === (variable[1] ?? variable[2]))?.[1]) ||
+        declared;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
       if (hasPostgresDriver && holdsOnlyEmbeddedDatabase(volume, [dockerfile?.content ?? ''])) continue;
       if (UPLOAD_VOLUME_REGEX.test(volume) && hasObjectStorageOption()) continue;
@@ -2216,6 +2362,7 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
     if (built && dockerfile && built !== dockerfile.path) continue;
     for (const volume of service.volumes) {
       if (NON_STATE_MOUNT_REGEX.test(volume)) continue;
+      if (compose && volumeCalledOptional(tree[compose.file] ?? '', volume)) continue;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
       // A bind mount of a directory the repository ships (`./custom:/app/custom`)
       // carries project files, not state written at runtime.
@@ -2472,7 +2619,7 @@ export function detectS3(tree: FileTree): DetectorFinding {
     { token: 'ex_aws_s3', name: 'ex_aws_s3 (Elixir)' },
   ] as const;
   for (const { token, name } of LANGUAGE_S3_TOKENS) {
-    if (findDependencyEvidence(tree, token).length > 0 && !detected.includes(name)) {
+    if (findDependencyEvidence(tree, token, true).length > 0 && !detected.includes(name)) {
       detected.push(name);
     }
   }
@@ -2561,6 +2708,10 @@ const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
     pattern: /\b(?:npm\s+run|yarn|pnpm(?:\s+run)?)\s+(?:db[:-])?migrate(?::(?:deploy|latest|up|prod))?(?=\s|$|[&;"'\]])/,
     name: 'migrate script',
   },
+  // A binary's migrate SUBCOMMAND chained before the server (`./fider migrate && ./fider`).
+  { pattern: /(?:^|[\s"'&;|])\.{0,2}\/[\w./-]*[A-Za-z][\w-]*\s+migrate(?=\s*(?:&&|;|\|\||$|["']))/, name: 'binary migrate subcommand' },
+  // A wrapper script that forwards the prisma subcommands (`run-prisma-command.mjs migrate deploy`).
+  { pattern: /\bmigrate\s+deploy\b/, name: 'migrate deploy' },
   // A binary's own migrate-on-boot flag (`./app -migrate`).
   { pattern: /(?:^|[\s"',])--?(?:auto-)?migrate(?:=true)?(?=[\s"',\]]|$)/, name: 'binary migrate flag' },
 ];
@@ -2574,7 +2725,11 @@ const STARTUP_CODE_MIGRATION_PATTERNS: { all: RegExp[]; name: string }[] = [
   { all: [/\bnew\s+Umzug\b/, /\.up\s*\(/], name: 'umzug up()' },
   { all: [/drizzle-orm\/[\w-]+\/migrator/, /\bmigrate\s*\(/], name: 'drizzle migrate()' },
   { all: [/\bdb-migrate\b/, /\bgetInstance\s*\(/, /\.up\s*\(/], name: 'db-migrate up()' },
-  { all: [/(?<!\bfunction\s+)\b(?:runMigrations|migrateDb|checkPendingMigrations)\s*\(/], name: 'migration runner call' },
+  // A call, never a declaration (`async runMigrations(): Promise<void> {`).
+  {
+    all: [/(?<!\b(?:function|async|private|public|protected|static)\s+)\b(?:runMigrations|migrateDb|checkPendingMigrations)\s*\((?![^)]*\)\s*(?::\s*[\w<>[\]| ]+\s*)?\{)/],
+    name: 'migration runner call',
+  },
   { all: [/\bmigrationsRun\s*:\s*true\b/], name: 'typeorm migrationsRun' },
   {
     all: [/\b(?:exec|spawn)\w*\s*\(/, /prisma\s+migrate\s+deploy\b|["']migrate["']\s*,\s*["']deploy["']/],
@@ -2589,7 +2744,16 @@ const STARTUP_CODE_MIGRATION_PATTERNS: { all: RegExp[]; name: string }[] = [
 
 const APP_CODE_FILE_REGEX = /\.(?:[cm]?[jt]sx?|py|go)$/;
 // Migration definitions and seed data are never the code that runs them.
-const MIGRATION_DEFINITION_SEGMENT_REGEX = /(?:^|\/)(?:migrations?|seeds?|seeders?|cli)(?:\/|$)/i;
+// Browser, CLI-subcommand and test-setup files never run at server start.
+const MIGRATION_DEFINITION_SEGMENT_REGEX =
+  /(?:^|\/)(?:migrations?|seeds?|seeders?|cli|command-line|commands?|client|frontend|web-frontend|webapp|browser)(?:\/|$)|(?:^|\/)test-?setup\.[a-z]+$/i;
+// A file that stores data in the browser is front-end code: its `runMigrations()` upgrades local data.
+const BROWSER_STORAGE_REGEX = /\b(?:localStorage|sessionStorage|indexedDB)\b/;
+// Go files a server command runs, and the migrator calls they make.
+const GO_ENTRY_FILE_REGEX = /(?:^|\/)(?:main|web|server|serve|start|run)\.go$/;
+const GO_MIGRATOR_CALL_REGEX = /\b(?:migrations?\.(?:Up|UpWithFS|Migrate)|goose\.Up\w*|\w+\.AutoMigrate)\b/;
+// The extension-less scripts an s6-overlay image (`ENTRYPOINT ["/init"]`) runs at start.
+const S6_SCRIPT_PATH_REGEX = /(?:^|\/)s6-rc\.d\/[^/]+\/(?:run|up)$|(?:^|\/)cont-init\.d\/[^/]+$/;
 
 /** An `ENV RUN_MIGRATIONS=1` / `AUTO_MIGRATE=true` style switch in the Dockerfile. */
 const STARTUP_MIGRATION_ENV_REGEX =
@@ -2922,6 +3086,46 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     followScripts(`${cmd ?? ''} ${entry ?? ''}`, true);
   }
 
+  // A Procfile `web:` line starts the app. `release:` runs before deploy and is never startup.
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !PROCFILE_REGEX.test(path) || !isRuntimeSourcePath(path)) continue;
+    const web = /^web:\s*(.+)$/m.exec(content);
+    if (web?.[1]) consider(web[1], `Procfile web (${path})`, false);
+  }
+
+  if (dockerfile && /^\s*(?:ENTRYPOINT|CMD)\s+\[?\s*["']?\/init\b/m.test(dockerfile.content)) {
+    for (const [path, content] of Object.entries(tree)) {
+      if (content && S6_SCRIPT_PATH_REGEX.test(path)) consider(content, path, true);
+    }
+  }
+
+  // Go: a server command file that calls a migrator, or the package function it calls (`initialize.FullInit()`).
+  const imageRuntime = dockerfile ? startedRuntime(tree, productionStageText(dockerfile.content)) : null;
+  if (imageRuntime === null || imageRuntime === 'go') {
+    const goFiles = Object.entries(tree).filter(
+      ([path, content]) =>
+        content &&
+        /\.go$/.test(path) &&
+        isRuntimeSourcePath(path) &&
+        !/(?:^|\/)(?:gen|dump|tools?)\//.test(path) &&
+        !/migrat/i.test(path.split('/').pop() ?? ''),
+    );
+    for (const [path, content] of goFiles) {
+      if (!GO_ENTRY_FILE_REGEX.test(path)) continue;
+      const reached: [string, string][] = [[path, content]];
+      for (const [, pkg] of content.matchAll(/\b(\w+)\.(?:Full)?Init\w*\s*\(/g)) {
+        for (const [other, otherContent] of goFiles) {
+          if (other !== path && new RegExp(`(?:^|/)${pkg}/[^/]+\\.go$`).test(other)) reached.push([other, otherContent]);
+        }
+      }
+      for (const [file, text] of reached) {
+        if (GO_MIGRATOR_CALL_REGEX.test(text) && !evidence.some((entry) => entry.source === file)) {
+          evidence.push({ source: file, pattern: 'go migrator call on the start path', fromDockerCommand: true });
+        }
+      }
+    }
+  }
+
   for (const [path, content] of Object.entries(tree)) {
     if (chainVisited.has(path) || !content || !isRuntimeSourcePath(path)) continue;
     const basename = (path.split('/').pop() ?? '').toLowerCase();
@@ -2944,6 +3148,7 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
   for (const [path, content] of Object.entries(tree)) {
     if (chainVisited.has(path) || !content || !APP_CODE_FILE_REGEX.test(path) || !isRuntimeSourcePath(path)) continue;
     if (MIGRATION_DEFINITION_SEGMENT_REGEX.test(path) || cliStems.has(scriptStem(path))) continue;
+    if (BROWSER_STORAGE_REGEX.test(content)) continue;
     considerCode(path, true);
   }
 
@@ -3756,6 +3961,29 @@ function detectComposeBuildArgs(tree: FileTree): Map<string, string> {
 }
 
 /**
+ * A global `ARG NAME` with no default (before the first `FROM`) that a `FROM` of the
+ * production stage lineage reads (`FROM ${NAME}`) is a build input the image needs:
+ * without a value the base image is empty and the build fails (coder: `BASE_IMAGE`).
+ * An argument a production Compose file sets through `build.args` is not asked for.
+ */
+function detectBaseImageBuildArgs(tree: FileTree): Map<string, string> {
+  const found = new Map<string, string>();
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return found;
+  const content = normalizeDockerfile(dockerfile.content);
+  const stages = parseDockerfileStages(content);
+  if (stages.length === 0) return found;
+  const firstFrom = content.search(/^\s*FROM\s/im);
+  const globalArgs = firstFrom > 0 ? content.slice(0, firstFrom) : '';
+  const baseImages = stageLineage(stages, productionStageIndex(stages)).map((index) => stages[index]!.image);
+  for (const [, name] of globalArgs.matchAll(/^\s*ARG\s+([A-Z][A-Z0-9_]*)\s*$/gm)) {
+    const referenced = baseImages.some((image) => new RegExp(`\\$(?:${name}\\b|\\{${name}\\})`).test(image));
+    if (referenced) found.set(name!, `${dockerfile.path} build arg ${name} selects the base image; the build fails without it`);
+  }
+  return found;
+}
+
+/**
  * The §11.2 env-var model — every environment variable the app reads or
  * declares, with honest required/secret/source attributes.
  *
@@ -3793,8 +4021,11 @@ export interface ProvisionedResources {
 // The database NAME of a known engine (POSTGRES_DB) is not a selector.
 const DB_SELECTOR_NAME_REGEX =
   /^(?!(?:POSTGRES|POSTGRESQL|MYSQL|MARIADB|PG)_)(?:(?:[A-Z0-9]+_)*(?:DB|DATABASE)(?:_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|CONNECTION|ADAPTER|VENDOR|PROVIDER))?|[A-Z0-9_]*_DBENGINE|[A-Z0-9]+_DRIVER)$/;
+// `FILES_TYPE` is plural on purpose: `FILE_TYPE` and `ALLOWED_FILE_TYPES` name MIME types.
 const STORAGE_SELECTOR_NAME_REGEX =
-  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE|LOCATIONS?))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
+  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE|LOCATIONS?))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$|(?:^|_)(?:FILES|UPLOADS?|ATTACHMENTS?)_(?:TYPE|DRIVER|PROVIDER|BACKEND)$|(?:^|_)DATASOURCE_TYPE$/;
+// A database selector name that picks the engine; `REDIS_DB` and `DB_CONNECTION` do not.
+const DB_ENGINE_SELECTOR_NAME_REGEX = /(?:^|_)(?:DB|DATABASE)_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|ADAPTER|VENDOR|PROVIDER)$|DBENGINE$/;
 
 const EMBEDDED_ENGINE_REGEX = /^(?:sqlite3?|better-sqlite3|libsql|h2|bolt|django\.db\.backends\.sqlite3)(?:$|[:/])/i;
 const ENGINE_VALUE_REGEX = {
@@ -3804,6 +4035,11 @@ const ENGINE_VALUE_REGEX = {
 const ENGINE_LABEL = { postgres: 'PostgreSQL', mysql: 'MySQL' };
 const LOCAL_STORAGE_VALUE_REGEX = /^(?:local|disk|fs|file|filesystem|local[_-]?disk)$/i;
 const S3_STORAGE_VALUE_REGEX = /^(?:s3|aws|amazon|amazons3|aws[-_]?s3|s_3)$/i;
+/** `process.env.A && process.env.B ? new S3(` — the S3 client exists only when every variable of the chain is set. */
+const S3_PRESENCE_CHAIN_REGEX = /((?:process\.env\.[A-Z][A-Z0-9_]*\s*&&\s*)+process\.env\.[A-Z][A-Z0-9_]*)\s*\?\s*new\s+S3(?:Client)?\(/g;
+export const S3_PRESENCE_EVIDENCE = 'S3 is used only when all of these are set; otherwise files go to the container disk';
+/** A Go string literal that is itself a database selector name: `EnvDatabaseDialect = "GOTIFY_DATABASE_DIALECT"`. */
+const GO_SELECTOR_LITERAL_REGEX = /"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)"/g;
 
 /** Files whose env reads and defaults can name a selector. */
 const SELECTOR_SOURCE_REGEX = /\.(?:[cm]?[jt]sx?|py|rb|go|php|java|kt|kts|scala)$/i;
@@ -3979,6 +4215,8 @@ function unresolvedSelectors(
   const sampleValues = new Map<string, Value[]>();
   const compared = new Map<string, Value[]>();
   const imageDefaults = new Map<string, Value[]>();
+  const literalReads = new Map<string, string>();
+  const presenceChain: { name: string; file: string }[] = [];
   const add = (map: Map<string, Value[]>, name: string, value: string, file: string): void => {
     if (!DB_SELECTOR_NAME_REGEX.test(name) && !STORAGE_SELECTOR_NAME_REGEX.test(name)) return;
     map.set(name, [...(map.get(name) ?? []), { value, file }]);
@@ -3991,21 +4229,51 @@ function unresolvedSelectors(
       if (value !== null) add(codeDefaults, name, value, path);
     }
     for (const [name, value] of scanComparedEnvReads(content)) add(compared, name, value, path);
-    if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
+    if (GO_SOURCE.test(path)) {
+      for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
+      for (const [, name] of content.matchAll(GO_SELECTOR_LITERAL_REGEX)) {
+        if (DB_ENGINE_SELECTOR_NAME_REGEX.test(name!)) literalReads.set(name!, path);
+      }
+    }
+    if (JS_SOURCE.test(path)) {
+      // A config table that pairs a config path with its env name: `env('datasource.type', 'DATASOURCE_TYPE', 'string')`.
+      for (const [, name] of content.matchAll(/\benv\(\s*["'][\w.-]+["']\s*,\s*["']([A-Z][A-Z0-9_]*)["']/g)) {
+        if (STORAGE_SELECTOR_NAME_REGEX.test(name!)) literalReads.set(name!, path);
+      }
+    }
+    if (provisioned.storage && JS_SOURCE.test(path)) {
+      for (const [, chain] of content.matchAll(S3_PRESENCE_CHAIN_REGEX)) {
+        for (const [, name] of chain!.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+          if (s3Semantic(name!) === null) presenceChain.push({ name: name!, file: path });
+        }
+      }
+    }
     if (JS_SOURCE.test(path) && ENV_DEFAULTS_FILE_REGEX.test(path)) {
       for (const [name, value] of scanDefaultsMapEnvValues(content)) add(codeDefaults, name, value, path);
     }
   }
   const dockerfile = selectedDockerfile(tree);
   if (dockerfile) for (const [name, value] of dockerfileEnvValues(dockerfile.content)) add(imageDefaults, name, value, dockerfile.path);
-  for (const path of [...appEnvSampleFiles(tree, isSiblingApp), ...listProductionComposeFiles(tree)]) {
-    for (const [name, value] of envLineValues(tree[path] ?? '')) add(sampleValues, name, value, path);
+  const runtimeSamples = new Set(appEnvSampleFiles(tree, isSiblingApp));
+  const runtimeSampleNames = new Set<string>();
+  for (const path of [...runtimeSamples, ...listProductionComposeFiles(tree)]) {
+    for (const [name, value] of envLineValues(tree[path] ?? '')) {
+      add(sampleValues, name, value, path);
+      if (runtimeSamples.has(path)) runtimeSampleNames.add(name);
+    }
   }
 
   const result = new Map<string, { evidence: string; files: string[] }>();
   const engine = provisioned.database;
   const sampleNamesEngineSelector = [...sampleValues.keys()].some((name) => DB_SELECTOR_NAME_REGEX.test(name));
-  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys(), ...imageDefaults.keys()])) {
+  const names = new Set([
+    ...codeDefaults.keys(),
+    ...sampleValues.keys(),
+    ...compared.keys(),
+    ...imageDefaults.keys(),
+    ...literalReads.keys(),
+  ]);
+  for (const name of names) {
     const isStorage = provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
     const isDb = !isStorage && engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
     if (!isDb && !isStorage) continue;
@@ -4016,21 +4284,32 @@ function unresolvedSelectors(
     if (image && !(isDb && sampleNamesEngineSelector) && !reads.has(name) && !codeDefaults.has(name)) continue;
     const fromCode = image ?? codeDefaults.get(name) ?? [];
     const comparedHere = image ? [] : (compared.get(name) ?? []);
-    // A sample value is only a default for a variable the app actually reads.
-    const fromSamples = fromCode.length > 0 || reads.has(name) ? (sampleValues.get(name) ?? []) : [];
+    // A sample value is only a default for a variable the app actually reads — or for a variable the
+    // fetched tree never reads and gives no default (teable reads it in a file the bounded fetch missed).
+    const unread = !reads.has(name) && !literalReads.has(name) && fromCode.length === 0 && runtimeSampleNames.has(name);
+    const fromSamples = fromCode.length > 0 || reads.has(name) || literalReads.has(name) || unread ? (sampleValues.get(name) ?? []) : [];
     const wanted = isStorage ? S3_STORAGE_VALUE_REGEX : ENGINE_VALUE_REGEX[engine!];
     // A selector with no default that the code only compares with the
     // provisioned value (`os.getenv("DB") == "postgres"`) takes the other
     // branch when unset.
     const unsetFallback =
       fromCode.length === 0 && comparedHere.some(({ value }) => wanted.test(value)) ? { value: 'unset' } : undefined;
+    // A selector the app reads through a config table or a Go constant, with no default in the code, the
+    // image or a sample, is an undecided choice: those reads hide their defaults from the scanners.
+    const noDefaultFound =
+      literalReads.has(name) &&
+      fromCode.length === 0 &&
+      comparedHere.length === 0 &&
+      (sampleValues.get(name) ?? []).length === 0
+        ? { value: 'not found' }
+        : undefined;
     const bad =
       [...fromCode, ...fromSamples].find(({ value }) =>
         isStorage
           ? LOCAL_STORAGE_VALUE_REGEX.test(value)
           : EMBEDDED_ENGINE_REGEX.test(value) ||
             (['postgres', 'mysql'] as const).some((other) => other !== engine && ENGINE_VALUE_REGEX[other].test(value)),
-      ) ?? unsetFallback;
+      ) ?? unsetFallback ?? noDefaultFound;
     if (!bad) continue;
 
     const values: string[] = [];
@@ -4039,16 +4318,20 @@ function unresolvedSelectors(
     };
     for (const { value } of sampleValues.get(name) ?? []) note(value);
     const files = [
-      ...new Set([...fromCode, ...comparedHere].map((entry) => entry.file).concat(reads.get(name)?.files ?? [])),
+      ...new Set([...fromCode, ...comparedHere].map((entry) => entry.file).concat(reads.get(name)?.files ?? [], literalReads.get(name) ?? [])),
     ];
     for (const file of files) {
       for (const literal of (tree[file] ?? '').matchAll(/["'`]([^"'`\s]{1,60})["'`]/g)) note(literal[1]!);
     }
     const hint = values.length > 0 ? values.slice(0, 3).map((value) => `"${value}"`).join(' or ') : null;
+    const notFound = bad === noDefaultFound;
     const evidence = isStorage
-      ? `storage selector: default "${bad.value}" stores files on the container disk — set ${hint ?? 'an S3 value'} to use the managed S3 bucket`
-      : `engine selector: ${bad === unsetFallback ? 'when unset the app uses another engine' : `default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`}`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
+      ? `storage selector: ${notFound ? 'the default was not found' : `default "${bad.value}" stores files on the container disk`} — set ${hint === null ? 'a value that stores files outside the container' : `${hint} to use the managed S3 bucket`}`
+      : `engine selector: ${notFound ? 'the default was not found' : bad === unsetFallback ? 'when unset the app uses another engine' : `default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`}`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
     result.set(name, { evidence, files });
+  }
+  for (const { name, file } of presenceChain) {
+    if (!result.has(name)) result.set(name, { evidence: S3_PRESENCE_EVIDENCE, files: [file] });
   }
   return result;
 }
@@ -4422,7 +4705,8 @@ export function detectEnvVarModel(
   // (rallly: `SELF_HOSTED=true` switches Next.js to `output: standalone`, and the
   // Dockerfile copies that output). Deployz passes only vendor build values, so
   // the variable must be listed as required, with the compose value as evidence.
-  const composeBuildArgs = detectComposeBuildArgs(tree);
+  // An `ARG` that selects the base image is the same kind of input.
+  const composeBuildArgs = new Map([...detectBaseImageBuildArgs(tree), ...detectComposeBuildArgs(tree)]);
 
   // ── 3. Combine into the model. ──
   const keys = new Set<string>([
@@ -4430,6 +4714,7 @@ export function detectEnvVarModel(
     ...reads.keys(),
     ...composeBuildArgs.keys(),
     ...nestedSampleFiles.keys(),
+    ...selectors.keys(),
   ]);
   const entries: ManifestEnvVariable[] = [];
 
@@ -4476,7 +4761,10 @@ export function detectEnvVarModel(
     // Stage B phase 3: deterministic purpose/confidence for every variable —
     // infra binding name or alias, external-service credential, internal
     // secret, or plain configuration.
-    const classification = classifyEnvVarPurpose(key);
+    // A key that switches S3 on belongs to the vendor, even when its name looks like an internal secret.
+    const classification = source.includes(S3_PRESENCE_EVIDENCE)
+      ? { purpose: secret ? ('external_credential' as const) : classifyEnvVarPurpose(key).purpose, confidence: 'medium' as const }
+      : classifyEnvVarPurpose(key);
     // Stage B phase 4: application-INTERNAL required secrets Deployz can
     // generate (never external vendor credentials, never provisioned
     // bindings). `generatable` is set only when true — absence reads as "not
@@ -4703,7 +4991,10 @@ function imageName(image: string): string {
 
 function runtimeFromImage(image: string): RuntimeFamily | null {
   const name = imageName(image);
-  return RUNTIME_IMAGES.find(({ pattern }) => pattern.test(name))?.runtime ?? null;
+  const known = RUNTIME_IMAGES.find(({ pattern }) => pattern.test(name))?.runtime;
+  if (known !== undefined) return known;
+  // `astral-sh/uv:0.12-python3.14-trixie-slim` is a Python image with uv on top.
+  return /(?:^|\/)astral-sh\/uv$/.test(name) && /[:-]python\d/.test(image.split('@')[0] ?? image) ? 'python' : null;
 }
 
 interface DockerfileStage {
@@ -4804,21 +5095,24 @@ function runtimeFromCopiedStages(finalStage: DockerfileStage, stages: Dockerfile
 
 /**
  * Detect the runtime family the deployed container runs. The selected
- * Dockerfile decides first: the final stage's own base image when it is
- * itself a recognizable runtime; otherwise the runtime reached through that
- * stage's own `COPY --from=` references (see `runtimeFromCopiedStages`).
+ * Dockerfile decides first: the base image of the production stage or of the
+ * stage it is built `FROM` (walking the lineage from the leaf to the root);
+ * otherwise the runtime reached through the final stage's own `COPY --from=`
+ * references (see `runtimeFromCopiedStages`).
  * Without either, the shallowest dependency manifest decides — a root
- * `package.json` outranks a nested `requirements.txt`.
+ * `package.json` outranks a nested `requirements.txt`. A manifest that names
+ * no application (a `go.mod` with no Go source below it, a `package.json`
+ * with no dependencies) is tooling and decides only when nothing else remains.
  */
 export function detectRuntime(tree: FileTree): DetectorFinding {
   const dockerfile = selectedDockerfile(tree);
   if (dockerfile) {
-    const stages = parseDockerfileStages(dockerfile.content);
+    const stages = parseDockerfileStages(normalizeDockerfile(dockerfile.content));
     const finalStage = stages[stages.length - 1];
     if (finalStage) {
-      const ownRuntime = runtimeFromImage(finalStage.image);
-      const resolved = ownRuntime
-        ? { runtime: ownRuntime, image: finalStage.image }
+      const lineageStage = dockerfileStageChain(stages, productionStageIndex(stages)).find((stage) => runtimeFromImage(stage.image) !== null);
+      const resolved = lineageStage
+        ? { runtime: runtimeFromImage(lineageStage.image)!, image: lineageStage.image }
         : stages.length > 1
           ? runtimeFromCopiedStages(finalStage, stages)
           : null;
@@ -4834,10 +5128,18 @@ export function detectRuntime(tree: FileTree): DetectorFinding {
     }
   }
 
-  const manifests = Object.keys(tree)
+  const allPaths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS] ?? Object.keys(tree);
+  const isToolingManifest = (path: string): boolean => {
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+    if (GO_DEPENDENCY_FILES.test(path)) return !allPaths.some((candidate) => candidate.startsWith(dir) && GO_SOURCE.test(candidate));
+    if (PACKAGE_JSON_REGEX.test(path)) return collectDependencyNames({ [path]: tree[path] ?? '' }).length === 0;
+    return false;
+  };
+  const allManifests = Object.keys(tree)
     .filter((path) => RUNTIME_MANIFESTS.some(({ pattern }) => pattern.test(path)))
     .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
-  for (const path of manifests) {
+  const appManifests = allManifests.filter((path) => !isToolingManifest(path));
+  for (const path of appManifests.length > 0 ? appManifests : allManifests) {
     const runtime = RUNTIME_MANIFESTS.find(({ pattern }) => pattern.test(path))?.runtime;
     if (runtime) {
       return {
@@ -5034,6 +5336,9 @@ const COMMAND_HOST_FLAG_REGEX = /(?:--host(?:name)?[=\s]+|-H\s+|-b\s+|--bind[=\s
 const DOCKERFILE_ENV_HOST_REGEX = /^\s*ENV\s+(?:HOST|HOSTNAME|BIND_ADDRESS)[=\s]+["']?(127\.0\.0\.1|localhost|0\.0\.0\.0)\b/m;
 const LOOPBACK_BY_DEFAULT_REGEX = /(?:^|\s)(?:uvicorn|flask\s+run)(?:\s|$)(?![^\n]*(?:--host|-h\s))/;
 const PROCFILE_REGEX = /(?:^|\/)Procfile$/;
+// A desktop shell (Electron, Tauri) listens on loopback by design and is never the deployed server.
+const DESKTOP_SEGMENT_REGEX = /(?:^|\/)(?:desktop|electron|tauri|src-tauri)(?:\/|$)/i;
+const ELECTRON_IMPORT_REGEX = /from\s+['"]electron['"]|require\(\s*['"]electron['"]\s*\)/;
 
 /** `["uvicorn", "main:app"]` (Dockerfile exec form) → `uvicorn main:app`. */
 function execFormToShell(command: string): string {
@@ -5078,9 +5383,15 @@ function startCommandTexts(tree: FileTree): { file: string; text: string }[] {
  */
 export function detectBindAddress(tree: FileTree): DetectorFinding {
   const loopback: string[] = [];
+  // A loopback literal in source is a default: an all-interfaces host in the production command overrides it.
+  const sourceLoopback: string[] = [];
   const allInterfaces: string[] = [];
 
   const dockerfile = selectedDockerfile(tree);
+  // What the image runs at start, including the shell script its ENTRYPOINT/CMD names.
+  const startText = dockerfile ? startCommandText(tree, productionStageText(dockerfile.content)) : '';
+  const startFlag = COMMAND_HOST_FLAG_REGEX.exec(startText);
+  if (startFlag?.[1] && !LOOPBACK_HOST.test(startFlag[1])) allInterfaces.push(`${startFlag[0].trim()} (start command)`);
   const envHost = dockerfile ? DOCKERFILE_ENV_HOST_REGEX.exec(dockerfile.content) : null;
   if (dockerfile && envHost?.[1]) {
     (LOOPBACK_HOST.test(envHost[1]) ? loopback : allInterfaces).push(`${envHost[0].trim()} (${dockerfile.path})`);
@@ -5095,28 +5406,35 @@ export function detectBindAddress(tree: FileTree): DetectorFinding {
       loopback.push(`${text.trim()} binds 127.0.0.1 by default (${file})`);
     }
   }
+  // Only the start command or the image ENV overrides a source default; another file's 0.0.0.0 does not.
+  const commandBindsAllInterfaces = allInterfaces.length > 0;
 
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !isRuntimeSourcePath(path)) continue;
+    if (DESKTOP_SEGMENT_REGEX.test(path) || ELECTRON_IMPORT_REGEX.test(content)) continue;
     if (JS_SOURCE.test(path)) {
       for (const match of content.matchAll(LISTEN_CALL_REGEX)) {
         const args = match[1] ?? '';
-        if (LOOPBACK_LITERAL.test(args)) loopback.push(`listen(${args.trim()}) (${path})`);
+        if (LOOPBACK_LITERAL.test(args)) sourceLoopback.push(`listen(${args.trim()}) (${path})`);
         else if (ALL_INTERFACES_LITERAL.test(args)) allInterfaces.push(`listen(${args.trim()}) (${path})`);
       }
     } else if (PY_SOURCE.test(path)) {
-      if (PY_RUN_HOST_REGEX.test(content)) loopback.push(`server host set to a loopback address (${path})`);
+      // An `app.run(host=…)` counts only in a module the image runs (a dev `serve.py` is never started).
+      const module = (path.split('/').pop() ?? path).replace(/\.py$/, '');
+      const runByImage = startText === '' || startText.split(/[^\w-]+/).includes(module);
+      if (runByImage && PY_RUN_HOST_REGEX.test(content)) sourceLoopback.push(`server host set to a loopback address (${path})`);
       if (/gunicorn/i.test(path) && GUNICORN_CONF_BIND_REGEX.test(content)) {
-        loopback.push(`gunicorn bind on a loopback address (${path})`);
+        sourceLoopback.push(`gunicorn bind on a loopback address (${path})`);
       }
     } else if (GO_SOURCE.test(path)) {
       for (const match of content.matchAll(LISTEN_AND_SERVE_REGEX)) {
         const host = match[1] ?? '';
-        if (LOOPBACK_HOST.test(host)) loopback.push(`ListenAndServe("${host}:…") (${path})`);
+        if (LOOPBACK_HOST.test(host)) sourceLoopback.push(`ListenAndServe("${host}:…") (${path})`);
       }
     }
   }
 
+  if (!commandBindsAllInterfaces) loopback.push(...sourceLoopback);
   if (loopback.length > 0) {
     return {
       detector: 'bind-address',
@@ -5251,6 +5569,20 @@ const DEV_ONLY_DOCKERFILE_REGEX =
   /(?:^|\/)(?:\.devcontainer|\.gitpod)\/|(?:^|\/)dockerfile(?:[.-]\w+)*[.-](?:dev|development|test|e2e|ci|gitpod)(?:[.-]\w+)*$|(?:^|\/)[\w-]*(?:dev|test|ci)[\w-]*\.dockerfile$/i;
 
 /**
+ * A Dockerfile whose name marks it for development (`Dockerfile.dev`) is dev-only when its
+ * content agrees: it runs a dev server, starts nothing, or builds nothing. A name alone is not
+ * evidence: a project can publish its production image from `Dockerfile.dev`.
+ */
+function isDevOnlyDockerfile(path: string, content: string): boolean {
+  if (!DEV_ONLY_DOCKERFILE_REGEX.test(path)) return false;
+  const lines = productionStageText(content).split('\n');
+  const start = lines.filter((line) => /^\s*(?:CMD|ENTRYPOINT)\b/i.test(line));
+  const runsDevServer = start.some((line) => DEV_RUNTIME_REGEX.test(line.replace(/["',[\]\s]+/g, ' ')));
+  const buildsSomething = lines.some((line) => /^\s*RUN\b.*\b(?:build|compile|publish)\b/i.test(line));
+  return runsDevServer || start.length === 0 || !buildsSomething;
+}
+
+/**
  * Why the repository has no Dockerfile that builds a production image, or
  * null when it has one or the evidence is incomplete (COMP-021). Complete
  * evidence needs the full tracked path list, every Dockerfile in it fetched,
@@ -5267,7 +5599,7 @@ export function detectUnbuildableDockerfile(tree: FileTree): string | null {
   if (tracked.length === 0) return 'No Dockerfile exists in the repository.';
 
   const buildable = tracked.filter(
-    (path) => !DEV_ONLY_DOCKERFILE_REGEX.test(path) && !isUnusableDockerfile(path, tree[path] ?? ''),
+    (path) => !isDevOnlyDockerfile(path, tree[path] ?? '') && !isUnusableDockerfile(path, tree[path] ?? ''),
   );
   if (buildable.length === 0) {
     return `The only Dockerfile${tracked.length > 1 ? 's are' : ' is'} for development or a template (${tracked.slice(0, 3).join(', ')}).`;
@@ -5335,4 +5667,67 @@ export function detectDockerfileBuildContext(tree: FileTree): DetectorFinding {
     details: `${dockerfile.path} is written for the repository root as its build context: ${[...evidence].join('; ')}`,
     source: 'dockerfile',
   };
+}
+
+/**
+ * Where a repository file lies in the runtime image of the selected Dockerfile: a path relative
+ * to the image's final `WORKDIR` (absolute when the file lies outside it). The build context
+ * follows `detectDockerfileBuildContext`; `COPY --from` is followed through the stages. Null when
+ * no `COPY` or `ADD` of the production lineage places the file. A repository path is not an
+ * image path (paperless: `COPY ./src ./` puts `src/manage.py` at `manage.py`).
+ */
+export function pathInRuntimeImage(tree: FileTree, repoPath: string): string | null {
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return null;
+  const stages = parseDockerfileStages(normalizeDockerfile(dockerfile.content));
+  if (stages.length === 0) return null;
+  const directory = dockerfile.path.includes('/') ? dockerfile.path.slice(0, dockerfile.path.lastIndexOf('/')) : '';
+  const contextDir = detectDockerfileBuildContext(tree).detected ? '' : directory;
+  const clean = (token: string): string => token.replace(/^[["']+|[\]",']+$/g, '');
+
+  // Where `target` (a context path, or a path in a source stage) lies in one stage's image, and that stage's WORKDIR.
+  const trace = (index: number, target: string, depth: number): { placed: string | null; workdir: string } => {
+    let placed: string | null = null;
+    let workdir = '/';
+    if (depth > stages.length) return { placed, workdir };
+    for (const lineageIndex of stageLineage(stages, index)) {
+      for (const line of stages[lineageIndex]!.body.split('\n')) {
+        const dir = /^\s*WORKDIR\s+(\S+)/i.exec(line)?.[1];
+        if (dir !== undefined) {
+          workdir = posixPath.resolve(workdir, clean(dir));
+          continue;
+        }
+        const args = /^\s*(?:COPY|ADD)\s+(.+)$/i.exec(line)?.[1];
+        if (args === undefined) continue;
+        const fromStage = /--from=(\S+)/.exec(args)?.[1];
+        const tokens = args.trim().split(/\s+/).filter((token) => !token.startsWith('--')).map(clean);
+        if (tokens.length < 2 || tokens.some((token) => /[$*?<]|:\/\//.test(token))) continue;
+        let source = { path: target, workdir: contextDir };
+        if (fromStage !== undefined) {
+          const sourceStage = resolveDockerfileStage(fromStage, stages, lineageIndex);
+          if (sourceStage === undefined) continue;
+          const upstream = trace(stages.indexOf(sourceStage), target, depth + 1);
+          if (upstream.placed === null) continue;
+          source = { path: upstream.placed, workdir: upstream.workdir };
+        }
+        const dest = tokens.pop()!;
+        const destination = posixPath.resolve(workdir, dest);
+        for (const token of tokens) {
+          const sourcePath = fromStage === undefined ? posixJoin(source.workdir, token) : posixPath.resolve(source.workdir, token);
+          if (source.path === sourcePath) {
+            const intoDirectory = dest.endsWith('/') || dest === '.' || tokens.length > 1;
+            placed = intoDirectory ? posixPath.join(destination, posixPath.basename(source.path)) : destination;
+          } else if (sourcePath === '' || source.path.startsWith(`${sourcePath === '/' ? '' : sourcePath}/`)) {
+            placed = posixPath.join(destination, sourcePath === '' ? source.path : source.path.slice(sourcePath === '/' ? 1 : sourcePath.length + 1));
+          }
+        }
+      }
+    }
+    return { placed, workdir };
+  };
+
+  const { placed, workdir } = trace(productionStageIndex(stages), repoPath, 0);
+  if (placed === null) return null;
+  const relative = posixPath.relative(workdir, placed);
+  return relative.startsWith('..') ? placed : relative;
 }

@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "87daaaf36b256c5b1dd8190c8a6c4b81b8392b25",
-  "analysisVersion": 52,
+  "deployzSha": "d1dc77a089313c8f7a030ec9d97b7dcf8aa1bfe7",
+  "analysisVersion": 54,
   "tree": {
     "files": 201,
     "entries": 2508,
@@ -44,8 +44,8 @@
     "dockerfilePath": "docker/Dockerfile",
     "port": 3000,
     "startCommand": "ENTRYPOINT: [\"/init\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/api/health",
     "postgres": false,
     "postgresDetected": true,
     "redis": false,
@@ -61,23 +61,18 @@
       "smtp",
       "stripe"
     ],
-    "requiredEnvVars": [
-      "KARAKEEP_API_KEY"
-    ],
+    "requiredEnvVars": [],
     "unsupported": [
       "multi-process-image",
       "sqlite"
     ],
     "readinessFindings": [
       "unsupported-database-sqlite",
-      "unsupported-multi-service",
-      "health-check"
+      "unsupported-multi-service"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "health-path-required",
-      "required-env-vars-missing",
       "deployment-files-ignored"
     ],
     "unresolvedQuestions": [
@@ -147,9 +142,8 @@
     {
       "fact": "healthPath",
       "expected": "/api/health",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/api/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -181,16 +175,6 @@
       "expected": true,
       "actual": false,
       "finding": null
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/api/health",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
     }
   ],
   "match": false

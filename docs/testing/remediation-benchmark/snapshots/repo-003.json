@@ -2,11 +2,11 @@
   "id": "repo-003",
   "repository": "thedevs-network/kutt",
   "commit": "279b491b53bbd01fbae70f603222526962772061",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "thedevs-network/kutt",
     "containerPort": 3000,
-    "healthPath": null,
+    "healthPath": "/api/health",
     "migrationCommand": null,
     "redisRequired": false,
     "workerCommand": null,
@@ -28,18 +28,10 @@
         {
           "kind": "REDIS_BINDING",
           "detail": "Redis usage was detected at medium confidence; whether the cache is required is unresolved."
-        },
-        {
-          "kind": "HEALTH_PATH",
-          "detail": "No health check route or container health check was found; a default /health path would be assumed."
-        },
-        {
-          "kind": "ARCHITECTURE_REQUIREMENT",
-          "detail": "Worker code was detected but no command resolves how a worker process starts."
         }
       ],
       "analysisCommitSha": "279b491b53bbd01fbae70f603222526962772061",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -93,10 +85,10 @@
           "source": [
             "engine selector: default \"better-sqlite3\" stores data on the container disk — set \"pg\" or \"postgres\" to use the managed PostgreSQL database",
             "read in knexfile.js",
-            "read in server/knex.js",
             "read in server/env.js",
-            "read in server/migrations/20241223155527_visits_user_id_index.js",
-            "read in server/migrations/20241223062111_indexes.js"
+            "read in server/knex.js",
+            "read in server/migrations/20241223062111_indexes.js",
+            "read in server/migrations/20241223155527_visits_user_id_index.js"
           ],
           "purpose": "optional_configuration",
           "required": true,
@@ -108,8 +100,8 @@
           "secret": false,
           "source": [
             "read in knexfile.js",
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -121,8 +113,8 @@
           "secret": false,
           "source": [
             "read in knexfile.js",
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "infrastructure_binding",
           "required": false,
@@ -134,8 +126,8 @@
           "secret": false,
           "source": [
             "read in knexfile.js",
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "infrastructure_binding",
           "required": false,
@@ -147,8 +139,8 @@
           "secret": true,
           "source": [
             "read in knexfile.js",
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "infrastructure_binding",
           "required": false,
@@ -159,8 +151,8 @@
           "key": "DB_POOL_MAX",
           "secret": false,
           "source": [
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -171,8 +163,8 @@
           "key": "DB_POOL_MIN",
           "secret": false,
           "source": [
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -184,8 +176,8 @@
           "secret": false,
           "source": [
             "read in knexfile.js",
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "infrastructure_binding",
           "required": false,
@@ -197,8 +189,8 @@
           "secret": false,
           "source": [
             "read in knexfile.js",
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -210,8 +202,8 @@
           "secret": false,
           "source": [
             "read in knexfile.js",
-            "read in server/knex.js",
-            "read in server/env.js"
+            "read in server/env.js",
+            "read in server/knex.js"
           ],
           "purpose": "infrastructure_binding",
           "required": false,
@@ -334,8 +326,8 @@
             "read in server/handlers/locals.handler.js",
             "read in server/mail/mail.js",
             "read in server/routes/auth.routes.js",
-            "read in server/routes/renders.routes.js",
-            "read in server/routes/link.routes.js"
+            "read in server/routes/link.routes.js",
+            "read in server/routes/renders.routes.js"
           ],
           "purpose": "optional_configuration",
           "required": false,
@@ -566,10 +558,10 @@
           "secret": false,
           "source": [
             "read in server/env.js",
-            "read in server/handlers/domains.handler.js",
-            "read in server/handlers/helpers.handler.js",
             "read in server/redis.js",
             "read in server/handlers/auth.handler.js",
+            "read in server/handlers/domains.handler.js",
+            "read in server/handlers/helpers.handler.js",
             "read in server/queries/domain.queries.js",
             "read in server/queries/host.queries.js",
             "read in server/queries/link.queries.js",
@@ -752,12 +744,15 @@
       "hasDockerfile": true,
       "hasEnvVars": true,
       "hasExternalServices": true,
-      "hasHealthEndpoint": false,
+      "hasHealthEndpoint": true,
       "hasMigrationCommand": true,
       "hasStartupCommand": true,
       "hasWorkerProcesses": true,
-      "healthMode": "vendor_required",
-      "healthPath": null,
+      "healthEndpointSources": [
+        "health router mount (/health)"
+      ],
+      "healthMode": "explicit",
+      "healthPath": "/api/health",
       "ignoredDeploymentFiles": [],
       "infrastructureBindings": [
         {
@@ -869,7 +864,7 @@
         "pg"
       ],
       "readiness": {
-        "state": "ALMOST_READY",
+        "state": "READY",
         "passed": [
           {
             "id": "dockerfile",
@@ -882,6 +877,10 @@
           {
             "id": "port",
             "label": "Application port detected"
+          },
+          {
+            "id": "health-endpoint",
+            "label": "Health check found"
           },
           {
             "id": "env-vars",
@@ -916,20 +915,8 @@
             "label": "Redis detected — provisioned automatically on install"
           }
         ],
-        "summary": "Deployz found a few things to address before this app can be deployed reliably.",
+        "summary": "This app can be deployed through Deployz.",
         "findings": [
-          {
-            "id": "health-check",
-            "title": "Give Deployz a way to check your app",
-            "blocking": false,
-            "category": "health",
-            "severity": "required",
-            "confidence": "likely",
-            "whyItMatters": "During every deployment, Deployz waits for your app to report healthy before sending traffic to it. Without a health signal, a broken deploy cannot be detected or rolled back.",
-            "suggestedOutcome": "Expose a lightweight route (for example /health) that returns success once the app is ready, and reference it from the container health check.",
-            "technicalEvidence": "No health endpoint or container health check was found (no /health-style route, no HEALTHCHECK instruction).",
-            "plainEnglishExplanation": "Deployz needs a reliable way to know when your app is running and ready."
-          },
           {
             "id": "database-migrations",
             "title": "Database migrations run when the application starts",
@@ -941,32 +928,20 @@
             "suggestedOutcome": "No action needed — migrations run on application startup and Deployz monitors the app until it reports healthy.",
             "technicalEvidence": "Migrations run at startup: migrate script (CMD (Dockerfile)).",
             "plainEnglishExplanation": "This app applies its database migrations when the application itself starts, not as a separate deploy step."
-          },
-          {
-            "id": "worker-command",
-            "title": "Background job runner",
-            "blocking": false,
-            "category": "workers",
-            "severity": "recommended",
-            "confidence": "likely",
-            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
-            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
-            "technicalEvidence": "Worker patterns detected: bull",
-            "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
           }
         ],
-        "requiredCount": 1,
-        "recommendedCount": 2
+        "requiredCount": 0,
+        "recommendedCount": 1
       },
       "redis": {
         "evidence": [
+          "docker-compose variant using a Redis/Valkey image (redis:alpine) in docker-compose.mariadb.yml",
           "docker-compose variant using a Redis/Valkey image (redis:alpine) in docker-compose.postgres.yml",
           "docker-compose variant using a Redis/Valkey image (redis:alpine) in docker-compose.sqlite-redis.yml",
-          "docker-compose variant using a Redis/Valkey image (redis:alpine) in docker-compose.mariadb.yml",
           "Redis client initialization (new Redis(, behind a configuration guard) in server/redis.js",
           "bull dependency in package.json",
           "ioredis dependency in package.json",
-          "Redis looks optional: REDIS_ENABLED switches Redis on in docker-compose.postgres.yml"
+          "Redis looks optional: REDIS_ENABLED switches Redis on in docker-compose.mariadb.yml"
         ],
         "purposes": [
           "queue"
@@ -991,7 +966,7 @@
       "usesPostgresql": true,
       "usesRedis": true,
       "usesS3": false,
-      "vendorOverrides": [],
+      "workerNeedsProcess": false,
       "workerPatterns": [
         "bull"
       ]

@@ -125,7 +125,7 @@ const corpus: { name: string; tree: FileTree; expected: Expectation }[] = [
     },
     expected: {
       readinessState: 'READY',
-      findings: ['database-migrations', 'worker-command'],
+      findings: ['database-migrations'],
       gate: 'READY',
       runtime: 'node',
       framework: 'express',

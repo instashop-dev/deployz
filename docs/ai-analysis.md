@@ -85,7 +85,19 @@ Repository (GitHub tree, bounded)
   is selected when it starts something (CMD, ENTRYPOINT or EXPOSE) and is not
   one of those; a `.devcontainer/` or `.gitpod/` Dockerfile never is. A
   Dockerfile named production or prod ranks first. An
-  arm or multi-process variant ranks last. The port is the ENV PORT or EXPOSE of the production stage. An
+  arm or multi-process variant ranks last. When the other signals tie, a
+  Dockerfile whose production stage starts something (CMD, ENTRYPOINT or
+  EXPOSE) ranks first, then one that declares a port. Dockerfiles that still
+  tie are recorded as `dockerfileSelectionTied` and give the recommended
+  finding `dockerfile-target-unresolved`. The runtime comes from the
+  production stage and the stages it is built `FROM` (leaf to root);
+  `COPY --from` counts only when that lineage names no runtime image. A
+  `go.mod` with no Go source and a `package.json` with no dependencies are
+  tooling manifests: they decide the runtime only when nothing else remains.
+  A Node framework is reported only for a Node image. The port is the ENV
+  PORT or EXPOSE of the production stage, then the one application service
+  of the production Compose file that publishes a port, then a port literal
+  in runtime source. An
   image with a front web server (nginx, caddy) publishes port 80. The health
   path, in order: the URL that the HEALTHCHECK of the production stage or a
   production Compose app service probes; a dedicated route that the app
@@ -111,7 +123,13 @@ Repository (GitHub tree, bounded)
   sources the repository lacks), the repository is NOT_COMPATIBLE
   (`no-buildable-dockerfile`) instead. A capped or partial file list, a
   second candidate Dockerfile, a git submodule, `COPY --from=` and a
-  generated directory never reject. A package.json `start` script is
+  generated directory never reject. A single Dockerfile with a development
+  name is development-only only when its content shows it (a dev server, no
+  command, or no build step). A global `ARG` with no default that a `FROM`
+  of the production stage lineage reads (`ARG BASE_IMAGE` with
+  `FROM ${BASE_IMAGE}`) is a required build variable: the build fails
+  without it. A `go.mod` line marked `// indirect` is not evidence that the
+  app uses S3. A package.json `start` script is
   the container command only when it belongs to a package that the image
   runs (the root, the Dockerfile directory or the runtime WORKDIR), the
   package is not a workspace root, and the script does not build first
@@ -120,7 +138,25 @@ Repository (GitHub tree, bounded)
   boot (knex `migrate.latest()`, Umzug, Drizzle `migrate()`, TypeORM
   `runMigrations()`, golang-migrate, Flask-Migrate `upgrade()`, Django
   `call_command('migrate')`) sets the migration mode to `startup`. Then no
-  pre-deploy command is kept.
+  pre-deploy command is kept. Only the real start path counts: the image
+  CMD or ENTRYPOINT and the scripts it runs (a `./app migrate && ./app`
+  subcommand, a `migrate deploy` wrapper), a Procfile `web:` line, the s6
+  init scripts behind `/init`, and a Go migrator call (`migrations.Up`,
+  `goose.Up`, `AutoMigrate`) in a server start file or an `Init` function it
+  calls. A runner must be a call, not a declaration. Browser, CLI,
+  test-setup and generated code never count. A Procfile `release:` line is
+  pre-deploy, not startup. `CREATE TABLE IF NOT EXISTS` is never proof of
+  schema upgrades.
+- **Health and listener precedence:** a router mounted through an exported
+  object (`app.use('/api', routes.api)`) keeps its mount prefix; the
+  shortest prefix wins. A Go `r.URL.Path == "/healthz"` check, a NestJS
+  `@Get('ping')` under `@Controller('server')` and the global prefix, and a
+  HEALTHCHECK that every target of a multi-target Dockerfile shares are
+  route candidates. An all-interfaces host in the production start text
+  (`--bind 0.0.0.0`, `ENV HOST=0.0.0.0`, also in the script the ENTRYPOINT
+  runs) overrides a loopback literal in source. Desktop, Electron and Tauri
+  files never count, and a Python `app.run(host="127.0.0.1")` counts only in
+  a module the image runs.
 - **One relational database:** a required MySQL database gets the same
   bindings (the `DATABASE_*` names plus the names the app reads, such as
   `DB_HOST`), migration mode and migration findings as PostgreSQL.
@@ -129,7 +165,11 @@ Repository (GitHub tree, bounded)
   requirement in `go.mod` counts only when non-test, non-vendored Go source
   imports the module. A requirement that no code imports is not evidence of
   PostgreSQL.
-- **Database engine:** PostgreSQL wins when the app can run on it. The
+- **Database engine:** PostgreSQL wins when the app can run on it. A Go
+  PostgreSQL driver in `go.mod` counts when runtime Go source imports it,
+  when an engine selector the app reads defaults to SQLite or PostgreSQL,
+  or when a runtime Go file was outside the bounded fetch (the import cannot
+  be ruled out). The
   engine is MySQL only when a MySQL driver and one independent signal are
   present and PostgreSQL is not a runtime option. The independent signal
   is a `mysql://` or `mysql+pymysql://` URL, a `MYSQL_*` variable, a
@@ -178,7 +218,9 @@ line each, never file content) — plus database, redis, storage, health
 check, migrations and the classified environment variables. It is stored as
 `detected_metadata.application`, served as `detected` on
 `GET /api/applications/:id/readiness`, and rendered as "What Deployz
-detected". It explains; the manifest is the contract.
+detected". `database.type` follows the required engine (`databaseState`):
+a driver that nothing requires never outranks an unsupported database. It
+explains; the manifest is the contract.
 
 ## Compatibility findings
 
@@ -202,10 +244,14 @@ service and declared workers), `unsupported-persistent-volume`,
 (blocking); `container-setup`, `port-unresolved`, `start-command-missing`,
 `health-check`, `localhost-binding`, `migration-command-needs-input`
 (required); `database-migrations`,
-`worker-command`, `worker-process` (recommended). For a Django project
+`worker-command`, `worker-process`, `dockerfile-target-unresolved`
+(recommended). For a Django project
 (`manage.py` with `DJANGO_SETTINGS_MODULE`) whose image runs no migration,
 `database-migrations` names `python <path>/manage.py migrate --noinput` as the
 suggested migration command; the vendor sets it, Deployz never applies it.
+The path is the path inside the image, relative to the final `WORKDIR`
+(`COPY ./src ./` puts `src/manage.py` at `manage.py`). There is no
+suggestion when the image does not copy `manage.py`.
 A migration script is persisted only when the selected Dockerfile's
 runtime stage, and the stages it is built `FROM`, provides its runner: a
 bare ORM CLI gets `npx` only when that Node image also holds the CLI in
@@ -222,8 +268,12 @@ process is `worker-process` — informational, because Deployz now runs it
 as its own service. Worker-like code with no declared start command is
 `worker-command` and sets `worker.needsCommand`: a needs-input question
 that is never provisioned from weak evidence such as a queue library
-alone. `reconcileReadiness` applies the vendor's
-container port, start command and migration choice as a view, so the page, the persisted
+alone. A Node job library (Bull, BullMQ, Agenda, Bree, pg-boss,
+graphile-worker) or `worker_threads` alone raises no question: these jobs
+run in the web process (`workerNeedsProcess` is false). Celery, RQ, Sidekiq
+and every declared worker still do. `reconcileReadiness` applies the vendor's
+container port, start command, migration choice, health path and Dockerfile
+path as a view, so the page, the persisted
 verdict and the fix instructions agree without a re-analysis.
 
 Gate scoping. The architecture and storage blockers read only the files that
@@ -235,8 +285,10 @@ describe the production deployment:
   not an `override`/`dev`/`ci` variant, and not a file that mounts the
   repository checkout (`.:/app`). Services on the same build or image are one
   application: the extra services are workers or replicas. Infrastructure
-  images, bare runtime images (`node`), dev servers and database studios are
-  not application services. A service built from its own Dockerfile that the
+  images, bare runtime images (`node`), dev servers, database studios and
+  services whose command, health probe or data volume is a database server
+  (`postgres`, `pg_isready`, `/var/lib/postgresql`) are not application
+  services. A service built from its own Dockerfile that the
   app neither depends on nor names, next to an app that builds and tags its
   own image, is an optional extra. Only two independent required
   application services give `unsupported-multi-service`.
@@ -246,11 +298,17 @@ describe the production deployment:
   that holds only the SQLite file is not local state when PostgreSQL can be
   selected. An uploads, media or attachments volume is not local state when
   the app has an S3 SDK and a variable that selects it (`UPLOAD_PROVIDER`,
-  `ACTIVE_STORAGE_SERVICE`, `STORAGE_TYPE`, an `S3_*_BUCKET` name).
+  `ACTIVE_STORAGE_SERVICE`, `STORAGE_TYPE`, an `S3_*_BUCKET` name). A
+  `*_CONFIG_DIR` that the selected Dockerfile copies into (or into whose
+  parent it copies the whole build context) holds shipped configuration, not
+  state the customer writes. Data, home and storage directories stay durable.
+- Databases: a production Compose database image that needs a PostgreSQL
+  extension Amazon RDS does not provide (ParadeDB, TimescaleDB, Citus) is
+  `other-database`. pgvector and PostGIS images are supported.
 - Deployment files: Helm charts, Kubernetes manifests, Kustomize, Terraform
   and Pulumi files in `charts`, `helm`, `k8s`, `kubernetes`, `deploy`,
-  `deployments`, `infra`, `terraform`, `install`, `contrib` or `*-docker`
-  directories do not block. They give the `deployment-files-ignored`
+  `deployments`, `infra`, `terraform`, `install`, `contrib`, `dogfood`,
+  `scaletest` or `*-docker` directories do not block. They give the `deployment-files-ignored`
   warning and the manifest field `ignoredDeploymentFiles`. Root-level files,
   files elsewhere, and the manifests of a Go module that imports
   `client-go` or `controller-runtime` still block. Azure files still block.
@@ -325,10 +383,8 @@ provisions anything — it becomes a non-blocking `questions` entry instead.
   collide becomes a `questions` entry instead, so the planner is never
   handed a relationship it would reject.
 
-`ANALYSIS_VERSION` is 37 (`apps/api/src/analysis.ts`) — last bumped so a
-stored analysis finds a NestJS health controller, drops env vars that were
-wrongly required, and stops treating token counts and limits as secrets (see
-`docs/environment-variables.md`).
+`ANALYSIS_VERSION` (`apps/api/src/analysis.ts`) carries one history comment
+per bump. Bump it whenever detector output or the projection changes.
 
 ## Fix instructions
 
@@ -356,6 +412,8 @@ vendor's own coding agent (`packages/analysis/src/fix-instructions.ts`).
   per item, as `{items: [{id, guidance}]}` under a strict schema. It cannot
   change a class, an action or a constraint. `isSafeGuidance` drops guidance
   that matches an unsafe pattern, is too long, or names an unknown item.
+  The API logs each dropped entry with the item id, the reason, the rule
+  name and the length, never the text.
 - **Document.** Sections: context (only the facts the items need, and only
   the Deployz capabilities they touch), fixes in order, vendor decisions,
   already supported, rules, validation (only applicable checks; a build
@@ -368,7 +426,15 @@ vendor's own coding agent (`packages/analysis/src/fix-instructions.ts`).
   changes.
 - **Failure.** Any model failure (no credentials, timeout, malformed answer,
   spend limit, another model served) answers a retryable 503. The analysis
-  and the readiness state do not change.
+  and the readiness state do not change. When the provider settings are
+  missing or invalid, the 503 carries `details.reason: not_configured` and
+  the API logs the problem. A local API (`WEB_URL` on `localhost` or
+  `127.0.0.1`) names the missing setting in the message; elsewhere the
+  message stays generic. The explicit provider choice is kept: there is no
+  fallback to another provider.
+- **Configuration directories.** A persistent-volume item whose evidence
+  names a `*_CONFIG_DIR` is a `CONFIGURATION_FIX`: commit the configuration
+  files and copy them into the image, never move them to object storage.
 
 ## Environment variables
 

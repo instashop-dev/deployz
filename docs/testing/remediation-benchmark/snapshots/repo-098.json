@@ -2,7 +2,7 @@
   "id": "repo-098",
   "repository": "wekan/wekan",
   "commit": "0f41341fcdb3db65373e6c0820e506b90313e318",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "wekan/wekan",
     "containerPort": 8080,
@@ -30,7 +30,7 @@
         }
       ],
       "analysisCommitSha": "0f41341fcdb3db65373e6c0820e506b90313e318",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -271,8 +271,8 @@
           "secret": false,
           "source": [
             "read in server/initializeDirs.js",
-            "read in server/avatarLocalizationOnLogin.js",
             "read in server/authentication.js",
+            "read in server/avatarLocalizationOnLogin.js",
             "read in server/eventLogSummaryStartup.js",
             "read in server/header-login.js",
             "read in server/trelloApiImport.js",
@@ -289,8 +289,8 @@
             "read in server/lib/localizeAvatar.js",
             "read in server/lib/loginTally.js",
             "read in server/lib/requestUser.js",
-            "read in server/lib/speedLog.js",
             "read in server/lib/securityLog.js",
+            "read in server/lib/speedLog.js",
             "read in server/lib/testLog.js",
             "read in server/lib/uptimeWatch.js",
             "read in server/methods/fixDuplicateLists.js",
@@ -1518,7 +1518,7 @@
       "usesPostgresql": false,
       "usesRedis": false,
       "usesS3": true,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }

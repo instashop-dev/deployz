@@ -2,7 +2,7 @@
   "id": "repo-034",
   "repository": "CTFd/CTFd",
   "commit": "91ced62d44d3ec3142a0948ee96ed19947cfc979",
-  "analysisVersion": 52,
+  "analysisVersion": 54,
   "source": {
     "repoFullName": "CTFd/CTFd",
     "containerPort": 8000,
@@ -34,12 +34,12 @@
         }
       ],
       "analysisCommitSha": "91ced62d44d3ec3142a0948ee96ed19947cfc979",
-      "analysisVersion": 52,
+      "analysisVersion": 54,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
-      "bindAddress": "localhost",
-      "bindsLocalhost": true,
+      "bindAddress": "all-interfaces",
+      "bindsLocalhost": false,
       "copiesGitDirectory": false,
       "databaseNamesMentioned": [
         "DATABASE_URL",
@@ -733,7 +733,7 @@
         "required": false
       },
       "readiness": {
-        "state": "ALMOST_READY",
+        "state": "READY",
         "passed": [
           {
             "id": "dockerfile",
@@ -764,20 +764,8 @@
             "label": "Redis detected — provisioned automatically on install"
           }
         ],
-        "summary": "Deployz found a few things to address before this app can be deployed reliably.",
+        "summary": "This app can be deployed through Deployz.",
         "findings": [
-          {
-            "id": "localhost-binding",
-            "title": "Your app only listens on localhost",
-            "blocking": false,
-            "category": "network",
-            "severity": "required",
-            "confidence": "likely",
-            "whyItMatters": "Deployz sends customer traffic and health checks to the container over the network. A server bound to 127.0.0.1 or localhost never answers them, so every deployment would fail its health check.",
-            "suggestedOutcome": "Bind the server to all network interfaces (0.0.0.0) instead of 127.0.0.1 or localhost.",
-            "technicalEvidence": "Server binds only to a loopback address: server host set to a loopback address (serve.py); server host set to a loopback address (wsgi.py)",
-            "plainEnglishExplanation": "This app accepts connections only from inside its own container, so Deployz cannot reach it."
-          },
           {
             "id": "database-migrations",
             "title": "Database migrations run when the application starts",
@@ -791,7 +779,7 @@
             "plainEnglishExplanation": "This app applies its database migrations when the application itself starts, not as a separate deploy step."
           }
         ],
-        "requiredCount": 1,
+        "requiredCount": 0,
         "recommendedCount": 1
       },
       "redis": {
@@ -825,7 +813,7 @@
       "usesPostgresql": false,
       "usesRedis": true,
       "usesS3": true,
-      "vendorOverrides": []
+      "workerNeedsProcess": false
     }
   }
 }
