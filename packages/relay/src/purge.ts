@@ -998,8 +998,9 @@ export function toTaskRevisionPurgeClient(
       let nextToken: string | undefined;
       for (let page = 0; page < MAX_REVISION_PAGES && owned.length < limit; page++) {
         const response = (await client.send(
+          // ECS reads familyPrefix as one exact family name, so the owned
+          // families are picked out of the full ACTIVE listing instead.
           new ListTaskDefinitionsCommand({
-            familyPrefix: 'DeployzApp',
             status: 'ACTIVE',
             ...(nextToken !== undefined ? { nextToken } : {}),
           }),
