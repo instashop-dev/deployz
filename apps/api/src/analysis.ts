@@ -350,7 +350,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // libraries raise no worker question; storage and engine selectors whose
 // default is local disk or SQLite must be set. Stored v53 rows can carry a
 // wrong image, a false loopback or worker question, or accept local storage.
-export const ANALYSIS_VERSION = 54;
+// Version 55 (readiness copy): the worker, message-queue and infrastructure
+// findings no longer tell the vendor to merge jobs into the web process,
+// replace a queue or remove deployment files. Stored v54 rows show the old copy.
+export const ANALYSIS_VERSION = 55;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

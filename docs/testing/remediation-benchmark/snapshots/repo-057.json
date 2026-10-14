@@ -2,7 +2,7 @@
   "id": "repo-057",
   "repository": "gitroomhq/postiz-app",
   "commit": "36d5fc7b3ac3f17178b1589cf7a7337523017a41",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "gitroomhq/postiz-app",
     "containerPort": 5000,
@@ -26,7 +26,7 @@
         }
       ],
       "analysisCommitSha": "36d5fc7b3ac3f17178b1589cf7a7337523017a41",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -1902,7 +1902,7 @@
             "severity": "required",
             "confidence": "confirmed",
             "whyItMatters": "Deployz provisions one container per application with managed database, cache, and storage. Extra infrastructure the app expects would not exist at runtime.",
-            "suggestedOutcome": "Replace the queue with background jobs that run inside the Deployz container, or remove the queue dependency if it is not actually used.",
+            "suggestedOutcome": "Keep the queue code. Deploy on Deployz only if the app can use a queue Deployz provides (Redis or Amazon SQS), or if the queue dependency is not actually used.",
             "technicalEvidence": "Unsupported infrastructure: docker-compose.yaml requires a Temporal server (service \"temporal\", image temporalio/auto-setup:1.28.1) which Deployz does not provision.",
             "plainEnglishExplanation": "This app depends on a message queue or event bus that Deployz does not host (for example Kafka, RabbitMQ, or an AWS queue)."
           },
@@ -1925,8 +1925,8 @@
             "category": "workers",
             "severity": "recommended",
             "confidence": "likely",
-            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
-            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
+            "whyItMatters": "Deployz runs each declared worker as its own process. Jobs that need a separate runner do not run until one is declared.",
+            "suggestedOutcome": "If the web process already runs the jobs, change nothing. Otherwise declare the job runner with its own start command (for example a Procfile worker line).",
             "technicalEvidence": "Worker patterns detected: @temporalio/worker",
             "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
           }

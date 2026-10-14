@@ -2,7 +2,7 @@
   "id": "repo-088",
   "repository": "netbox-community/netbox",
   "commit": "2d519ece585107e5928b70f068bfa478abd5ffa9",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "netbox-community/netbox",
     "containerPort": null,
@@ -47,7 +47,7 @@
         }
       ],
       "analysisCommitSha": "2d519ece585107e5928b70f068bfa478abd5ffa9",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -257,8 +257,8 @@
             "category": "workers",
             "severity": "recommended",
             "confidence": "likely",
-            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
-            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
+            "whyItMatters": "Deployz runs each declared worker as its own process. Jobs that need a separate runner do not run until one is declared.",
+            "suggestedOutcome": "If the web process already runs the jobs, change nothing. Otherwise declare the job runner with its own start command (for example a Procfile worker line).",
             "technicalEvidence": "Worker patterns detected: rq, django-rq",
             "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
           }

@@ -251,7 +251,7 @@ const ARCHITECTURE_COPY: RejectionCopy = {
   whyItMatters:
     'Deployz provisions one container per application with managed database, cache, and storage. Extra infrastructure the app expects would not exist at runtime.',
   suggestedOutcome:
-    'Remove the third-party infrastructure and keep only the application code. Deployz provides the hosting, database, cache, and storage.',
+    'Keep these files. Deployz ignores deployment samples; if the app needs this infrastructure at run time, it needs hosting that Deployz does not provide.',
 };
 
 const MESSAGE_QUEUE_COPY: RejectionCopy = {
@@ -261,7 +261,7 @@ const MESSAGE_QUEUE_COPY: RejectionCopy = {
   plainEnglishExplanation:
     'This app depends on a message queue or event bus that Deployz does not host (for example Kafka, RabbitMQ, or an AWS queue).',
   suggestedOutcome:
-    'Replace the queue with background jobs that run inside the Deployz container, or remove the queue dependency if it is not actually used.',
+    'Keep the queue code. Deploy on Deployz only if the app can use a queue Deployz provides (Redis or Amazon SQS), or if the queue dependency is not actually used.',
 };
 
 const MULTI_SERVICE_COPY: RejectionCopy = {
@@ -678,12 +678,12 @@ export function buildReadinessReport(
       plainEnglishExplanation:
         'This app appears to run background jobs, but no command exists that starts a job runner as a separate process.',
       whyItMatters:
-        'Deployz runs one web process per application. Background jobs only run when the web process itself processes them.',
+        'Deployz runs each declared worker as its own process. Jobs that need a separate runner do not run until one is declared.',
       technicalEvidence:
         worker.details ??
         `Worker-like code detected (${String(worker.value ?? '')}) but no worker start script was found.`,
       suggestedOutcome:
-        'Process background jobs inside the web process, or remove the job-runner code if it is not used.',
+        'If the web process already runs the jobs, change nothing. Otherwise declare the job runner with its own start command (for example a Procfile worker line).',
       confidence: 'likely',
     });
   }

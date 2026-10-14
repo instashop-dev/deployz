@@ -2,7 +2,7 @@
   "id": "repo-033",
   "repository": "paperless-ngx/paperless-ngx",
   "commit": "a28a6fe23b89a8f3b73b1f3994f22cbd97d2d5f1",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "paperless-ngx/paperless-ngx",
     "containerPort": 8000,
@@ -34,7 +34,7 @@
         }
       ],
       "analysisCommitSha": "a28a6fe23b89a8f3b73b1f3994f22cbd97d2d5f1",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -314,8 +314,8 @@
             "category": "workers",
             "severity": "recommended",
             "confidence": "likely",
-            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
-            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
+            "whyItMatters": "Deployz runs each declared worker as its own process. Jobs that need a separate runner do not run until one is declared.",
+            "suggestedOutcome": "If the web process already runs the jobs, change nothing. Otherwise declare the job runner with its own start command (for example a Procfile worker line).",
             "technicalEvidence": "Worker patterns detected: celery",
             "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
           }

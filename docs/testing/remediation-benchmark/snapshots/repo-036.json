@@ -2,7 +2,7 @@
   "id": "repo-036",
   "repository": "django-helpdesk/django-helpdesk",
   "commit": "1cc677655358b0b1be9dcad7846c0b4543361826",
-  "analysisVersion": 54,
+  "analysisVersion": 55,
   "source": {
     "repoFullName": "django-helpdesk/django-helpdesk",
     "containerPort": null,
@@ -43,7 +43,7 @@
         }
       ],
       "analysisCommitSha": "1cc677655358b0b1be9dcad7846c0b4543361826",
-      "analysisVersion": 54,
+      "analysisVersion": 55,
       "asyncQuestions": [],
       "asyncQueues": [],
       "asyncScheduledJobs": [],
@@ -587,8 +587,8 @@
             "category": "workers",
             "severity": "recommended",
             "confidence": "likely",
-            "whyItMatters": "Deployz runs one web process per application. Background jobs only run when the web process itself processes them.",
-            "suggestedOutcome": "Process background jobs inside the web process, or remove the job-runner code if it is not used.",
+            "whyItMatters": "Deployz runs each declared worker as its own process. Jobs that need a separate runner do not run until one is declared.",
+            "suggestedOutcome": "If the web process already runs the jobs, change nothing. Otherwise declare the job runner with its own start command (for example a Procfile worker line).",
             "technicalEvidence": "Worker patterns detected: celery",
             "plainEnglishExplanation": "This app appears to run background jobs, but no command exists that starts a job runner as a separate process."
           }
