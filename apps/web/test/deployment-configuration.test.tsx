@@ -431,11 +431,12 @@ describe('Deployment size and estimate', () => {
     expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'small');
     expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'medium');
     expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'large');
-    expect(byTestId('deployment-size-small')?.textContent).toContain('0.25 vCPU · 512 MiB per container');
-    expect(byTestId('deployment-size-medium')?.textContent).toContain('1 vCPU · 2 GiB per container');
-    expect(byTestId('deployment-size-large')?.textContent).toContain('2 vCPU · 4 GiB per container');
+    expect(byTestId('deployment-size-small')?.textContent).toContain('0.25 vCPU · 512 MiB per service');
+    expect(byTestId('deployment-size-medium')?.textContent).toContain('1 vCPU · 2 GiB per service');
+    expect(byTestId('deployment-size-large')?.textContent).toContain('2 vCPU · 4 GiB per service');
     expect(byTestId('deployment-size-medium')?.textContent).toContain('Database db.t3.medium');
-    expect(byTestId('deployment-size-large')?.textContent).toContain('Cache cache.t4g.medium');
+    // The resource lines follow the plan, which has a database and no cache.
+    expect(byTestId('deployment-size-large')?.textContent).not.toContain('Cache');
     for (const tier of ['small', 'medium', 'large']) {
       expect(byTestId(`deployment-size-${tier}-cost`)?.textContent).toMatch(/^~\$\d+–\d+\/month/);
     }

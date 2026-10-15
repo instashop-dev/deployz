@@ -109,13 +109,16 @@ export function DeploymentSize({
   const kind = estimateKind(estimate);
   const range = estimate ? formatMonthlyRange(estimate.monthlyMin, estimate.monthlyMax) : null;
   const region = recommendedPlan?.region ?? null;
+  const hasDatabase = plan ? plan.components.some((component) => component.kind === 'database') : application.databaseRequired;
+  const hasCache = plan ? plan.components.some((component) => component.kind === 'cache') : application.redisRequired;
 
   return (
     <Card id="deployment-size" className="scroll-mt-20" data-testid="deployment-size">
       <CardHeader>
         <CardTitle>Deployment size</CardTitle>
         <CardDescription>
-          Customers install the recommended size. Changes apply to new install links and new deployments only.
+          Customers see the recommended size first and can choose any size at or above the minimum. Changes apply
+          to new install links and new deployments only.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -141,11 +144,11 @@ export function DeploymentSize({
                   {tier === minimumSize ? <Badge variant="outline">Minimum</Badge> : null}
                   {belowMinimum ? <Badge variant="outline">Not offered</Badge> : null}
                 </span>
-                <span className="text-xs">{sizeTierCompute(tier)} per container</span>
-                {application.databaseRequired ? (
+                <span className="text-xs">{sizeTierCompute(tier)} per service</span>
+                {hasDatabase ? (
                   <span className="text-xs">Database {profile.database.instanceClass}</span>
                 ) : null}
-                {application.redisRequired ? <span className="text-xs">Cache {profile.cache.nodeType}</span> : null}
+                {hasCache ? <span className="text-xs">Cache {profile.cache.nodeType}</span> : null}
                 <span className="text-xs font-medium" data-testid={`deployment-size-${tier}-cost`}>
                   {plans[tier] === undefined
                     ? 'Loading estimate…'
