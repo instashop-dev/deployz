@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { authClient } from '@/lib/auth-client';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/lib/legal-links';
 
 // Only a relative path is a safe redirect target — an absolute URL in
 // callbackUrl would be an open redirect.
@@ -108,6 +109,27 @@ function SignUpForm() {
           <Button type="submit" className="w-full" loading={pending} loadingText="Creating account…">
             Create account
           </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            By creating an account, you agree to the{' '}
+            <a
+              href={TERMS_OF_SERVICE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Terms of Service
+            </a>{' '}
+            and the{' '}
+            <a
+              href={PRIVACY_POLICY_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Privacy Policy
+            </a>
+            .
+          </p>
           {error ? (
             <p
               role="alert"

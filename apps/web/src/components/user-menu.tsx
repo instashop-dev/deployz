@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, LogOut, Settings } from 'lucide-react';
+import { ChevronDown, FileText, LogOut, Settings, Shield } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -24,6 +24,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { authClient } from '@/lib/auth-client';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/lib/legal-links';
 
 const SETTINGS_HREF = '/dashboard/settings/profile';
 
@@ -57,7 +58,7 @@ function useSignOut() {
   return { pending, signOut };
 }
 
-// Shared menu body: identity label, settings link, sign out. The label prop
+// Shared menu body: identity label, settings link, legal links, sign out. The label prop
 // keeps the admin header's wording while the sidebar matches its own nav.
 function UserMenuItems({
   name,
@@ -86,6 +87,19 @@ function UserMenuItems({
           <Settings aria-hidden />
           {settingsLabel}
         </Link>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem asChild>
+        <a href={TERMS_OF_SERVICE_URL} target="_blank" rel="noreferrer">
+          <FileText aria-hidden />
+          Terms of Service
+        </a>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <a href={PRIVACY_POLICY_URL} target="_blank" rel="noreferrer">
+          <Shield aria-hidden />
+          Privacy Policy
+        </a>
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem disabled={pending} aria-busy={pending || undefined} onSelect={onSignOut}>
