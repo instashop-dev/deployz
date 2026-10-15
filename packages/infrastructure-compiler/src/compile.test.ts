@@ -3,8 +3,17 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { CAPABILITY_KEYS, SMALL_PROFILE, TASK_FAMILY_SUFFIX_PARAMETER, deployzTaskFamily, estimateFootprintCost } from '@deployz/contracts';
-import type { DeployzIR, IrBinding, IrResource, IrSchedule, IrWorkload } from '@deployz/contracts';
+import {
+  CAPABILITY_KEYS,
+  LARGE_PROFILE,
+  MEDIUM_PROFILE,
+  SMALL_PROFILE,
+  SMALL_V2_PROFILE,
+  TASK_FAMILY_SUFFIX_PARAMETER,
+  deployzTaskFamily,
+  estimateFootprintCost,
+} from '@deployz/contracts';
+import type { DeployzIR, InfrastructureSizeProfile, IrBinding, IrResource, IrSchedule, IrWorkload } from '@deployz/contracts';
 
 import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
 
@@ -1388,6 +1397,98 @@ describe('small-v1 frozen profile', () => {
     const db = instances[0]!.Properties;
     expect(db['DBInstanceClass']).toBe('db.t4g.micro');
     expect(db['StorageType']).toBe('gp2');
+  });
+});
+
+describe('size profiles', () => {
+  type Resources = Record<string, { Type: string; Properties: Record<string, unknown> }>;
+  const SIZING_KEYS = ['Cpu', 'Memory', 'DBInstanceClass', 'CacheNodeType'];
+
+  // Every workload kind (web, worker, migration, scheduled job) with Valkey and
+  // the chosen database engine.
+  function sizedIr(engine: 'postgres' | 'mysql'): DeployzIR {
+    const withCache = (ir: DeployzIR): DeployzIR => ({
+      ...ir,
+      resources: [...ir.resources, ...makeIr({ postgres: false, redis: true }).resources.filter((r) => r.componentId === 'cache')],
+    });
+    const migration: IrWorkload = {
+      ...makeIr({ postgres: true, redis: false }).workloads[0]!,
+      componentId: 'migration',
+      kind: 'migration',
+      label: 'Database migration',
+      command: 'npx prisma migrate deploy',
+      port: null,
+      public: false,
+      healthCheck: null,
+    };
+    if (engine === 'mysql') {
+      const ir = withCache(makePhase5Ir());
+      return { ...ir, workloads: [...ir.workloads, migration] };
+    }
+    const ir = withCache(makeIr({ postgres: true, redis: true, workers: [{ componentId: 'worker', command: 'node dist/worker.js' }] }));
+    return { ...ir, workloads: [...ir.workloads, migration] };
+  }
+
+  const compileSized = (engine: 'postgres' | 'mysql', sizeProfile: InfrastructureSizeProfile) =>
+    compileDeployzInfrastructure({ ir: sizedIr(engine), region: null, sizeProfile });
+  const resourcesOf = (template: Record<string, unknown>) => template['Resources'] as Resources;
+  const propertyOf = (template: Record<string, unknown>, type: string, key: string): unknown[] =>
+    Object.values(resourcesOf(template))
+      .filter((resource) => resource.Type === type)
+      .map((resource) => resource.Properties[key]);
+
+  const PINS = [
+    { profile: MEDIUM_PROFILE, key: 'medium-v1', cpu: '1024', memory: '2048', dbClass: 'db.t3.medium', cacheNode: 'cache.t4g.small' },
+    { profile: LARGE_PROFILE, key: 'large-v1', cpu: '2048', memory: '4096', dbClass: 'db.t3.large', cacheNode: 'cache.t4g.medium' },
+  ];
+
+  describe.each(PINS)('$key', ({ profile, cpu, memory, dbClass, cacheNode }) => {
+    it.each(['postgres', 'mysql'] as const)('pins task definition, %s instance and cache sizing', (engine) => {
+      const { template } = compileSized(engine, profile);
+      const taskDefinitions = Object.entries(resourcesOf(template)).filter(([, resource]) => resource.Type === 'AWS::ECS::TaskDefinition');
+      const ids = taskDefinitions.map(([id]) => id).sort();
+      expect(ids).toEqual(
+        (engine === 'mysql'
+          ? ['CleanupTaskDefinition', 'MigrationTaskDefinition', 'WebTaskDefinition', 'WorkerTaskDefinition']
+          : ['MigrationTaskDefinition', 'WebTaskDefinition', 'WorkerTaskDefinition']
+        ).sort(),
+      );
+      for (const [, taskDefinition] of taskDefinitions) {
+        expect(taskDefinition.Properties['Cpu']).toBe(cpu);
+        expect(taskDefinition.Properties['Memory']).toBe(memory);
+      }
+      expect(propertyOf(template, 'AWS::RDS::DBInstance', 'DBInstanceClass')).toEqual([dbClass]);
+      expect(propertyOf(template, 'AWS::RDS::DBInstance', 'Engine')).toEqual([engine]);
+      expect(propertyOf(template, 'AWS::ElastiCache::ReplicationGroup', 'CacheNodeType')).toEqual([cacheNode]);
+    });
+
+    it('the footprint states the same sizing as the template', () => {
+      const { footprint } = compileSized('postgres', profile);
+      expect(footprint.workloads.map((workload) => workload.compute)).toSatisfy((computes: { cpuUnits: number; memoryMiB: number; sizeLabel: string }[]) =>
+        computes.length === 3 && computes.every((c) => c.cpuUnits === Number(cpu) && c.memoryMiB === Number(memory) && c.sizeLabel === profile.label),
+      );
+      expect(footprint.resources.find((r) => r.id === 'database')!.configuration).toMatchObject({ instanceType: dbClass });
+      expect(footprint.resources.find((r) => r.id === 'cache')!.configuration).toMatchObject({ nodeType: cacheNode });
+    });
+
+    it.each(['postgres', 'mysql'] as const)('changes only sizing properties against small-v2 (%s): same topology and logical ids', (engine) => {
+      const small = compileSized(engine, SMALL_V2_PROFILE);
+      const sized = compileSized(engine, profile);
+      const smallResources = resourcesOf(small.template);
+      const sizedResources = resourcesOf(sized.template);
+      expect(Object.keys(sizedResources)).toEqual(Object.keys(smallResources));
+      expect(sized.template['Parameters']).toEqual(small.template['Parameters']);
+      expect(sized.template['Outputs']).toEqual(small.template['Outputs']);
+      expect(sized.resolvedGraph.resources.map((r) => [r.logicalId, r.cfnType])).toEqual(
+        small.resolvedGraph.resources.map((r) => [r.logicalId, r.cfnType]),
+      );
+      const strip = (properties: Record<string, unknown>) => Object.fromEntries(Object.entries(properties).filter(([key]) => !SIZING_KEYS.includes(key)));
+      for (const [id, resource] of Object.entries(sizedResources)) {
+        expect(resource.Type).toBe(smallResources[id]!.Type);
+        expect(strip(resource.Properties), id).toEqual(strip(smallResources[id]!.Properties));
+      }
+      expect(sized.artifact.templateHash).not.toBe(small.artifact.templateHash);
+    });
   });
 });
 

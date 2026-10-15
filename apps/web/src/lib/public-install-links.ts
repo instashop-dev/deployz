@@ -4,6 +4,8 @@
 // carries no secret, so — unlike deploy links — it stays copyable for as
 // long as the link is live.
 
+import type { InfrastructureSizeTier } from '@deployz/contracts';
+
 import { apiRequest } from '@/lib/api-client';
 
 export type PublicInstallLinkStatus = 'active' | 'disabled' | 'revoked';
@@ -14,6 +16,9 @@ export interface PublicInstallLinkView {
   status: PublicInstallLinkStatus;
   createdAt: string;
   revokedAt: string | null;
+  /** Null on links made before sizes existed: they follow the application settings. */
+  recommendedSizeProfile: InfrastructureSizeTier | null;
+  minimumSizeProfile: InfrastructureSizeTier | null;
 }
 
 /** The create/regenerate response — the only routes that carry the snippet. */
@@ -27,10 +32,11 @@ export interface PublicInstallLinkCreated {
 
 export function createPublicInstallLink(
   applicationId: string,
+  recommendedSizeProfile?: InfrastructureSizeTier,
 ): Promise<PublicInstallLinkCreated> {
   return apiRequest<PublicInstallLinkCreated>(
     `/api/applications/${encodeURIComponent(applicationId)}/public-install-links`,
-    { method: 'POST' },
+    { method: 'POST', ...(recommendedSizeProfile ? { body: { recommendedSizeProfile } } : {}) },
   );
 }
 

@@ -30,6 +30,8 @@ function application(overrides: Partial<Application> = {}): Application {
     databaseRequired: true,
     storageRequired: false,
     redisRequired: false,
+    defaultSizeProfile: 'small',
+    minimumSizeProfile: 'small',
     analysisStatus: 'COMPLETE',
     compatibilityStatus: 'READY',
     compatibilityReason: null,

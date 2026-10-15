@@ -7,6 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeploymentPlan, PublicInstallResolve } from '../src/lib/public-install-types';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// Radix radio items measure their size with ResizeObserver, which jsdom lacks.
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 (globalThis as { Element?: { prototype: { scrollIntoView?: unknown } } }).Element!.prototype.scrollIntoView = vi.fn();
 
 const routerMocks = vi.hoisted(() => ({
@@ -43,6 +49,24 @@ function planFixture(): DeploymentPlan {
   };
 }
 
+function sizeOption(
+  id: 'small' | 'medium' | 'large',
+  label: string,
+  recommended: boolean,
+  cpuUnits: number,
+  memoryMiB: number,
+): PublicInstallResolve['sizing']['options'][number] {
+  return {
+    id,
+    label,
+    description: `${label} description`,
+    recommended,
+    workload: { cpuUnits, memoryMiB, desiredCount: 1 },
+    database: { instanceClass: `db.${id}`, storageGb: 20 },
+    cache: { nodeType: `cache.${id}`, nodeCount: 1 },
+  };
+}
+
 function resolveFixture(overrides: Partial<PublicInstallResolve> = {}): PublicInstallResolve {
   return {
     application: { name: 'Acme App' },
@@ -55,6 +79,14 @@ function resolveFixture(overrides: Partial<PublicInstallResolve> = {}): PublicIn
       { value: 'us-west-2', label: 'US West (Oregon)' },
     ],
     requiredInputs: [],
+    sizing: {
+      recommended: 'medium',
+      minimum: 'small',
+      options: [
+        sizeOption('small', 'Small', false, 1024, 2048),
+        sizeOption('medium', 'Medium', true, 2048, 4096),
+      ],
+    },
     plan: planFixture(),
     ...overrides,
   };

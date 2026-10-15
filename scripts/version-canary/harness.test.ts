@@ -5,16 +5,22 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { currentInfrastructureSizeProfile, profileKey, type InfrastructureSizeTier } from '@deployz/contracts';
+
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { ControlPlane, isTerminalJobState, waitFor } from './control-plane.js';
 import { isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
 import { captureFailureDiagnostics, withDiagnosticsOnFailure, type DiagnosticsContext } from './diagnostics.js';
 import { buildEnvProbeScript, compareEnvProbe, expectedProbe, parseEnvProbeLines } from './env-probe.js';
 import { Evidence, renderSummary, type RunRecord } from './evidence.js';
+import { compareSizing, plannedSizingFromFootprint, type ObservedSizing } from './sizing.js';
 import {
   assertSameInfrastructure,
   assertTargetsServing,
+  createJourneyInvitation,
+  customerConfirmsChosenSize,
   expectedBindings,
+  otherTier,
   parseQuickCreateUrl,
   probeBaseUrl,
   type Canary,
@@ -917,5 +923,201 @@ describe('env probe', () => {
     expect(compareEnvProbe(probed, { A: { present: true }, B: { present: true }, C: expectedProbe(null) })).toEqual([
       'A: expected present, got absent',
     ]);
+  });
+});
+
+describe('size and combined profile config', () => {
+  it('sends no size by default and reads --size over the env var', () => {
+    expect(loadConfig({}).size).toBeNull();
+    expect(loadConfig({ DEPLOYZ_CANARY_SIZE: '' }).size).toBeNull();
+    expect(loadConfig({ DEPLOYZ_CANARY_SIZE: 'medium' }).size).toBe('medium');
+    expect(loadConfig({ DEPLOYZ_CANARY_SIZE: 'medium' }, { sizeName: 'large' }).size).toBe('large');
+  });
+
+  it('fails fast on an unknown size', () => {
+    expect(() => loadConfig({ DEPLOYZ_CANARY_SIZE: 'huge' })).toThrow('Unknown canary size "huge"');
+    expect(() => loadConfig({}, { sizeName: 'Small' })).toThrow('Unknown canary size');
+  });
+
+  it('adds the combined profile with PostgreSQL and Redis', () => {
+    const profile = loadConfig({}, { profileName: 'combined' }).profile;
+    expect(profile).toMatchObject({ name: 'combined', postgres: true, redis: true });
+    expect(expectedBindings(profile)).toEqual({ database: true, redis: true });
+    expect(() => loadConfig({}, { profileName: 'both' })).toThrow('combined');
+  });
+});
+
+describe('compareSizing', () => {
+  const planFor = (tier: InfrastructureSizeTier, withDatabase: boolean, withCache: boolean) => {
+    const profile = currentInfrastructureSizeProfile(tier);
+    return plannedSizingFromFootprint({
+      workloads: [{ id: 'web', compute: { cpuUnits: profile.workload.cpuUnits, memoryMiB: profile.workload.memoryMiB, sizeLabel: profile.label } }],
+      resources: [
+        ...(withDatabase
+          ? [{ id: 'database', category: 'database', configuration: { instanceType: profile.database.instanceClass, storageGb: profile.database.storageGb } }]
+          : []),
+        ...(withCache ? [{ id: 'cache', category: 'cache', configuration: { nodeType: profile.cache.nodeType, nodes: profile.cache.nodeCount } }] : []),
+      ],
+    });
+  };
+  const awsFor = (tier: InfrastructureSizeTier, withDatabase: boolean, withCache: boolean): ObservedSizing => {
+    const profile = currentInfrastructureSizeProfile(tier);
+    return {
+      services: [{ name: 'web', cpuUnits: profile.workload.cpuUnits, memoryMiB: profile.workload.memoryMiB, desiredCount: profile.workload.desiredCount }],
+      database: withDatabase
+        ? { instanceClass: profile.database.instanceClass, storageGb: profile.database.storageGb, storageType: profile.database.storageType }
+        : null,
+      cache: withCache ? { nodeType: profile.cache.nodeType, nodeCount: profile.cache.nodeCount } : null,
+    };
+  };
+  const frozen = (tier: InfrastructureSizeTier) => {
+    const profile = currentInfrastructureSizeProfile(tier);
+    return { profileKey: profileKey(profile), label: profile.label };
+  };
+
+  it.each(['small', 'medium', 'large'] as const)('accepts a %s deployment where frozen size, plan and AWS agree', (tier) => {
+    expect(
+      compareSizing({
+        expectation: { tier, expectDatabase: true, expectCache: true },
+        observed: awsFor(tier, true, true),
+        planned: planFor(tier, true, true),
+        frozenSize: frozen(tier),
+      }),
+    ).toEqual([]);
+  });
+
+  it('accepts a stateless deployment with no database and no cache', () => {
+    expect(
+      compareSizing({
+        expectation: { tier: 'small', expectDatabase: false, expectCache: false },
+        observed: awsFor('small', false, false),
+        planned: planFor('small', false, false),
+        frozenSize: frozen('small'),
+      }),
+    ).toEqual([]);
+  });
+
+  it('names every resource that runs a different size than expected', () => {
+    const problems = compareSizing({
+      expectation: { tier: 'large', expectDatabase: true, expectCache: true },
+      observed: awsFor('small', true, true),
+      planned: planFor('large', true, true),
+      frozenSize: frozen('large'),
+    });
+    expect(problems).toContain('ECS service web CPU units: AWS has 256, expected 2048');
+    expect(problems).toContain('RDS instance class: AWS has db.t3.micro, expected db.t3.large');
+    expect(problems).toContain('ElastiCache node type: AWS has cache.t4g.micro, expected cache.t4g.medium');
+    expect(problems.some((p) => p.includes('plan and AWS disagree'))).toBe(true);
+    expect(problems.some((p) => p.includes('plan footprint has'))).toBe(false);
+  });
+
+  it('reports a plan that disagrees with AWS even when AWS is the expected size', () => {
+    const problems = compareSizing({
+      expectation: { tier: 'medium', expectDatabase: true, expectCache: false },
+      observed: awsFor('medium', true, false),
+      planned: planFor('small', true, false),
+      frozenSize: frozen('medium'),
+    });
+    expect(problems).toContain('RDS instance class: plan footprint has db.t3.micro, expected db.t3.medium');
+    expect(problems).toContain('RDS instance class: plan and AWS disagree (plan db.t3.micro, AWS db.t3.medium)');
+    expect(problems.some((p) => p.startsWith('RDS instance class: AWS has'))).toBe(false);
+  });
+
+  it('refuses a wrong frozen size, a missing size and a missing resource', () => {
+    const base = {
+      expectation: { tier: 'medium' as const, expectDatabase: true, expectCache: true },
+      observed: { ...awsFor('medium', true, true), cache: null },
+      planned: planFor('medium', true, true),
+    };
+    expect(compareSizing({ ...base, frozenSize: frozen('small') })).toContain('frozen size is small-v2, expected medium-v1');
+    expect(compareSizing({ ...base, frozenSize: null })).toContain('the deployment detail carries no size, expected medium-v1');
+    expect(compareSizing({ ...base, frozenSize: frozen('medium') })).toEqual(['cache: no ElastiCache replication group or cluster found in the application stack']);
+  });
+});
+
+describe('journey requests', () => {
+  const calls: { method: string; path: string; body: unknown; options: { headers?: Record<string, string>; anonymous?: boolean } | undefined }[] = [];
+  const fingerprints: Record<string, string> = { small: 'a'.repeat(64), medium: 'b'.repeat(64), large: 'c'.repeat(64) };
+
+  function journeyApi(confirmStale: { status: number; code: string }): ControlPlane {
+    const api = new ControlPlane('http://api', 'http://web');
+    vi.spyOn(api, 'request').mockImplementation((async (method: string, path: string, body?: unknown, options?: { headers?: Record<string, string>; anonymous?: boolean }) => {
+      calls.push({ method, path, body, options });
+      if (method === 'POST' && path === '/api/customers') return { status: 201, body: { id: 'cus-1' }, headers: new Headers() };
+      if (method === 'POST' && path === '/api/customers/cus-1/invitations') {
+        return { status: 201, body: { id: 'inv-1', token: 'tok-1', recommendedRegion: 'us-east-1', recommendedSizeProfile: 'large' }, headers: new Headers() };
+      }
+      if (method === 'GET' && path === '/api/public-install/inv-1') {
+        const options = ['small', 'medium', 'large'].map((id) => ({
+          id,
+          profileKey: profileKey(currentInfrastructureSizeProfile(id as InfrastructureSizeTier)),
+          recommended: id === 'large',
+        }));
+        return { status: 200, body: { sizing: { recommended: 'large', minimum: 'small', options } }, headers: new Headers() };
+      }
+      const plan = /^\/api\/public-install\/inv-1\/plan\?region=([^&]+)&profile=(\w+)$/.exec(path);
+      if (plan) {
+        const profile = plan[2]!;
+        return { status: 200, body: { sizeProfile: profile, planFingerprint: fingerprints[profile], costEstimate: { monthly: profile }, components: [] }, headers: new Headers() };
+      }
+      if (method === 'POST' && path === '/api/public-install/inv-1/confirm') {
+        const sent = body as { planFingerprint: string; sizeProfile: string };
+        const stale = sent.planFingerprint !== fingerprints[sent.sizeProfile];
+        if (stale) return { status: confirmStale.status, body: { error: { code: confirmStale.code } }, headers: new Headers() };
+        return { status: 201, body: { installLinkId: 'link-1' }, headers: new Headers() };
+      }
+      throw new Error(`unexpected request ${method} ${path}`);
+    }) as never);
+    return api;
+  }
+
+  function canaryFor(api: ControlPlane): Canary {
+    const run = { releases: {}, applicationId: 'app-1' } as unknown as RunRecord;
+    const evidence = {
+      run,
+      save: () => undefined,
+      step: async (_name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => fn({}),
+    } as unknown as Evidence;
+    return { config: loadConfig({}, { sizeName: 'small' }), evidence, api };
+  }
+
+  afterEach(() => {
+    calls.length = 0;
+    vi.restoreAllMocks();
+  });
+
+  it('sends the link override, then the customer choice with its own fingerprint, with no session cookie', async () => {
+    const canary = canaryFor(journeyApi({ status: 409, code: 'PLAN_CHANGED' }));
+    const invitation = await createJourneyInvitation(canary);
+    expect(invitation).toEqual({ linkId: 'inv-1', token: 'tok-1' });
+    const invite = calls.find((c) => c.path.endsWith('/invitations'))!;
+    expect(invite.body).toEqual({ applicationId: 'app-1', recommendedRegion: 'us-east-1', recommendedSizeProfile: 'large' });
+
+    await expect(customerConfirmsChosenSize(canary, invitation, 'small')).resolves.toBe('link-1');
+
+    const publicCalls = calls.filter((c) => c.path.startsWith('/api/public-install/'));
+    expect(publicCalls.length).toBeGreaterThanOrEqual(5);
+    for (const call of publicCalls) {
+      expect(call.options?.anonymous).toBe(true);
+      expect(call.options?.headers).toEqual({ 'x-deployz-token': 'tok-1' });
+    }
+    const confirms = publicCalls.filter((c) => c.method === 'POST').map((c) => c.body as Record<string, unknown>);
+    expect(confirms).toHaveLength(2);
+    // The stale attempt: the chosen size with the fingerprint of another size.
+    expect(confirms[0]).toMatchObject({ sizeProfile: 'small', planFingerprint: fingerprints['medium'], region: 'us-east-1', config: [] });
+    expect(confirms[1]).toMatchObject({ sizeProfile: 'small', planFingerprint: fingerprints['small'], region: 'us-east-1', config: [] });
+    expect(confirms[0]).not.toHaveProperty('customer');
+    expect(confirms[0]!['idempotencyKey']).not.toBe(confirms[1]!['idempotencyKey']);
+  });
+
+  it('fails when the stale fingerprint is not refused with PLAN_CHANGED', async () => {
+    const canary = canaryFor(journeyApi({ status: 201, code: 'NONE' }));
+    await expect(customerConfirmsChosenSize(canary, { linkId: 'inv-1', token: 'tok-1' }, 'small')).rejects.toThrow('expected 409 PLAN_CHANGED');
+  });
+
+  it('picks a comparison size that differs from the choice', () => {
+    expect(otherTier('small')).toBe('medium');
+    expect(otherTier('medium')).toBe('small');
+    expect(otherTier('large')).toBe('small');
   });
 });

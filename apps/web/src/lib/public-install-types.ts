@@ -1,6 +1,6 @@
-import type { DeploymentPlan } from '@deployz/contracts';
+import type { DeploymentPlan, InfrastructureSizeTier } from '@deployz/contracts';
 
-export type { DeploymentPlan };
+export type { DeploymentPlan, InfrastructureSizeTier };
 
 /** One input the confirm body may (optional) or must (required) supply. */
 export interface PublicInstallInput {
@@ -21,6 +21,24 @@ export interface PublicInstallRegion {
   readonly label: string;
 }
 
+/** One size the vendor allows, with the resources it provisions. */
+export interface PublicInstallSizeOption {
+  readonly id: InfrastructureSizeTier;
+  readonly label: string;
+  readonly description: string;
+  readonly recommended: boolean;
+  readonly workload: { readonly cpuUnits: number; readonly memoryMiB: number; readonly desiredCount: number };
+  readonly database: { readonly instanceClass: string; readonly storageGb: number };
+  readonly cache: { readonly nodeType: string; readonly nodeCount: number };
+}
+
+/** The INSTALL plan for one Region and size; the fingerprint is what the customer approves. */
+export type PublicInstallPlan = DeploymentPlan & {
+  sizeProfile: InfrastructureSizeTier;
+  /** Null when the Region cannot deploy: there is nothing to approve. */
+  planFingerprint: string | null;
+};
+
 /** GET /api/public-install/:linkId response body. */
 export interface PublicInstallResolve {
   application: { name: string };
@@ -32,6 +50,11 @@ export interface PublicInstallResolve {
   regionSelection: 'customer' | 'legacy_publisher_fixed';
   regions: PublicInstallRegion[];
   requiredInputs: PublicInstallInput[];
+  sizing: {
+    recommended: InfrastructureSizeTier;
+    minimum: InfrastructureSizeTier;
+    options: PublicInstallSizeOption[];
+  };
   plan: DeploymentPlan;
 }
 
@@ -55,6 +78,13 @@ export function publicInstallErrorMessage(code: string): string {
       return 'This application cannot be installed in its current state. Contact the publisher.';
     case 'PUBLIC_INSTALL_CONFIG_INVALID':
       return 'Some configuration values are missing or not valid. Check the fields and try again.';
+    case 'PLAN_CHANGED':
+      return 'The installation plan changed after you reviewed it. Review the updated plan and confirm again.';
+    case 'IDEMPOTENCY_KEY_REUSED':
+      return 'This confirmation was already used for a different Region or size. Reload the page and confirm again.';
+    case 'SIZE_PROFILE_NOT_ALLOWED':
+    case 'UNKNOWN_PROFILE':
+      return 'That size is not available for this application. Select a different size.';
     case 'SUBSCRIPTION_REQUIRED':
       return 'The publisher must fix their Deployz subscription before this application can be installed. Contact the publisher.';
     case 'VALIDATION_ERROR':

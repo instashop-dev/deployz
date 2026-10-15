@@ -1,4 +1,4 @@
-import type { DeploymentPlan, VendorDeploymentStatus } from '@deployz/contracts';
+import type { DeploymentPlan, InfrastructureSizeTier, VendorDeploymentStatus } from '@deployz/contracts';
 
 import type { DeploymentState } from './deployment-vocabulary';
 import type { CustomDomainStatus } from './domains';
@@ -137,6 +137,8 @@ export interface FleetDeploymentDetail extends FleetDeployment {
    *  machine has not started — a stale cached payload can fall back to the
    *  client-side projection. */
   defaultUrl: string | null;
+  /** The size frozen at creation. Absent on payloads cached before the field existed. */
+  size?: { id: string; label: string; profileKey: string } | null;
 }
 
 // ── Infrastructure inventory (Lane 3 composed component view) ───────────────
@@ -590,6 +592,7 @@ export interface CreateDeploymentInput {
   customerId: string;
   region: string;
   deploymentType?: DeploymentType;
+  sizeProfile?: InfrastructureSizeTier;
 }
 
 /** The raw `deployments` insert result — no joined display fields (unlike FleetDeployment). */
@@ -619,6 +622,7 @@ export function createDeploymentRecord(input: CreateDeploymentInput): Promise<De
       customerId: input.customerId,
       region: input.region,
       deploymentType: input.deploymentType ?? 'PRODUCTION',
+      ...(input.sizeProfile ? { sizeProfile: input.sizeProfile } : {}),
     },
   });
 }

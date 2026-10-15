@@ -11,6 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
@@ -22,12 +23,15 @@ import { installPlanRegionLabel } from '@/lib/install-plan';
 import { fetchPublicInstallPlan } from '@/lib/public-install-data';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
 import { SECRET_HANDLING_STATEMENT } from '@/lib/security-details';
+import { formatCompute } from '@/lib/size-tiers';
 import {
   publicInstallErrorMessage,
+  type InfrastructureSizeTier,
   type PublicInstallInput,
+  type PublicInstallPlan,
   type PublicInstallResolve,
+  type PublicInstallSizeOption,
 } from '@/lib/public-install-types';
-import type { DeploymentPlan } from '@deployz/contracts';
 
 interface PublicInstallFlowProps {
   linkId: string;
@@ -51,40 +55,55 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
       ? resolve.recommendedRegion
       : '',
   );
+  const [size, setSize] = useState<InfrastructureSizeTier>(resolve.sizing.recommended);
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [idempotencyKey] = useState(generateIdempotencyKey);
+  // One key per selection: a retry of the same Region and size replays, a
+  // new selection is a new confirmation.
+  const [idempotencyKey, setIdempotencyKey] = useState(generateIdempotencyKey);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The plan is re-derived per selected Region (Phase 3): pricing stays on
-  // the server; the client only renders it. `fetchedFor` is the region the
-  // in-flight (or last applied) fetch belongs to, so a slow older response
-  // can never override a newer selection.
-  const [plan, setPlan] = useState<DeploymentPlan>(resolve.plan);
+  // The plan is re-derived per selected Region and size: pricing stays on
+  // the server; the client only renders it. `requestedPlanRef` is the
+  // Region and size the in-flight (or last applied) fetch belongs to, so a
+  // slow older response can never override a newer selection. The plan's
+  // fingerprint is what the customer approves on confirm.
+  const [plan, setPlan] = useState<PublicInstallPlan>({
+    ...resolve.plan,
+    sizeProfile: resolve.sizing.recommended,
+    planFingerprint: null,
+  });
   const [planLoading, setPlanLoading] = useState(false);
+  const [planRefresh, setPlanRefresh] = useState(0);
   const [estimateUnavailable, setEstimateUnavailable] = useState(resolve.plan.costEstimate == null);
-  const requestedRegionRef = useRef<string | null>(region);
+  const requestedPlanRef = useRef<string | null>(region === '' ? null : `${region}|${size}`);
 
   useEffect(() => {
     if (region === '') return;
-    requestedRegionRef.current = region;
-    const requested = region;
+    const requested = `${region}|${size}`;
+    requestedPlanRef.current = requested;
     setPlanLoading(true);
-    void fetchPublicInstallPlan(linkId, region, token).then((freshPlan) => {
-      if (requestedRegionRef.current !== requested) return; // stale response
+    void fetchPublicInstallPlan(linkId, region, size, token).then((freshPlan) => {
+      if (requestedPlanRef.current !== requested) return; // stale response
       setPlanLoading(false);
       if (freshPlan === null) {
-        // Keep the previous infrastructure preview; only the estimate degrades.
+        // Keep the previous infrastructure preview; the estimate degrades and
+        // nothing can be approved without a fingerprint.
+        setPlan((previous) => ({ ...previous, planFingerprint: null }));
         setEstimateUnavailable(true);
         return;
       }
       setPlan(freshPlan);
       setEstimateUnavailable(freshPlan.costEstimate == null);
     });
-  }, [linkId, region, token]);
+  }, [linkId, region, size, token, planRefresh]);
+
+  const planFingerprint =
+    !planLoading && plan.region === region && plan.sizeProfile === size ? plan.planFingerprint : null;
+  const selectedSize = resolve.sizing.options.find((option) => option.id === size);
 
   const settingErrors = useMemo(
     () =>
@@ -98,12 +117,16 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
   const settingsTotal = resolve.requiredInputs.length;
   const detailsMissing = !customerKnown && (customerName.trim() === '' || customerEmail.trim() === '');
 
-  const canSubmit = region !== '' && settingsValid && !detailsMissing;
+  const canSubmit = region !== '' && planFingerprint !== null && settingsValid && !detailsMissing;
   // One line under the action names what still blocks it, in form order.
   const blockedReason =
     region === ''
       ? 'Select an AWS Region to continue.'
-      : !settingsValid
+      : planFingerprint === null
+        ? planLoading
+          ? 'Updating the plan for your selection…'
+          : 'This Region cannot be installed right now. Select a different Region.'
+        : !settingsValid
         ? 'Complete the required application settings to continue.'
         : detailsMissing
           ? 'Enter your name and email to continue.'
@@ -111,7 +134,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit || pending) {
+    if (!canSubmit || pending || planFingerprint === null) {
       setTouched(Object.fromEntries(resolve.requiredInputs.map((input) => [input.key, true])));
       return;
     }
@@ -133,6 +156,8 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         {
           idempotencyKey,
           region,
+          sizeProfile: size,
+          planFingerprint,
           // A targeted invitation forbids re-naming its customer; a reusable
           // link requires it.
           ...(customerKnown
@@ -148,6 +173,8 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         return;
       }
 
+      // The reviewed plan is out of date: show the new one and ask again.
+      if (result.code === 'PLAN_CHANGED') setPlanRefresh((count) => count + 1);
       setError(publicInstallErrorMessage(result.code));
     } catch {
       setError(publicInstallErrorMessage('UNKNOWN'));
@@ -176,7 +203,13 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
             {resolve.publisher.name} recommends {installPlanRegionLabel(resolve.recommendedRegion) ?? resolve.recommendedRegion}.
           </p>
         ) : null}
-        <Select value={region} onValueChange={setRegion}>
+        <Select
+          value={region}
+          onValueChange={(value) => {
+            setRegion(value);
+            setIdempotencyKey(generateIdempotencyKey());
+          }}
+        >
           <SelectTrigger aria-labelledby="public-region" className="w-full sm:w-[360px]">
             <SelectValue placeholder="Select a region" />
           </SelectTrigger>
@@ -191,9 +224,30 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
             ))}
           </SelectContent>
         </Select>
+      </section>
+
+      <section aria-labelledby="public-size" className="flex flex-col gap-3">
+        <h2 id="public-size" className="text-base font-semibold">
+          Size
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          A larger size runs the application on more capacity and costs more.
+        </p>
+        <RadioGroup
+          aria-labelledby="public-size"
+          value={size}
+          onValueChange={(value) => {
+            setSize(value as InfrastructureSizeTier);
+            setIdempotencyKey(generateIdempotencyKey());
+          }}
+        >
+          {resolve.sizing.options.map((option) => (
+            <SizeChoice key={option.id} option={option} plan={plan} />
+          ))}
+        </RadioGroup>
         {planLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-            <Spinner aria-hidden /> Updating for this Region…
+            <Spinner aria-hidden /> Updating for this selection…
           </p>
         ) : null}
       </section>
@@ -318,6 +372,12 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
       )}
 
       <section aria-label="Deploy actions" className="flex flex-col gap-3">
+        {selectedSize ? (
+          <p className="text-sm" data-testid="selected-size">
+            You are approving the <span className="font-medium">{selectedSize.label}</span> size
+            {region !== '' ? ` in ${installPlanRegionLabel(region) ?? region}` : ''}.
+          </p>
+        ) : null}
         <p className="text-sm text-muted-foreground">
           Next, you connect your AWS account. Nothing is created until you approve it there.
         </p>
@@ -340,6 +400,31 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         ) : null}
       </section>
     </form>
+  );
+}
+
+function SizeChoice({ option, plan }: { option: PublicInstallSizeOption; plan: PublicInstallPlan }) {
+  const hasDatabase = plan.components.some((component) => component.kind === 'database');
+  const hasCache = plan.components.some((component) => component.kind === 'cache');
+  const resources = [
+    `${formatCompute(option.workload)} per service`,
+    hasDatabase ? `Database ${option.database.instanceClass}` : null,
+    hasCache ? `Cache ${option.cache.nodeType}` : null,
+  ].filter((line): line is string => line !== null);
+  return (
+    <Label
+      htmlFor={`size-${option.id}`}
+      className="items-start gap-3 rounded-lg border p-4 font-normal has-[[data-state=checked]]:border-primary"
+    >
+      <RadioGroupItem id={`size-${option.id}`} value={option.id} className="mt-0.5" />
+      <span className="flex flex-col gap-1.5">
+        <span className="flex flex-wrap items-center gap-2 font-medium">
+          {option.label}
+          {option.recommended ? <Badge variant="secondary">Vendor recommended</Badge> : null}
+        </span>
+        <span className="text-xs text-muted-foreground">{resources.join(' · ')}</span>
+      </span>
+    </Label>
   );
 }
 

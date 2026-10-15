@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
-import { regionEnum, regionSelectionEnum } from '../enums.js';
+import { infrastructureSizeTierEnum, regionEnum, regionSelectionEnum } from '../enums.js';
 import { organization } from './auth.js';
 import { createdAt, id, updatedAt } from './common.js';
 import { applications, customers } from './core.js';
@@ -43,6 +43,11 @@ export const publicInstallLinks = pgTable(
     recommendedRegion: regionEnum('recommended_region'),
     // Who makes the final Region choice. Always 'customer' for new rows.
     regionSelection: regionSelectionEnum('region_selection').notNull().default('customer'),
+    // The vendor's size recommendation and minimum, frozen when the link is
+    // created. Null on links created before sizing existed: those follow the
+    // application's current settings.
+    recommendedSizeProfile: infrastructureSizeTierEnum('recommended_size_profile'),
+    minimumSizeProfile: infrastructureSizeTierEnum('minimum_size_profile'),
     // sha256 of the private token (targeted invitations only; null on a
     // reusable public link, which has no token).
     tokenHash: text('token_hash'),

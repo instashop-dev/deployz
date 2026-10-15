@@ -84,8 +84,8 @@ async function selectApplication(label: string): Promise<void> {
 
 beforeEach(() => {
   mocks.fetchApplications.mockReset().mockResolvedValue([
-    { id: 'app-1', name: 'Acme App' },
-    { id: 'app-2', name: 'Second App' },
+    { id: 'app-1', name: 'Acme App', defaultSizeProfile: 'small', minimumSizeProfile: 'small' },
+    { id: 'app-2', name: 'Second App', defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' },
   ]);
   mocks.fetchRegions.mockReset().mockResolvedValue([{ value: 'us-east-1', label: 'US East (N. Virginia)' }]);
   mocks.fetch.mockReset().mockResolvedValue({
@@ -139,13 +139,35 @@ describe('InvitationDialog', () => {
     const [url, init] = mocks.fetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://api.test/api/customers/cus-1/invitations');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body as string)).toEqual({ applicationId: 'app-1' });
+    expect(JSON.parse(init.body as string)).toEqual({ applicationId: 'app-1', recommendedSizeProfile: 'small' });
 
     expect(document.body.textContent).toContain('Invitation created');
     // An input's value is not part of textContent — read the field itself.
     const linkInput = document.getElementById('invitation-link') as HTMLInputElement;
     expect(linkInput.value).toContain(`#${TOKEN}`);
     expect(document.body.textContent).toContain('The token is shown only once');
+  });
+
+  it('preselects the application default size, limits the choices to the minimum, and sends the chosen size', async () => {
+    await renderDialog();
+    await selectApplication('Second App');
+
+    const sizeTrigger = document.querySelectorAll('[data-slot="select-trigger"]')[1] as HTMLElement;
+    expect(sizeTrigger.textContent).toContain('Medium');
+    await press(sizeTrigger);
+    const options = Array.from(document.querySelectorAll('[role="option"]'));
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Medium (1 vCPU · 2 GiB)',
+      'Large (2 vCPU · 4 GiB)',
+    ]);
+    await press(options[1] as Element);
+
+    await act(async () => {
+      click(submitButton());
+    });
+
+    const [, init] = mocks.fetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ applicationId: 'app-2', recommendedSizeProfile: 'large' });
   });
 
   it('shows the server error message when creation fails', async () => {

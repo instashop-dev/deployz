@@ -7,8 +7,6 @@
 // prices itself: sizes, resources and prices are the API's.
 
 import {
-  defaultInfrastructureSizeProfile,
-  INFRASTRUCTURE_SIZE_PROFILES,
   type DeploymentPlan,
   type DeploymentPlanAwsResource,
   type FootprintCostEstimate,
@@ -197,42 +195,6 @@ export function estimateKind(estimate: FootprintCostEstimate | null | undefined)
   const usage =
     estimate.usageDependent.length > 0 || estimate.items.some((item) => item.pricingStatus === 'usage_based');
   return usage ? 'baseline-plus-usage' : 'complete';
-}
-
-// ── Deployment sizes ────────────────────────────────────────────────────────
-
-const SIZE_CHOICES = [
-  { id: 'small', label: 'Small' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'large', label: 'Large' },
-] as const;
-
-export interface SizeOption {
-  id: string;
-  label: string;
-  /** Registry key (`small-v2`) when a published profile backs this size. */
-  profileKey: string | null;
-  available: boolean;
-  selected: boolean;
-}
-
-/**
- * The Small/Medium/Large choices, backed only by published profiles. The
- * selected size is the one the plan was sized with, else the registry
- * default — a size without a published profile is never selectable.
- */
-export function deriveSizeOptions(plan: DeploymentPlan | null): SizeOption[] {
-  const planSize = plan?.footprint?.workloads[0]?.compute.sizeLabel ?? defaultInfrastructureSizeProfile().label ?? null;
-  return SIZE_CHOICES.map((choice) => {
-    const profile = INFRASTRUCTURE_SIZE_PROFILES.find((entry) => entry.id === choice.id && entry.version === defaultInfrastructureSizeProfile().version);
-    return {
-      id: choice.id,
-      label: choice.label,
-      profileKey: profile ? `${profile.id}-v${profile.version}` : null,
-      available: profile !== undefined,
-      selected: planSize === choice.label,
-    };
-  });
 }
 
 // ── The inventory ───────────────────────────────────────────────────────────

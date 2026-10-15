@@ -57,6 +57,11 @@ export const deploymentSourceEnum = pgEnum('deployment_source', ['manual', 'depl
 //                           (legacy deploy links). Never written for new links.
 export const regionSelectionEnum = pgEnum('region_selection', ['customer', 'legacy_publisher_fixed']);
 
+// The infrastructure size tier a vendor or customer selects
+// (docs/infrastructure-profiles.md). A deployment freezes the resolved
+// profile id + version in desired_state; this enum only records a choice.
+export const infrastructureSizeTierEnum = pgEnum('infrastructure_size_tier', ['small', 'medium', 'large']);
+
 // deployments.deployment_type — provider-independent classification (Paddle
 // migration Phase 2). Replaces the is_test_deployment boolean: a TEST
 // deployment never becomes billable (apps/api/src/billing-domain.ts).

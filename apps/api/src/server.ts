@@ -60,6 +60,9 @@ import {
   healthStatusSchema,
   httpProbeSchema,
   infrastructureResponseSchema,
+  infrastructureSizeTierSchema,
+  currentInfrastructureSizeProfile,
+  isSupportedRegion,
   ownershipClassificationsFromSpec,
   regionSchema,
   relayCapabilitiesSchema,
@@ -71,6 +74,7 @@ import {
   oneShotTasksFromSpec,
   resourceChecksFromSpec,
   resolveBootstrapTemplate,
+  profileKey,
   resolveStoredInfrastructureSizeProfile,
   summarizeApplicationGraph,
   summarizeInfrastructureStatus,
@@ -309,6 +313,7 @@ import {
   revokeDeployLink,
   type DeployLinkRow,
 } from './deploy-links.js';
+import { assertSizeSettingsValid } from './deployment-size.js';
 import {
   assertProductionDeploymentAllowed,
   assertTestDeploymentSlot,
@@ -3743,6 +3748,9 @@ export async function buildServer({
     databaseRequired: z.boolean().nullish(),
     storageRequired: z.boolean().nullish(),
     redisRequired: z.boolean().nullish(),
+    // Vendor sizing settings — apply to links and deployments created later.
+    defaultSizeProfile: infrastructureSizeTierSchema.optional(),
+    minimumSizeProfile: infrastructureSizeTierSchema.optional(),
     // Phase 2 manifest overrides — stored on detected_metadata.manifestOverrides.
     appRoot: z.string().nullish(),
     dockerfilePath: z.string().nullish(),
@@ -3776,6 +3784,7 @@ export async function buildServer({
     // hand-maintained duplicate.
     region: regionSchema,
     deploymentType: deploymentTypeSchema.default('PRODUCTION'),
+    sizeProfile: infrastructureSizeTierSchema.optional(),
   });
 
   // Paddle migration Phase 8 — the three parameters a production deployment
@@ -3789,6 +3798,7 @@ export async function buildServer({
     applicationId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     region: regionSchema.optional(),
+    sizeProfile: infrastructureSizeTierSchema.optional(),
   });
 
   // Deploy Link generation targets the SESSION org's customer (path) and
@@ -3798,6 +3808,7 @@ export async function buildServer({
   const createDeployLinkBodySchema = z.object({
     applicationId: z.string().uuid(),
     region: regionSchema,
+    sizeProfile: infrastructureSizeTierSchema.optional(),
   });
 
   // Installation invitation targets the SESSION org's customer (path) and
@@ -3807,7 +3818,14 @@ export async function buildServer({
     .object({
       applicationId: z.string().uuid(),
       recommendedRegion: regionSchema.optional(),
+      recommendedSizeProfile: infrastructureSizeTierSchema.optional(),
     })
+    .strict();
+
+  // A reusable link may carry its own size recommendation; absent = the
+  // application default. The body itself is optional.
+  const createPublicInstallLinkBodySchema = z
+    .object({ recommendedSizeProfile: infrastructureSizeTierSchema.optional() })
     .strict();
 
   const createReleaseBodySchema = z.object({
@@ -3963,6 +3981,13 @@ export async function buildServer({
       if (body.containerPort !== undefined) set.containerPort = body.containerPort ?? null;
       if (body.healthPath !== undefined) set.healthPath = body.healthPath ?? null;
       if (body.migrationCommand !== undefined) set.migrationCommand = body.migrationCommand ?? null;
+      if (body.defaultSizeProfile !== undefined || body.minimumSizeProfile !== undefined) {
+        const defaultSizeProfile = body.defaultSizeProfile ?? existing.defaultSizeProfile;
+        const minimumSizeProfile = body.minimumSizeProfile ?? existing.minimumSizeProfile;
+        assertSizeSettingsValid(defaultSizeProfile, minimumSizeProfile);
+        if (defaultSizeProfile !== existing.defaultSizeProfile) set.defaultSizeProfile = defaultSizeProfile;
+        if (minimumSizeProfile !== existing.minimumSizeProfile) set.minimumSizeProfile = minimumSizeProfile;
+      }
       const detectedRequirements = readApplicationAnalysis(existing.detectedMetadata);
       if (body.databaseRequired !== undefined) {
         set.databaseRequired = body.databaseRequired ?? detectedRequirements?.database.required ?? false;
@@ -4174,8 +4199,16 @@ export async function buildServer({
     if (application.analysisStatus !== 'COMPLETE') {
       throw new ApiError(409, 'ANALYSIS_NOT_COMPLETE', 'Run the analysis before requesting a deployment plan.');
     }
+    const { profile, region } = request.query as { profile?: string; region?: string };
+    const requested = profile === undefined ? undefined : infrastructureSizeTierSchema.safeParse(profile);
+    if (requested !== undefined && !requested.success) {
+      throw new ApiError(422, 'UNKNOWN_PROFILE', `Unknown infrastructure profile "${profile}".`);
+    }
+    // The vendor previews any size, also one below the minimum it is choosing.
+    const tier = requested?.data ?? application.defaultSizeProfile;
+    const plannedRegion = region !== undefined && isSupportedRegion(region) ? region : null;
     const { manifest } = await runApplicationPreflight(db, application, null);
-    return buildInstallPlan({ manifest, region: null });
+    return buildInstallPlan({ manifest, region: plannedRegion, profile: currentInfrastructureSizeProfile(tier) });
   });
 
   // POST /api/applications/:id/fix-instructions — Generate the consolidated
@@ -4411,6 +4444,7 @@ export async function buildServer({
         customerId,
         applicationId: body.applicationId,
         region: body.region,
+        ...(body.sizeProfile !== undefined ? { sizeProfile: body.sizeProfile } : {}),
       }, {
         pendingSecrets,
         cipher,
@@ -4440,12 +4474,14 @@ export async function buildServer({
         customerId,
         applicationId: body.applicationId,
         ...(body.recommendedRegion !== undefined ? { recommendedRegion: body.recommendedRegion } : {}),
+        ...(body.recommendedSizeProfile !== undefined ? { recommendedSizeProfile: body.recommendedSizeProfile } : {}),
       });
       return reply.code(201).send({
         id: link.id,
         token,
         expiresAt: link.expiresAt,
         recommendedRegion: link.recommendedRegion,
+        recommendedSizeProfile: link.recommendedSizeProfile,
       });
     },
   );
@@ -4934,10 +4970,12 @@ export async function buildServer({
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const organizationId = requireSessionOrganizationId(request);
+      const body = createPublicInstallLinkBodySchema.parse(request.body ?? {});
       const link = await createPublicInstallLink(db, {
         organizationId,
         userId: requireActor(request).id,
         applicationId: id,
+        ...(body.recommendedSizeProfile !== undefined ? { recommendedSizeProfile: body.recommendedSizeProfile } : {}),
       });
       return reply.code(201).send(link);
     },
@@ -5058,6 +5096,7 @@ export async function buildServer({
           createdBy: request.user?.id ?? null,
           updatedBy: request.user?.id ?? null,
           source: 'manual',
+          ...(body.sizeProfile !== undefined ? { sizeProfile: body.sizeProfile } : {}),
         },
         compilerDeps,
       ));
@@ -5258,12 +5297,15 @@ export async function buildServer({
       appUrl,
     });
     const specComponents = specComponentsForStatus(rows[0]!.deployment.specV2, derived.components, []);
+    const sizeProfile = resolveStoredInfrastructureSizeProfile(rows[0]!.deployment.desiredState);
     return {
       ...toFleetRow(derivedRow),
       jobs: jobs.map((job) => ({ ...job, payload: redactClaimedPayload(job) ?? {} })),
       customDomain,
       appUrl,
       defaultUrl,
+      // The size frozen at creation; null only for an unresolvable stored reference.
+      size: sizeProfile ? { id: sizeProfile.id, label: sizeProfile.label, profileKey: profileKey(sizeProfile) } : null,
       deploymentStatus: {
         ...toVendorDeploymentStatus(derived),
         ...(specComponents ? { specComponents } : {}),
@@ -7488,6 +7530,7 @@ export async function buildServer({
         ...(body.applicationId !== undefined ? { applicationId: body.applicationId } : {}),
         ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
         ...(body.region !== undefined ? { region: body.region } : {}),
+        ...(body.sizeProfile !== undefined ? { sizeProfile: body.sizeProfile } : {}),
         createdBy: request.user?.id ?? null,
       },
     );

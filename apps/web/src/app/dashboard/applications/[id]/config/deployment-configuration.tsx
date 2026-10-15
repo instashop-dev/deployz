@@ -150,9 +150,11 @@ export function DeploymentConfiguration({ children }: { children?: ReactNode }) 
 
       {application.analysisStatus === 'COMPLETE' ? (
         <DeploymentSize
+          application={application}
           plan={data.plan}
           externalServices={inventory.externalServices}
           unestimatedWorkload={inventory.unestimatedWorkload}
+          onSaved={refresh}
         />
       ) : null}
 

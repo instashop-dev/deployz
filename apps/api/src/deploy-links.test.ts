@@ -565,6 +565,41 @@ describe('deploy links', () => {
     expect(created[0]!.actorId).toBe(orgA.userId);
   });
 
+  it('POST /api/deployments freezes the requested size, else the application default, and refuses one below the minimum', async () => {
+    const sized = await insertApplication(db, orgA.organizationId);
+    await db
+      .update(schema.applications)
+      .set({ defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' })
+      .where(eq(schema.applications.id, sized.id));
+    const create = async (payload: Record<string, unknown>) => {
+      const target = await insertCustomer(db, orgA.organizationId);
+      return app.inject({
+        method: 'POST',
+        url: '/api/deployments',
+        headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+        payload: JSON.stringify({ applicationId: sized.id, customerId: target.id, region: 'us-east-1', ...payload }),
+      });
+    };
+    const frozen = async (response: { statusCode: number; body: string; json: () => unknown }) => {
+      expect(response.statusCode, response.body).toBe(201);
+      const [row] = await db
+        .select()
+        .from(schema.deployments)
+        .where(eq(schema.deployments.id, (response.json() as { id: string }).id));
+      const workload = (row!.specV2 as { footprint: { workloads: { compute: { cpuUnits: number } }[] } }).footprint.workloads[0]!;
+      return { profile: (row!.desiredState as { infrastructureProfile: unknown }).infrastructureProfile, cpuUnits: workload.compute.cpuUnits };
+    };
+
+    expect(await frozen(await create({ sizeProfile: 'large' }))).toEqual({ profile: { id: 'large', version: 1 }, cpuUnits: 2048 });
+    expect(await frozen(await create({}))).toEqual({ profile: { id: 'medium', version: 1 }, cpuUnits: 1024 });
+
+    const below = await create({ sizeProfile: 'small' });
+    expect(below.statusCode, below.body).toBe(422);
+    expect(below.json()).toMatchObject({ error: { code: 'SIZE_PROFILE_NOT_ALLOWED' } });
+    const rows = await db.select({ id: schema.deployments.id }).from(schema.deployments).where(eq(schema.deployments.applicationId, sized.id));
+    expect(rows).toHaveLength(2);
+  });
+
   it('POST /api/deployments refuses an application with no built release (409 RELEASE_NOT_PUBLISHED) and creates no deployment', async () => {
     const unbuilt = await insertApplication(db, orgA.organizationId);
     await db

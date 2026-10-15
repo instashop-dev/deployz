@@ -18,12 +18,17 @@ on:
         description: Which scenario to run
         type: choice
         default: preflight
-        options: [preflight, core, resilience, profile]
+        options: [preflight, core, resilience, profile, journey]
       profile:
-        description: Infrastructure profile (profile scenario only)
+        description: Infrastructure profile (profile and journey scenarios only)
         type: choice
         default: pg
-        options: [pg, stateless, redis]
+        options: [pg, stateless, redis, combined]
+      size:
+        description: Size to deploy (empty = the application default)
+        type: choice
+        default: ''
+        options: ['', small, medium, large]
       run_id:
         description: Run id (optional — minted when empty)
         type: string
@@ -58,7 +63,7 @@ jobs:
     # The canary step gets the first part of this; the rest is the cleanup
     # and leak-audit budget (a Disconnect that retains a database plus a
     # Purge can take about 95 minutes).
-    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 300 || 240 }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile' || inputs.scenario == 'journey') && 300 || 240 }}
     env:
       AWS_REGION: us-east-1
       DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
@@ -84,14 +89,17 @@ jobs:
         env:
           # Read through the environment, never expanded into the script.
           RUN_ID_INPUT: ${{ inputs.run_id }}
+          SIZE_INPUT: ${{ inputs.size }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             echo "scenario=profile" >> "$GITHUB_OUTPUT"
             echo "profile=stateless" >> "$GITHUB_OUTPUT"
+            echo "size=" >> "$GITHUB_OUTPUT"
             run_id_input=""
           else
             echo "scenario=${{ inputs.scenario }}" >> "$GITHUB_OUTPUT"
             echo "profile=${{ inputs.profile }}" >> "$GITHUB_OUTPUT"
+            echo "size=$SIZE_INPUT" >> "$GITHUB_OUTPUT"
             run_id_input="$RUN_ID_INPUT"
           fi
           # The version canary's own sortable format
@@ -154,12 +162,12 @@ jobs:
         # Job timeout minus 60: leaves headroom for the cleanup and leak-audit
         # steps below to still run to completion when the canary step itself
         # times out, instead of the whole job being killed mid-teardown.
-        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 180 || 120 }}
+        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile' || inputs.scenario == 'journey') && 180 || 120 }}
         env:
           DEPLOYZ_CANARY_RUN_ID: ${{ steps.params.outputs.run_id }}
-          DEPLOYZ_CANARY_PROFILE: ${{ steps.params.outputs.scenario == 'profile' && steps.params.outputs.profile || '' }}
+          DEPLOYZ_CANARY_PROFILE: ${{ (steps.params.outputs.scenario == 'profile' || steps.params.outputs.scenario == 'journey') && steps.params.outputs.profile || '' }}
         run: |
-          pnpm e2e:canary:versions ${{ steps.params.outputs.scenario }}${{ steps.params.outputs.scenario == 'profile' && format(' --profile {0}', steps.params.outputs.profile) || '' }}
+          pnpm e2e:canary:versions ${{ steps.params.outputs.scenario }}${{ (steps.params.outputs.scenario == 'profile' || steps.params.outputs.scenario == 'journey') && format(' --profile {0}', steps.params.outputs.profile) || '' }}${{ steps.params.outputs.size != '' && format(' --size {0}', steps.params.outputs.size) || '' }}
 
       # A scenario that installs (core/profile) already tears itself down and
       # audits on success (scenarios.ts's teardownOrSkipInfrastructure) — this

@@ -53,15 +53,50 @@ interface PricingAdapter {
 
 // us-east-1 baseline values. Sourced from public AWS on-demand pricing;
 // when AWS changes prices these stay deliberately stale until someone
-// refreshes them — the UI always says "estimate".
+// refreshes them — the UI always says "estimate". A sized service (Fargate,
+// RDS, Valkey) carries one range per size the profile registry publishes,
+// keyed by `sizeKey`; a size with no range prices as unavailable.
 const BASELINE_PRICING: Readonly<Record<string, PricingAdapter>> = {
-  'ecs-fargate': { monthly: { min: 8, max: 11 } },
   alb: { monthly: { min: 15, max: 25 }, usageNote: 'Load balancer capacity (LCUs)' },
   'nat-gateway': { monthly: { min: 30, max: 40 }, usageNote: 'Data processed by the NAT gateway' },
-  'rds-postgres': { monthly: { min: 14, max: 19 }, usageNote: 'Database storage growth and backups' },
-  'elasticache-valkey': { monthly: { min: 12, max: 15 } },
   s3: { monthly: null, usageNote: 'Files stored in S3 and data transfer' },
 };
+
+const RDS_PRICING: Readonly<Record<string, { readonly min: number; readonly max: number }>> = {
+  'db.t4g.micro': { min: 14, max: 19 },
+  'db.t3.micro': { min: 14, max: 19 },
+  'db.t3.medium': { min: 50, max: 60 },
+  'db.t3.large': { min: 100, max: 115 },
+};
+
+const SIZED_PRICING: Readonly<Record<string, { readonly sizes: Readonly<Record<string, { readonly min: number; readonly max: number }>>; readonly usageNote?: string }>> = {
+  // Keyed by `${cpuUnits}/${memoryMiB}`.
+  'ecs-fargate': {
+    sizes: {
+      '256/512': { min: 8, max: 11 },
+      '1024/2048': { min: 33, max: 40 },
+      '2048/4096': { min: 68, max: 80 },
+    },
+  },
+  'rds-postgres': { sizes: RDS_PRICING, usageNote: 'Database storage growth and backups' },
+  'rds-mysql': { sizes: RDS_PRICING, usageNote: 'Database storage growth and backups' },
+  'elasticache-valkey': {
+    sizes: {
+      'cache.t4g.micro': { min: 12, max: 15 },
+      'cache.t4g.small': { min: 18, max: 24 },
+      'cache.t4g.medium': { min: 36, max: 45 },
+    },
+  },
+};
+
+/** The pricing adapter for one service at one size; `undefined` when there is none. */
+function adapterFor(service: string, sizeKey: string | undefined): PricingAdapter | undefined {
+  const sized = SIZED_PRICING[service];
+  if (sized === undefined) return BASELINE_PRICING[service];
+  const monthly = sizeKey === undefined ? undefined : sized.sizes[sizeKey];
+  if (monthly === undefined) return undefined;
+  return { monthly, ...(sized.usageNote !== undefined ? { usageNote: sized.usageNote } : {}) };
+}
 
 /**
  * Coarse per-region price buckets for the supported regions, relative to the
@@ -88,6 +123,12 @@ const REGION_PRICE_FACTOR: Readonly<Record<string, number>> = {
   'ap-southeast-2': 1.3,
 };
 
+/** The size of a managed resource: its RDS instance type or cache node type. */
+function resourceSizeKey(configuration: Record<string, unknown>): string | undefined {
+  const size = configuration['instanceType'] ?? configuration['nodeType'];
+  return typeof size === 'string' ? size : undefined;
+}
+
 /** Engine names make breakdown rows readable ("PostgreSQL" not "Database"). */
 function itemLabel(entry: { label: string; configuration: Record<string, unknown> }, engineDisplay: Readonly<Record<string, string>>): string {
   const engine = typeof entry.configuration['engine'] === 'string' ? engineDisplay[entry.configuration['engine']] : undefined;
@@ -113,11 +154,12 @@ export function estimateFootprintCost(footprint: DeploymentFootprint): Footprint
     id: string;
     label: string;
     service: string;
+    sizeKey: string | undefined;
     quantity: number;
     configuration: Record<string, unknown>;
   }): void => {
     const label = itemLabel(entry, FOOTPRINT_ENGINE_DISPLAY);
-    const adapter = BASELINE_PRICING[entry.service];
+    const adapter = adapterFor(entry.service, entry.sizeKey);
     if (adapter === undefined) {
       items.push({ resourceId: entry.id, label, pricingStatus: 'unavailable' });
       complete = false;
@@ -140,6 +182,7 @@ export function estimateFootprintCost(footprint: DeploymentFootprint): Footprint
       id: workload.id,
       label: workload.label,
       service: workload.compute.service,
+      sizeKey: `${workload.compute.cpuUnits}/${workload.compute.memoryMiB}`,
       quantity: workload.quantity,
       configuration: {},
     });
@@ -149,6 +192,7 @@ export function estimateFootprintCost(footprint: DeploymentFootprint): Footprint
       id: resource.id,
       label: resource.label,
       service: resource.service,
+      sizeKey: resourceSizeKey(resource.configuration),
       quantity: resource.quantity,
       configuration: resource.configuration,
     });

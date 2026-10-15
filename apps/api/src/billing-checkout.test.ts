@@ -689,6 +689,69 @@ describe('checkout intents resume on activation (Paddle migration Phase 8)', () 
   });
 });
 
+describe('checkout intents carry the deployment size', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, `size-${crypto.randomUUID()}@example.com`);
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('refuses a size below the minimum before any intent exists, stores the chosen size, and freezes it on activation', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      await db
+        .update(schema.applications)
+        .set({ defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' })
+        .where(eq(schema.applications.id, application.id));
+      const customer = await insertCustomer(db, org.organizationId);
+      const checkout = (sizeProfile?: string) =>
+        postJson(
+          app,
+          '/api/billing/checkout',
+          { applicationId: application.id, customerId: customer.id, region: 'us-east-1', ...(sizeProfile ? { sizeProfile } : {}) },
+          { cookie: org.cookie },
+        );
+
+      const below = await checkout('small');
+      expect(below.statusCode, below.body).toBe(422);
+      expect(below.json()).toMatchObject({ error: { code: 'SIZE_PROFILE_NOT_ALLOWED' } });
+      expect(await pendingIntents(db, org.organizationId)).toEqual([]);
+
+      const response = await checkout('large');
+      expect(response.statusCode, response.body).toBe(200);
+      const { checkoutIntentId } = response.json() as { checkoutIntentId: string };
+      const [parked] = await pendingIntents(db, org.organizationId);
+      expect(parked).toMatchObject({ id: checkoutIntentId, sizeProfile: 'large' });
+
+      const { body, headers } = signedWebhook(subscriptionActivated(org.organizationId, 'evt_test_size_1', checkoutIntentId));
+      const webhook = await app.inject({ method: 'POST', url: '/api/billing/webhook', headers, payload: body });
+      expect(webhook.statusCode, webhook.body).toBe(200);
+
+      const [intent] = await db
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(eq(schema.billingCheckoutIntents.id, checkoutIntentId));
+      expect(intent!.status).toBe('COMPLETED');
+      const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, intent!.deploymentId!));
+      expect(deployment!.desiredState).toMatchObject({ infrastructureProfile: { id: 'large', version: 1 } });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 describe('subscribe-only checkout intents (invitation-first flow)', () => {
   let client: PGlite | undefined;
   let db: Db;

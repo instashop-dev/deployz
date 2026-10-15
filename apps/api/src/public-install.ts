@@ -7,14 +7,15 @@ import {
   SUPPORTED_AWS_REGIONS,
   buildInstallPlan,
   customerInputRows,
-  defaultInfrastructureSizeProfile,
   evaluateEnvironmentSetup,
+  infrastructureSizeTierSchema,
   isSupportedRegion,
-  resolveInfrastructureSizeProfile,
+  resolveStoredInfrastructureSizeProfile,
   type DeploymentManifest,
   type DeploymentPlan,
   type EnvVariableClassification,
   type EnvironmentSetting,
+  type InfrastructureSizeTier,
   type Region,
 } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
@@ -22,7 +23,16 @@ import * as schema from '@deployz/db/schema';
 
 import { createConfigStore, createRelaySecretWriter, createScopeDeploymentsFinder, type ConfigDeps, setConfig } from './config.js';
 import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, materializePendingSecretsForDeployment, mintDeployLinkToken } from './deploy-links.js';
+import {
+  assertSizeSettingsValid,
+  planFingerprint,
+  resolveSizeSelection,
+  sizeOptions,
+  sizingBounds,
+  type LinkSizing,
+} from './deployment-size.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { readEnvironmentSettings } from './environment-setup.js';
@@ -81,6 +91,10 @@ export const publicInstallConfirmBodySchema = z
   .object({
     idempotencyKey: z.string().uuid(),
     region: z.string().min(1),
+    // The size and the plan the customer reviewed. The server recomputes the
+    // plan for this size and refuses a fingerprint that does not match.
+    sizeProfile: infrastructureSizeTierSchema,
+    planFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
     // Required only for a credential-free reusable link (no target customer);
     // a targeted invitation already names its customer and must not supply it.
     customer: z
@@ -110,6 +124,11 @@ function requireUuidId(id: string): void {
   if (!UUID_PATTERN.test(id)) {
     throw new NotFoundError('Resource not found');
   }
+}
+
+/** The sizing a link froze at creation (null on links created before sizing). */
+function linkSizing(link: PublicInstallLinkRow): LinkSizing {
+  return { recommended: link.recommendedSizeProfile, minimum: link.minimumSizeProfile };
 }
 
 interface ActivePublicInstallLink {
@@ -264,6 +283,7 @@ export async function resolvePublicInstall(db: RuntimeDb, linkId: string, token?
     throw new ApiError(410, 'RELEASE_NOT_PUBLISHED', 'This application has no published release yet.');
   }
   const { manifest } = await runApplicationPreflight(db, application, link.customerId);
+  const bounds = sizingBounds(application, linkSizing(link));
   return {
     application: { name: application.name },
     publisher: { name: publisherName },
@@ -280,16 +300,25 @@ export async function resolvePublicInstall(db: RuntimeDb, linkId: string, token?
       (region) => ({ value: region, label: REGION_LABELS[region] }),
     ),
     requiredInputs: publicInstallInputs(manifest, readEnvironmentSettings(application)),
-    plan: buildInstallPlan({ manifest, region: null }),
+    sizing: { recommended: bounds.recommended, minimum: bounds.minimum, options: sizeOptions(bounds) },
+    plan: buildInstallPlan({ manifest, region: null, profile: resolveSizeSelection(application, undefined, linkSizing(link)).profile }),
   };
 }
 
+/** The INSTALL plan for one size, plus the fingerprint the confirmation must echo. */
+export type PublicInstallPlan = DeploymentPlan & {
+  sizeProfile: InfrastructureSizeTier;
+  /** Null when the Region cannot deploy: there is nothing to approve. */
+  planFingerprint: string | null;
+};
+
 /**
  * GET /api/public-install/:linkId/plan?region=…&profile=… — the canonical
- * INSTALL plan for a selected Region + size profile. Same footprint/pricing
- * logic as deployment creation; pricing stays on the server. An undeployable
- * or unsupported Region returns the plan with `region: null` and
- * `costEstimate: null` ("Estimate unavailable"), never a guessed cost.
+ * INSTALL plan for a selected Region + size. The footprint is the compiler's
+ * own output for this manifest, Region and profile — the same compilation
+ * deployment creation runs — so the preview, the price and the stack agree.
+ * An undeployable or unsupported Region returns the plan with `region: null`
+ * and `costEstimate: null` ("Estimate unavailable"), never a guessed cost.
  */
 export async function resolvePublicInstallPlan(
   db: RuntimeDb,
@@ -297,23 +326,36 @@ export async function resolvePublicInstallPlan(
   region: string,
   profileId: string | undefined,
   token?: string,
-): Promise<DeploymentPlan> {
+): Promise<PublicInstallPlan> {
   const { application, link } = await loadActiveLink(db, linkId, token);
   if (link.customerId !== null && link.confirmedAt !== null) {
     throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
   }
-  const profile =
-    profileId !== undefined ? resolveInfrastructureSizeProfile(profileId, defaultInfrastructureSizeProfile().version) : defaultInfrastructureSizeProfile();
-  if (profile === undefined) {
+  const requested = profileId === undefined ? undefined : infrastructureSizeTierSchema.safeParse(profileId);
+  if (requested !== undefined && !requested.success) {
     throw new ApiError(422, 'UNKNOWN_PROFILE', `Unknown infrastructure profile "${profileId}".`);
   }
+  const selection = resolveSizeSelection(application, requested?.data, linkSizing(link));
   const { manifest } = await runApplicationPreflight(db, application, link.customerId);
-  const deployable = isSupportedRegion(region) && env.deployableAwsRegions.includes(region);
-  const plan = buildInstallPlan({ manifest, region: deployable ? (region as Region) : null, profile });
-  if (!deployable) {
-    return { ...plan, region: null, costEstimate: null };
+  if (!isSupportedRegion(region) || !env.deployableAwsRegions.includes(region)) {
+    const plan = buildInstallPlan({ manifest, region: null, profile: selection.profile });
+    return { ...plan, region: null, costEstimate: null, sizeProfile: selection.tier, planFingerprint: null };
   }
-  return plan;
+  const footprint = compileDeploymentIntent({ manifest, region, sizeProfile: selection.profile }).spec.footprint;
+  const plan = buildInstallPlan({
+    manifest,
+    region,
+    profile: selection.profile,
+    ...(footprint ? { compiledFootprint: footprint } : {}),
+  });
+  return {
+    ...plan,
+    sizeProfile: selection.tier,
+    planFingerprint:
+      plan.footprint && plan.costEstimate
+        ? planFingerprint({ linkId: link.id, region, profile: selection.profile, footprint: plan.footprint, costEstimate: plan.costEstimate })
+        : null,
+  };
 }
 
 async function findConfirmedInstallLinkId(
@@ -329,6 +371,28 @@ async function findConfirmedInstallLinkId(
     )
     .limit(1);
   return rows[0]?.installLinkId ?? null;
+}
+
+/**
+ * A replay returns the deployment the key already created, so it must be for
+ * the Region and size the request approves. A different selection under the
+ * same key is refused: the customer would otherwise be sent to a stack they
+ * did not approve.
+ */
+async function assertReplayMatches(db: RuntimeDb, installLinkId: string, body: PublicInstallConfirmBody): Promise<void> {
+  const [replayed] = await db
+    .select({ region: schema.deployments.region, desiredState: schema.deployments.desiredState })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.installLinkId, installLinkId))
+    .limit(1);
+  const profile = replayed ? resolveStoredInfrastructureSizeProfile(replayed.desiredState) : undefined;
+  if (!replayed || replayed.region !== body.region || profile?.id !== body.sizeProfile) {
+    throw new ApiError(
+      409,
+      'IDEMPOTENCY_KEY_REUSED',
+      'This confirmation was already used for a different Region or size. Reload the page and confirm again.',
+    );
+  }
 }
 
 /** Whether an error is the confirm-idempotency unique violation (the insert race). */
@@ -383,6 +447,7 @@ export async function confirmPublicInstall(
       `Region ${body.region} is not available for installation yet.`,
     );
   }
+  resolveSizeSelection(application, body.sizeProfile, linkSizing(link));
   // A reusable link must name its customer; a targeted invitation already does.
   if (link.customerId === null && body.customer === undefined) {
     throw new ApiError(422, 'PUBLIC_INSTALL_CUSTOMER_REQUIRED', 'A customer name and email are required.');
@@ -412,6 +477,7 @@ export async function confirmPublicInstall(
 
   const existing = await findConfirmedInstallLinkId(db, link.id, body.idempotencyKey);
   if (existing !== null) {
+    await assertReplayMatches(db, existing, body);
     // The first attempt's post-commit materialization may have failed (a KMS
     // error) and the client is retrying. Re-bind only the staged secrets that
     // have no bound row yet; bound rows are never touched. Only before the
@@ -539,6 +605,9 @@ export async function confirmPublicInstall(
           source: 'public_link',
           publicInstallLinkId: link.id,
           confirmKey: body.idempotencyKey,
+          sizeProfile: body.sizeProfile,
+          linkSizing: linkSizing(link),
+          approvedPlanFingerprint: body.planFingerprint,
         },
         templatePublisher ? { templatePublisher } : undefined,
       );
@@ -610,6 +679,7 @@ export async function confirmPublicInstall(
     if (isConfirmKeyViolation(error) || (error instanceof ApiError && error.code === 'PUBLIC_INSTALL_LINK_USED')) {
       const winner = await findConfirmedInstallLinkId(db, link.id, body.idempotencyKey);
       if (winner !== null) {
+        await assertReplayMatches(db, winner, body);
         return { installLinkId: winner, created: false };
       }
     }
@@ -705,6 +775,8 @@ function toLinkView(link: PublicInstallLinkRow) {
     id: link.id,
     url: publicInstallUrl(link.id),
     status: deriveStatus(link),
+    recommendedSizeProfile: link.recommendedSizeProfile,
+    minimumSizeProfile: link.minimumSizeProfile,
     createdAt: link.createdAt,
     revokedAt: link.revokedAt,
   };
@@ -717,6 +789,8 @@ function toCreatedView(link: PublicInstallLinkRow) {
     url,
     htmlSnippet: publicInstallHtmlSnippet(url),
     enabled: link.enabled,
+    recommendedSizeProfile: link.recommendedSizeProfile,
+    minimumSizeProfile: link.minimumSizeProfile,
     createdAt: link.createdAt,
   };
 }
@@ -783,6 +857,22 @@ export interface CreateInstallationInvitationParams {
   customerId: string;
   /** Optional vendor recommendation — never the final Region choice. */
   recommendedRegion?: Region;
+  /** Optional size recommendation for this customer; absent = the application default. */
+  recommendedSizeProfile?: InfrastructureSizeTier;
+}
+
+/**
+ * The sizing a new link freezes: the vendor's per-link recommendation (or the
+ * application default) and the application's current minimum. Later edits
+ * to the application never change a link that already exists.
+ */
+function frozenLinkSizing(
+  application: typeof schema.applications.$inferSelect,
+  recommended: InfrastructureSizeTier | undefined,
+): { recommendedSizeProfile: InfrastructureSizeTier; minimumSizeProfile: InfrastructureSizeTier } {
+  const recommendedSizeProfile = recommended ?? application.defaultSizeProfile;
+  assertSizeSettingsValid(recommendedSizeProfile, application.minimumSizeProfile);
+  return { recommendedSizeProfile, minimumSizeProfile: application.minimumSizeProfile };
 }
 
 /**
@@ -796,8 +886,9 @@ export async function createInstallationInvitation(
   db: RuntimeDb,
   params: CreateInstallationInvitationParams,
 ): Promise<{ link: PublicInstallLinkRow; token: string }> {
-  await loadOwnedApplication(db, params.applicationId, params.organizationId);
+  const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
   await loadOwnedCustomer(db, params.customerId, params.organizationId);
+  const sizing = frozenLinkSizing(application, params.recommendedSizeProfile);
   const token = mintDeployLinkToken();
   const [link] = await db
     .insert(schema.publicInstallLinks)
@@ -806,6 +897,7 @@ export async function createInstallationInvitation(
       applicationId: params.applicationId,
       customerId: params.customerId,
       recommendedRegion: params.recommendedRegion ?? null,
+      ...sizing,
       regionSelection: 'customer',
       tokenHash: hashRelayToken(token),
       expiresAt: new Date(Date.now() + DEFAULT_INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
@@ -839,15 +931,16 @@ export async function createInstallationInvitation(
  * id in the 409 details.
  */
 export async function createPublicInstallLink(  db: RuntimeDb,
-  params: { organizationId: string; userId: string; applicationId: string },
+  params: { organizationId: string; userId: string; applicationId: string; recommendedSizeProfile?: InfrastructureSizeTier },
 ) {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
+  const sizing = frozenLinkSizing(application, params.recommendedSizeProfile);
   await ensureInitialRelease(db, application, params.userId);
   try {
     const link = await db.transaction(async (tx) => {
       const [row] = await tx
         .insert(schema.publicInstallLinks)
-        .values({ organizationId: params.organizationId, applicationId: application.id, enabled: true })
+        .values({ organizationId: params.organizationId, applicationId: application.id, enabled: true, ...sizing })
         .returning();
       await recordEvent(tx, {
         organizationId: params.organizationId,
@@ -895,6 +988,7 @@ export async function listCustomerInvitations(db: RuntimeDb, organizationId: str
       applicationName: schema.applications.name,
       recommendedRegion: schema.publicInstallLinks.recommendedRegion,
       regionSelection: schema.publicInstallLinks.regionSelection,
+      recommendedSizeProfile: schema.publicInstallLinks.recommendedSizeProfile,
       expiresAt: schema.publicInstallLinks.expiresAt,
       createdAt: schema.publicInstallLinks.createdAt,
       confirmedAt: schema.publicInstallLinks.confirmedAt,
@@ -920,6 +1014,7 @@ export async function listCustomerInvitations(db: RuntimeDb, organizationId: str
       applicationName: row.applicationName,
       recommendedRegion: row.recommendedRegion,
       regionSelection: row.regionSelection,
+      recommendedSizeProfile: row.recommendedSizeProfile,
       status,
       expiresAt: row.expiresAt,
       createdAt: row.createdAt,
@@ -1017,9 +1112,16 @@ export async function regeneratePublicInstallLink(db: RuntimeDb, params: PublicI
           .set({ revokedAt: new Date() })
           .where(eq(schema.publicInstallLinks.id, link.id));
       }
+      // The fresh link keeps the replaced link's frozen sizing.
       const [row] = await tx
         .insert(schema.publicInstallLinks)
-        .values({ organizationId: params.organizationId, applicationId: link.applicationId, enabled: true })
+        .values({
+          organizationId: params.organizationId,
+          applicationId: link.applicationId,
+          enabled: true,
+          recommendedSizeProfile: link.recommendedSizeProfile,
+          minimumSizeProfile: link.minimumSizeProfile,
+        })
         .returning();
       await recordEvent(tx, {
         organizationId: params.organizationId,

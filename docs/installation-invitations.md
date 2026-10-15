@@ -25,6 +25,14 @@ Both invitation kinds live in `public_install_links`
   (default 30 days), optional `recommended_region`. Exactly one deployment,
   ever: confirmation stamps `confirmed_at` (state `used`).
 
+Both kinds freeze `recommended_size_profile` and `minimum_size_profile`
+when they are created (migration `0052`): the vendor's per-link size
+recommendation (default: the application default) and the application's
+minimum at that time. Later application changes never alter an existing
+link; regenerating a reusable link copies the replaced link's values. Rows
+created before sizing have both columns null and follow the application's
+current settings ([`infrastructure-profiles.md`](infrastructure-profiles.md#who-chooses-the-size)).
+
 `region_selection` records Region ownership: `'customer'` for everything
 new; `'legacy_publisher_fixed'` exists for the legacy `deploy_links` table,
 whose Region the vendor fixed before this model existed.
@@ -38,7 +46,9 @@ whose Region the vendor fixed before this model existed.
 ## Vendor flow
 
 1. Vendor selects customer + application, optionally recommends a Region
-   ("Your customer will make the final Region selection before deployment.").
+   ("Your customer will make the final Region selection before deployment.")
+   and may override the recommended size (preselected: the application
+   default; only sizes at or above the application minimum).
 2. `POST /api/customers/:customerId/invitations` creates the invitation —
    **no deployment row**.
 3. The response reveals the link URL and the one-time token exactly once.
@@ -51,15 +61,19 @@ whose Region the vendor fixed before this model existed.
    require no token.
 5. Customer selects a Region (explicit choice required when there is no
    recommendation; the recommended Region pre-selects when present and
-   deployable), reviews the region-specific plan and cost
-   (`GET /api/public-install/:id/plan?region=…`), supplies configuration,
-   and confirms. The recommendation is shown as a badge; entered config
-   values survive Region switches; stale plan responses from earlier Region
-   selections cannot overwrite the latest.
+   deployable), chooses a size (the link's recommendation preselects and
+   carries a "Vendor recommended" badge; sizes below the minimum are not
+   offered), reviews the Region- and size-specific plan and cost
+   (`GET /api/public-install/:id/plan?region=…&profile=…`), supplies
+   configuration, and confirms the plan's fingerprint. The recommendation is
+   shown as a badge; entered config values survive Region and size
+   switches; stale plan responses from an earlier selection cannot
+   overwrite the latest.
 6. The server atomically re-validates the invitation (active, not expired,
-   not revoked, not used), the subscription gate, preflight, Region and
-   profile, then creates **exactly one** deployment (`source` =
-   `public_link`). Region and profile become immutable; the invitation is
+   not revoked, not used), the subscription gate, preflight, Region, size
+   and the approved plan fingerprint (`409 PLAN_CHANGED` when the compiled
+   plan differs), then creates **exactly one** deployment (`source` =
+   `public_link`). Region and size become immutable; the invitation is
    consumed.
 7. Confirmation is idempotent per idempotency key (replays return the same
    deployment); a *different* key on a consumed invitation gets `410

@@ -21,17 +21,24 @@
 import { applicationStackNameForInstallation } from '@deployz/contracts';
 
 import {
+  JOURNEY_APPLICATION_SIZES,
+  RESTORED_APPLICATION_SIZES,
   assertBindings,
   assertMarkers,
   assertSameInfrastructure,
   assertServing,
+  assertSizing,
   buildRelease,
+  continueInstallFromLink,
   createDeploymentAndInstall,
+  createJourneyInvitation,
+  customerConfirmsChosenSize,
   deployAndVerify,
   deployExpectingFailure,
   preflight,
   rollbackAndVerify,
   seedMarker,
+  setApplicationSizes,
   setUpVendorAndApplication,
   snapshotInfrastructure,
   verifyReuseStackTags,
@@ -197,5 +204,57 @@ export async function runProfile(canary: Canary): Promise<void> {
   await createDeploymentAndInstall(canary);
   if (!canary.config.reuseStack) await waitForDefaultHttpsActive(canary);
   await assertBindings(canary);
+  await assertSizing(canary);
+  await teardownOrSkipInfrastructure(canary);
+}
+
+/**
+ * The size journey through the product API, vendor to customer:
+ *
+ *   vendor sets the application default (medium) and minimum (small) ->
+ *   v1 build -> vendor invites a customer with the link recommendation
+ *   (large) -> customer resolves the invitation, reviews the plan for the
+ *   chosen size (`--size`, default small), is refused a stale fingerprint
+ *   (409 PLAN_CHANGED) and confirms -> install to HEALTHY -> sizing check ->
+ *   v2 deploy and rollback to v1, each followed by the sizing check ->
+ *   teardown.
+ *
+ * The chosen size differs from the link recommendation and the application
+ * default, so each layer of the precedence is shown to yield to the next.
+ * The shared canary application gets the Deployz default sizes back when the
+ * journey ends.
+ */
+export async function runJourney(canary: Canary): Promise<void> {
+  const { evidence } = canary;
+  const chosen = canary.config.size ?? 'small';
+  await preflight(canary);
+  await setUpVendorAndApplication(canary);
+  try {
+    await setApplicationSizes(canary, JOURNEY_APPLICATION_SIZES);
+    await buildRelease(canary, 'v1');
+    const invitation = await createJourneyInvitation(canary);
+    const installLinkId = await customerConfirmsChosenSize(canary, invitation, chosen);
+    await continueInstallFromLink(canary, installLinkId);
+
+    await evidence.step('v1 is the serving release after install (auto-deploy + digest reconciliation)', async (details) => {
+      await waitForPointer(canary, 'v1', 15 * 60_000);
+      await assertServing(canary, { serving: 'v1', deploymentState: ['HEALTHY', 'UPDATE_AVAILABLE'] }, details);
+    });
+    await waitForDefaultHttpsActive(canary);
+    await assertBindings(canary);
+    await assertSizing(canary, chosen);
+
+    await buildRelease(canary, 'v2');
+    await deployAndVerify(canary, 'v2', 'v1');
+    await assertSizing(canary, chosen);
+    await rollbackAndVerify(canary, 'v1', 'v2');
+    await assertSizing(canary, chosen);
+  } finally {
+    try {
+      await canary.api.patchApplication(evidence.run.applicationId!, RESTORED_APPLICATION_SIZES);
+    } catch (error) {
+      console.warn(`Could not restore the application sizes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   await teardownOrSkipInfrastructure(canary);
 }

@@ -12,6 +12,8 @@
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 
+import { INFRASTRUCTURE_SIZE_TIERS, type InfrastructureSizeTier } from '@deployz/contracts';
+
 export const CANARY_TAGS = {
   canary: 'DeployzCanary',
   run: 'DeployzCanaryRun',
@@ -19,7 +21,7 @@ export const CANARY_TAGS = {
   environment: 'DeployzEnvironment',
 } as const;
 
-export type CanaryProfileName = 'pg' | 'stateless' | 'redis';
+export type CanaryProfileName = 'pg' | 'stateless' | 'redis' | 'combined';
 
 /** One certifiable infrastructure profile: the requirements the application
  * manifest must carry. Storage stays on in every profile. Every profile runs
@@ -41,6 +43,7 @@ const CANARY_PROFILES: Readonly<Record<CanaryProfileName, Omit<CanaryProfile, 'n
   pg: { postgres: true, redis: false, fixtureRepo: DEFAULT_FIXTURE_REPO },
   stateless: { postgres: false, redis: false, fixtureRepo: DEFAULT_FIXTURE_REPO },
   redis: { postgres: false, redis: true, fixtureRepo: DEFAULT_FIXTURE_REPO },
+  combined: { postgres: true, redis: true, fixtureRepo: DEFAULT_FIXTURE_REPO },
 };
 
 export interface CanaryConfig {
@@ -93,6 +96,11 @@ export interface CanaryConfig {
    * analysis, default fixture repo.
    */
   readonly profile: CanaryProfile | null;
+  /**
+   * The size tier the deployment is created with (env DEPLOYZ_CANARY_SIZE or
+   * `--size`). `null` sends no size, so the application default applies.
+   */
+  readonly size: InfrastructureSizeTier | null;
 }
 
 export function mintRunId(now: Date = new Date()): string {
@@ -136,11 +144,25 @@ function loadProfile(env: NodeJS.ProcessEnv, overrideName?: string): CanaryProfi
   const shape = CANARY_PROFILES[name as CanaryProfileName];
   if (!shape) {
     throw new Error(
-      `Unknown canary profile "${name}". Use pg (PostgreSQL only), stateless (neither) or redis (Redis only), ` +
+      `Unknown canary profile "${name}". Use pg (PostgreSQL only), stateless (neither), redis (Redis only) or combined (PostgreSQL and Redis), ` +
         `or leave DEPLOYZ_CANARY_PROFILE unset for the legacy PostgreSQL+Redis ladder.`,
     );
   }
   return { name: name as CanaryProfileName, ...shape };
+}
+
+/**
+ * The size tier for this run. Unset or empty sends no size; an unknown value
+ * fails fast - a typo would otherwise certify the wrong size silently.
+ */
+function loadSize(env: NodeJS.ProcessEnv, overrideName?: string): InfrastructureSizeTier | null {
+  const name = (overrideName ?? env['DEPLOYZ_CANARY_SIZE'] ?? '').trim();
+  if (name === '') return null;
+  const tier = INFRASTRUCTURE_SIZE_TIERS.find((candidate) => candidate === name);
+  if (!tier) {
+    throw new Error(`Unknown canary size "${name}". Use ${INFRASTRUCTURE_SIZE_TIERS.join(', ')}, or leave DEPLOYZ_CANARY_SIZE unset.`);
+  }
+  return tier;
 }
 
 function loadVendor(env: NodeJS.ProcessEnv): { email: string; password: string } | null {
@@ -158,9 +180,12 @@ export function loadConfig(
   overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack'>> & {
     /** The profile name from `--profile`; wins over DEPLOYZ_CANARY_PROFILE. */
     profileName?: string;
+    /** The size tier from `--size`; wins over DEPLOYZ_CANARY_SIZE. */
+    sizeName?: string;
   } = {},
 ): CanaryConfig {
   const profile = loadProfile(env, overrides.profileName);
+  const size = loadSize(env, overrides.sizeName);
   return {
     // Empty strings mint a run id: a workflow can pass an optional run-id
     // input straight through as an env var.
@@ -179,6 +204,7 @@ export function loadConfig(
     existingImageDigest: validateDigest(overrides.existingImageDigest ?? env['DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST'] ?? null),
     reuseStack: overrides.reuseStack ?? false,
     profile,
+    size,
   };
 }
 

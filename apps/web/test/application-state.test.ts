@@ -125,6 +125,8 @@ function link(overrides: Partial<PublicInstallLinkView> = {}): PublicInstallLink
     status: 'active',
     createdAt: '2026-08-01T00:00:00.000Z',
     revokedAt: null,
+    recommendedSizeProfile: null,
+    minimumSizeProfile: null,
     ...overrides,
   };
 }

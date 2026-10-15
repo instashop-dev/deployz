@@ -54,6 +54,8 @@ function applicationFixture(overrides: Partial<Application> = {}): Application {
     databaseRequired: false,
     storageRequired: false,
     redisRequired: false,
+    defaultSizeProfile: 'small',
+    minimumSizeProfile: 'small',
     analysisStatus: 'COMPLETE',
     compatibilityStatus: 'READY',
     compatibilityReason: null,

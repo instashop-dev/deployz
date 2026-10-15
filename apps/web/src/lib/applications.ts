@@ -2,7 +2,7 @@
 // components), so the browser-facing origin — mirrors lib/github.ts and
 // lib/deployments.ts.
 
-import type { DeploymentPlan } from '@deployz/contracts';
+import type { DeploymentPlan, InfrastructureSizeTier } from '@deployz/contracts';
 
 import { apiRequest } from '@/lib/api-client';
 import { apiUrl } from '@/lib/api-url';
@@ -29,6 +29,8 @@ export interface Application {
   databaseRequired: boolean;
   storageRequired: boolean;
   redisRequired: boolean;
+  defaultSizeProfile: InfrastructureSizeTier;
+  minimumSizeProfile: InfrastructureSizeTier;
   analysisStatus: AnalysisStatus;
   compatibilityStatus: CompatibilityStatus | null;
   compatibilityReason: string | null;
@@ -127,6 +129,16 @@ export async function updateApplication(id: string, input: UpdateApplicationInpu
   return (await response.json()) as Application;
 }
 
+/** Save the recommended and the minimum deployment size. The server refuses a
+ *  default below the minimum (422 SIZE_DEFAULT_BELOW_MINIMUM) with a plain
+ *  message. Only links and deployments created later use the new sizes. */
+export function updateApplicationSizes(
+  id: string,
+  sizes: { defaultSizeProfile: InfrastructureSizeTier; minimumSizeProfile: InfrastructureSizeTier },
+): Promise<Application> {
+  return apiRequest<Application>(`/api/applications/${encodeURIComponent(id)}`, { method: 'PATCH', body: sizes });
+}
+
 export async function deleteApplication(id: string): Promise<void> {
   const response = await fetch(`${apiUrl}/api/applications/${encodeURIComponent(id)}`, {
     method: 'DELETE',
@@ -140,9 +152,11 @@ export async function deleteApplication(id: string): Promise<void> {
   }
 }
 
-/** Fetch the INSTALL plan for an application (Phase 4). Null when analysis is not complete. */
-export async function fetchApplicationPlan(id: string): Promise<DeploymentPlan> {
-  const response = await fetch(`${apiUrl}/api/applications/${encodeURIComponent(id)}/plan`, {
+/** Fetch the INSTALL plan for an application (Phase 4). `profile` sizes the
+ *  plan for that tier; without it the application default is used. */
+export async function fetchApplicationPlan(id: string, profile?: InfrastructureSizeTier): Promise<DeploymentPlan> {
+  const query = profile ? `?profile=${encodeURIComponent(profile)}` : '';
+  const response = await fetch(`${apiUrl}/api/applications/${encodeURIComponent(id)}/plan${query}`, {
     credentials: 'include',
     cache: 'no-store',
   });

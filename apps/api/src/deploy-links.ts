@@ -2,8 +2,13 @@ import crypto from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import { DEFAULT_PENDING_SECRET_TTL_MS, type DeploymentType, type Region } from '@deployz/contracts';
-import { defaultInfrastructureSizeProfile } from '@deployz/contracts';
+import {
+  DEFAULT_PENDING_SECRET_TTL_MS,
+  estimateFootprintCost,
+  type DeploymentType,
+  type InfrastructureSizeTier,
+  type Region,
+} from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -14,6 +19,7 @@ import {
   compilerArtifactPublishInput,
   type TemplatePublisher,
 } from './compiler-artifact.js';
+import { planChangedError, planFingerprint, resolveSizeSelection, type LinkSizing } from './deployment-size.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
@@ -123,6 +129,12 @@ export interface CreateDeploymentParams {
   /** Public install link origin (source 'public_link' only): the link + confirm key. */
   publicInstallLinkId?: string;
   confirmKey?: string;
+  /** The chosen size; absent = the link recommendation, else the application default. */
+  sizeProfile?: InfrastructureSizeTier;
+  /** The sizing frozen on the public install link (source 'public_link' only). */
+  linkSizing?: LinkSizing;
+  /** The plan fingerprint the customer approved; the compiled plan must match it. */
+  approvedPlanFingerprint?: string;
 }
 
 export interface CreatedDeployment {
@@ -164,6 +176,7 @@ export async function createDeploymentRecord(
 ): Promise<CreatedDeployment> {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
   await loadOwnedCustomer(db, params.customerId, params.organizationId);
+  const { profile: sizeProfile } = resolveSizeSelection(application, params.sizeProfile, params.linkSizing);
   // Fail-closed backstop: a Region whose bootstrap artifacts are not
   // confirmed published never reaches a deployment row, so it can never
   // reach the relay or CloudFormation — even if a future caller forgets its
@@ -216,7 +229,24 @@ export async function createDeploymentRecord(
   const { spec, template, templateHash } = compileDeploymentIntent({
     manifest,
     region: params.region,
+    sizeProfile,
   });
+  // The customer approved one exact plan. The compiled stack must be that
+  // plan, else the caller's transaction rolls back and nothing is created.
+  if (params.approvedPlanFingerprint !== undefined) {
+    const footprint = spec.footprint;
+    const fingerprint =
+      footprint && params.publicInstallLinkId !== undefined
+        ? planFingerprint({
+            linkId: params.publicInstallLinkId,
+            region: params.region,
+            profile: sizeProfile,
+            footprint,
+            costEstimate: estimateFootprintCost(footprint),
+          })
+        : null;
+    if (fingerprint !== params.approvedPlanFingerprint) throw planChangedError();
+  }
   const publisher = compilerDeps?.templatePublisher ?? NO_OP_TEMPLATE_PUBLISHER;
   await publisher.publishTemplate(
     compilerArtifactPublishInput(params.region, templateHash, JSON.stringify(template)),
@@ -234,13 +264,13 @@ export async function createDeploymentRecord(
       specV2: spec,
       // Frozen desired state: the canonical manifest PLUS the immutable
       // infrastructure-size profile this deployment was created with. The
-      // profile reference is written once and never mutated — a later
-      // `minimal`/`large` profile is a NEW deployment, not an edit here.
+      // profile reference is written once and never mutated — a different
+      // size is a NEW deployment, not an edit here.
       desiredState: {
         manifest,
         infrastructureProfile: {
-          id: defaultInfrastructureSizeProfile().id,
-          version: defaultInfrastructureSizeProfile().version,
+          id: sizeProfile.id,
+          version: sizeProfile.version,
         },
       },
       enrollmentCode: mintEnrollmentCode(),
@@ -341,6 +371,7 @@ export interface CreateDeployLinkParams {
   customerId: string;
   applicationId: string;
   region: Region;
+  sizeProfile?: InfrastructureSizeTier;
 }
 
 export async function createDeployLink(
@@ -377,6 +408,7 @@ export async function createDeployLink(
         createdBy: params.userId,
         updatedBy: params.userId,
         source: 'deploy_link',
+        ...(params.sizeProfile !== undefined ? { sizeProfile: params.sizeProfile } : {}),
       },
       compilerDeps,
     );

@@ -78,6 +78,7 @@ import migration0048 from '../../../db/drizzle/0048_deployment_spec_v2.sql';
 import migration0049 from '../../../db/drizzle/0049_async_component_kinds.sql';
 import migration0050 from '../../../db/drizzle/0050_rds_az_capacity.sql';
 import migration0051 from '../../../db/drizzle/0051_release_confirmation.sql';
+import migration0052 from '../../../db/drizzle/0052_infrastructure_size_tiers.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 import { migrationsUpToDate } from './migration-check.js';
 
@@ -144,6 +145,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0049_async_component_kinds': migration0049,
   '0050_rds_az_capacity': migration0050,
   '0051_release_confirmation': migration0051,
+  '0052_infrastructure_size_tiers': migration0052,
 };
 
 interface RdsSecret {

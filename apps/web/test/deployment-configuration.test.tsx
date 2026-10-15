@@ -15,6 +15,12 @@ import type {
 } from '../src/lib/readiness';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom implements neither pointer capture nor scrollIntoView; Radix Select
+// calls them while handling pointer events.
+Element.prototype.scrollIntoView = () => {};
+Element.prototype.hasPointerCapture = () => false as never;
+Element.prototype.setPointerCapture = () => {};
+Element.prototype.releasePointerCapture = () => {};
 
 // The Configuration tab's "Required changes" panel and its Fix routing — a
 // required finding either opens the matching setting's edit dialog
@@ -25,6 +31,8 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   reanalyse: vi.fn(),
   updateApplication: vi.fn(),
+  updateApplicationSizes: vi.fn(),
+  fetchApplicationPlan: vi.fn(),
   generateFixInstructions: vi.fn(),
 }));
 
@@ -34,7 +42,12 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/lib/applications', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/applications')>();
-  return { ...actual, updateApplication: mocks.updateApplication };
+  return {
+    ...actual,
+    updateApplication: mocks.updateApplication,
+    updateApplicationSizes: mocks.updateApplicationSizes,
+    fetchApplicationPlan: mocks.fetchApplicationPlan,
+  };
 });
 
 vi.mock('@/lib/readiness', async (importOriginal) => {
@@ -58,6 +71,8 @@ function applicationFixture(overrides: Partial<Application> = {}): Application {
     databaseRequired: false,
     storageRequired: false,
     redisRequired: false,
+    defaultSizeProfile: 'small',
+    minimumSizeProfile: 'small',
     analysisStatus: 'COMPLETE',
     compatibilityStatus: 'READY',
     compatibilityReason: null,
@@ -164,6 +179,7 @@ beforeEach(() => {
   currentApplication = applicationFixture();
   currentReadiness = readinessFixture();
   currentPlan = null;
+  mocks.fetchApplicationPlan.mockResolvedValue(null);
   mocks.generateFixInstructions.mockReturnValue(new Promise(() => undefined)); // left pending by default
   window.location.hash = '';
   container = document.createElement('div');
@@ -365,24 +381,127 @@ function standardPlan(): DeploymentPlan {
 }
 
 describe('Deployment size and estimate', () => {
-  it('shows the current size with the plan’s estimate, and sizes without a profile as not available', async () => {
+  it('shows the recommended size with the plan’s estimate and no Small-only messaging', async () => {
     currentPlan = standardPlan();
 
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(byTestId('deployment-size-small')?.textContent).toContain('Current');
-    expect(byTestId('deployment-size-small')?.getAttribute('data-profile')).toBe('small-v2');
-    expect(byTestId('deployment-size-medium')?.textContent).toContain('Not available yet');
-    expect(byTestId('deployment-size-large')?.textContent).toContain('Not available yet');
-    expect(byTestId('deployment-size-gap')).not.toBeNull();
+    expect(byTestId('deployment-size-small')?.textContent).toContain('Recommended');
+    expect(byTestId('deployment-size-small')?.textContent).toContain('Minimum');
+    expect(document.body.textContent).not.toContain('Not available yet');
+    expect(document.body.textContent).not.toContain('Only the');
+    expect(document.body.textContent).toContain('Changes apply to new install links and new deployments only.');
 
     expect(byTestId('deployment-cost-kind')?.textContent).toBe('Baseline plus usage');
     expect(byTestId('deployment-cost-total')?.textContent).toMatch(/^~\$\d+–\d+\/month \+ usage$/);
     expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('Ireland (eu-west-1)');
     expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('730 hours a month');
     expect(byTestId('deployment-cost-charges')?.textContent).toContain('Deployz fees are not included');
+  });
+
+  async function press(element: Element | null): Promise<void> {
+    await act(async () => {
+      for (const type of ['pointerdown', 'mousedown', 'click', 'pointerup']) {
+        element?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+      }
+    });
+  }
+
+  function selectTrigger(label: string): HTMLElement {
+    return document.getElementById(
+      Array.from(document.querySelectorAll('label')).find((item) => item.textContent === label)?.htmlFor ?? '',
+    ) as HTMLElement;
+  }
+
+  function optionLabels(): string[] {
+    return Array.from(document.querySelectorAll('[role="option"]')).map((option) => option.textContent ?? '');
+  }
+
+  it('lists the three sizes with their resources and a cost estimate fetched per size', async () => {
+    currentApplication = applicationFixture({ databaseRequired: true, redisRequired: true });
+    currentPlan = standardPlan();
+    mocks.fetchApplicationPlan.mockResolvedValue(standardPlan());
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'small');
+    expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'medium');
+    expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'large');
+    expect(byTestId('deployment-size-small')?.textContent).toContain('0.25 vCPU · 512 MiB per service');
+    expect(byTestId('deployment-size-medium')?.textContent).toContain('1 vCPU · 2 GiB per service');
+    expect(byTestId('deployment-size-large')?.textContent).toContain('2 vCPU · 4 GiB per service');
+    expect(byTestId('deployment-size-medium')?.textContent).toContain('Database db.t3.medium');
+    // The resource lines follow the plan, which has a database and no cache.
+    expect(byTestId('deployment-size-large')?.textContent).not.toContain('Cache');
+    for (const tier of ['small', 'medium', 'large']) {
+      expect(byTestId(`deployment-size-${tier}-cost`)?.textContent).toMatch(/^~\$\d+–\d+\/month/);
+    }
+  });
+
+  it('leaves out the database and cache lines when the application has neither', async () => {
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    expect(byTestId('deployment-size-medium')?.textContent).not.toContain('Database');
+    expect(byTestId('deployment-size-medium')?.textContent).not.toContain('Cache');
+    expect(byTestId('deployment-size-medium-cost')?.textContent).toBe('Estimate unavailable');
+  });
+
+  it('raises the recommended size to the minimum and offers no size below it', async () => {
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+    expect(byTestId('deployment-size-save')?.hasAttribute('disabled')).toBe(true);
+
+    await press(selectTrigger('Minimum supported size'));
+    await press(Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent?.startsWith('Medium')) ?? null);
+
+    expect(selectTrigger('Recommended size').textContent).toContain('Medium');
+    await press(selectTrigger('Recommended size'));
+    expect(optionLabels().map((label) => label.split(' ')[0])).toEqual(['Medium', 'Large']);
+  });
+
+  it('saves the recommended and minimum sizes with one PATCH body and refreshes the page', async () => {
+    mocks.updateApplicationSizes.mockResolvedValue(applicationFixture());
+    mocks.refresh.mockResolvedValue(undefined);
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+    await press(selectTrigger('Recommended size'));
+    await press(Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent?.startsWith('Large')) ?? null);
+    expect(byTestId('deployment-size-save')?.hasAttribute('disabled')).toBe(false);
+
+    await click(byTestId('deployment-size-save'));
+
+    expect(mocks.updateApplicationSizes).toHaveBeenCalledWith('app-1', {
+      defaultSizeProfile: 'large',
+      minimumSizeProfile: 'small',
+    });
+    expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  it('shows the server message when it refuses the sizes', async () => {
+    const { ApiRequestError } = await import('../src/lib/api-client');
+    mocks.updateApplicationSizes.mockRejectedValue(
+      new ApiRequestError('SIZE_DEFAULT_BELOW_MINIMUM', 'The recommended size cannot be smaller than the minimum size.'),
+    );
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+    await press(selectTrigger('Recommended size'));
+    await press(Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent?.startsWith('Medium')) ?? null);
+    await click(byTestId('deployment-size-save'));
+
+    expect(byTestId('deployment-size-error')?.textContent).toBe(
+      'The recommended size cannot be smaller than the minimum size.',
+    );
   });
 
   it('says the estimate is unavailable when the plan could not be loaded — never $0', async () => {

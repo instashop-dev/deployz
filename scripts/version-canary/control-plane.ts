@@ -81,6 +81,8 @@ export interface DeploymentDetail {
   cleanupState: string | null;
   runningImageDigest: string | null;
   appUrl: string | null;
+  /** The frozen size (`GET /api/deployments/:id`); null on a deployment without one. */
+  size?: { id: string; label: string; profileKey: string } | null;
   /** The permanent `d-<id>.deployz.dev` address (`scripts/repository-deployment/deploy.ts`'s "Default HTTPS becomes ACTIVE" step uses the same shape). */
   defaultHttps?: { status?: string; hostname?: string; lastError?: string | null } | null;
   jobs: DeploymentJob[];
@@ -134,6 +136,39 @@ export interface InfrastructureInventory {
  * cross-checks against the inventory (`packages/contracts/src/plan.ts`). */
 export interface DeploymentPlanView {
   readonly components: readonly { readonly kind: string; readonly name: string; readonly action: string; readonly lifecycle: string }[];
+  readonly footprint?: PlanFootprint | null;
+  readonly costEstimate?: unknown;
+}
+
+/** The part of the plan footprint the sizing check reads (`packages/contracts/src/footprint.ts`). */
+export interface PlanFootprint {
+  readonly workloads: readonly { readonly id: string; readonly compute: { readonly cpuUnits: number; readonly memoryMiB: number; readonly sizeLabel: string } }[];
+  readonly resources: readonly { readonly id: string; readonly category: string; readonly configuration: Record<string, unknown> }[];
+}
+
+/** One size the public install page offers (`GET /api/public-install/:linkId`). */
+export interface PublicSizeOption {
+  readonly id: string;
+  readonly profileKey: string;
+  readonly recommended: boolean;
+}
+
+export interface PublicInstallView {
+  readonly sizing: { readonly recommended: string; readonly minimum: string; readonly options: readonly PublicSizeOption[] };
+}
+
+/** `GET /api/public-install/:linkId/plan` - the plan for one Region and size, plus its fingerprint. */
+export interface PublicInstallPlanView extends DeploymentPlanView {
+  readonly sizeProfile: string;
+  readonly planFingerprint: string | null;
+}
+
+export interface PublicInstallConfirmInput {
+  readonly idempotencyKey: string;
+  readonly region: string;
+  readonly sizeProfile: string;
+  readonly planFingerprint: string;
+  readonly config: readonly { readonly key: string; readonly value: string; readonly isSecret: boolean }[];
 }
 
 export class ControlPlaneError extends Error {
@@ -166,12 +201,12 @@ export class ControlPlane {
     method: string,
     path: string,
     body?: unknown,
-    options: { headers?: Record<string, string>; allowStatus?: number[] } = {},
+    options: { headers?: Record<string, string>; allowStatus?: number[]; anonymous?: boolean } = {},
   ): Promise<{ status: number; body: T; headers: Headers }> {
     const headers: Record<string, string> = {
       accept: 'application/json',
       ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-      ...(this.cookies.size > 0
+      ...(this.cookies.size > 0 && !options.anonymous
         ? { cookie: [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ') }
         : {}),
       ...options.headers,
@@ -179,7 +214,7 @@ export class ControlPlane {
     // node:https rather than fetch: the fetch spec forbids setting Origin,
     // which better-auth requires on every auth call.
     const response = await rawRequest(`${this.apiUrl}${path}`, method, headers, body === undefined ? undefined : JSON.stringify(body));
-    for (const cookie of response.setCookie) {
+    for (const cookie of options.anonymous ? [] : response.setCookie) {
       const pair = cookie.split(';')[0] ?? '';
       const eq = pair.indexOf('=');
       if (eq > 0) this.cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
@@ -336,12 +371,65 @@ export class ControlPlane {
     applicationId: string;
     customerId: string;
     region: string;
+    sizeProfile?: string;
   }): Promise<{ id: string; installLinkId: string }> {
     const { body } = await this.request<{ id: string; installLinkId: string }>('POST', '/api/deployments', {
       ...input,
       deploymentType: 'TEST',
     });
     return body;
+  }
+
+  /** A targeted invitation (`recommendedSizeProfile` is the per-link size override). */
+  async createInvitation(
+    customerId: string,
+    input: { applicationId: string; recommendedRegion?: string; recommendedSizeProfile?: string },
+  ): Promise<{ id: string; token: string; recommendedRegion: string | null; recommendedSizeProfile: string | null }> {
+    const { body } = await this.request<{
+      id: string;
+      token: string;
+      recommendedRegion: string | null;
+      recommendedSizeProfile: string | null;
+    }>('POST', `/api/customers/${customerId}/invitations`, input);
+    return body;
+  }
+
+  // -- Customer side: the public install page. Never sends the vendor session cookie. --
+
+  private publicOptions(token: string, allowStatus: number[] = []) {
+    return { headers: { 'x-deployz-token': token }, allowStatus, anonymous: true };
+  }
+
+  async publicInstall(linkId: string, token: string): Promise<PublicInstallView> {
+    const { body } = await this.request<PublicInstallView>('GET', `/api/public-install/${linkId}`, undefined, this.publicOptions(token));
+    return body;
+  }
+
+  async publicInstallPlan(linkId: string, token: string, region: string, profile: string): Promise<PublicInstallPlanView> {
+    const query = `region=${encodeURIComponent(region)}&profile=${encodeURIComponent(profile)}`;
+    const { body } = await this.request<PublicInstallPlanView>(
+      'GET',
+      `/api/public-install/${linkId}/plan?${query}`,
+      undefined,
+      this.publicOptions(token),
+    );
+    return body;
+  }
+
+  /** Answers any status in `allowStatus` instead of throwing, so a caller can assert a refusal. */
+  async publicInstallConfirm(
+    linkId: string,
+    token: string,
+    input: PublicInstallConfirmInput,
+    allowStatus: number[] = [],
+  ): Promise<{ status: number; body: { installLinkId?: string; error?: { code?: string } } }> {
+    const { status, body } = await this.request<{ installLinkId?: string; error?: { code?: string } }>(
+      'POST',
+      `/api/public-install/${linkId}/confirm`,
+      input,
+      this.publicOptions(token, allowStatus),
+    );
+    return { status, body };
   }
 
   async getDeployment(id: string): Promise<DeploymentDetail> {

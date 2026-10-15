@@ -108,6 +108,11 @@ const REMEDIATION_GENERATOR = /^packages\/analysis\/src\/fix-instructions\.ts$/;
 
 const CANARY_STATELESS = 'pnpm e2e:canary:versions profile --profile stateless';
 const CANARY_CORE = 'pnpm e2e:canary:versions core';
+// Sizing code (docs/infrastructure-profiles.md): one non-default size plus the
+// vendor → link → customer journey.
+const SIZING_CODE = /^(packages\/contracts\/src\/(profile|pricing)\.ts|apps\/api\/src\/deployment-size\.ts)$/;
+const CANARY_SIZE = 'pnpm e2e:canary:versions profile --profile stateless --size medium';
+const CANARY_JOURNEY = 'pnpm e2e:canary:versions journey --size small';
 const FRESH = 'pnpm e2e:fresh';
 
 // Verified by the selector self-test: every listed path must exist.
@@ -120,6 +125,9 @@ export const VERIFIED_PATHS = [
   'apps/api/src/jev-shadow.ts',
   'apps/api/src/sentry.ts',
   'apps/api/src/customer-activity.ts',
+  'apps/api/src/deployment-size.ts',
+  'packages/contracts/src/profile.ts',
+  'packages/contracts/src/pricing.ts',
   'packages/cdk/src/bootstrap',
   'packages/cdk/src/quick-create',
   'packages/cdk/src/lambda/relay-handler.ts',
@@ -241,6 +249,7 @@ function classify(f, layers, graph) {
     case 'apps/api': {
       if (isTest) return;
       if (!f.startsWith('apps/api/src/')) return;
+      if (SIZING_CODE.test(f)) layers.awsEscalation.add(CANARY_SIZE).add(CANARY_JOURNEY);
       if (API_NON_CRITICAL.some(p => p.test(f))) {
         layers.fixtureSuite = true;
         return;
@@ -260,6 +269,7 @@ function classify(f, layers, graph) {
     }
     case 'packages/contracts': {
       if (isTest) return;
+      if (SIZING_CODE.test(f)) layers.awsEscalation.add(CANARY_SIZE).add(CANARY_JOURNEY);
       critical('shared deployment contract changed');
       return;
     }

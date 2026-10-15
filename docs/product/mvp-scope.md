@@ -61,7 +61,7 @@ account:
 
 | Component | What Deployz provisions | Notes |
 | --- | --- | --- |
-| Compute | One build artifact on ECS Fargate: a web service behind an Application Load Balancer, plus one private service per declared background worker, plus a one-shot migration task when the app has a migration command | Needs a Dockerfile that builds a production image: a repository with none (or only development or template Dockerfiles) is `NOT_COMPATIBLE` when the full file list proves it. `small-v1`: 0.25 vCPU / 512 MiB per task. The web desired count comes from the profile; each worker runs one task. Workers have no URL and no load-balancer route. |
+| Compute | One build artifact on ECS Fargate: a web service behind an Application Load Balancer, plus one private service per declared background worker, plus a one-shot migration task when the app has a migration command | Needs a Dockerfile that builds a production image: a repository with none (or only development or template Dockerfiles) is `NOT_COMPATIBLE` when the full file list proves it. Per-task CPU/memory comes from the size profile (Small 0.25 vCPU / 512 MiB, Medium 1 vCPU / 2 GiB, Large 2 vCPU / 4 GiB). The web desired count comes from the profile; each worker runs one task. Workers have no URL and no load-balancer route. |
 | Database (optional) | RDS PostgreSQL 16 or RDS MySQL 8.0, `db.t3.micro`, 20 GB (autoscaling to 100 GB), gp3, 7-day backups, deletion protection | Provisioned only when the analysis manifest requires PostgreSQL or MySQL. **Retained** on disconnect. |
 | Cache (optional) | ElastiCache Valkey (Redis-compatible), single `cache.t4g.micro` node, no TLS, no cluster mode | Provisioned only when the manifest requires Redis. Deleted on disconnect. |
 | Storage | One S3 bucket, always created | **Retained** on disconnect. |
@@ -76,9 +76,12 @@ pre-published application template exists. Every workload (web, workers,
 migration) shares the one build artifact; there is exactly one image per
 deployment. Sizing is
 frozen per deployment in an immutable profile registry
-([`../infrastructure-profiles.md`](../infrastructure-profiles.md)); today
-`small-v2` is the current Small default (`small-v1` stays frozen for
-existing deployments) and the customer is not offered a choice.
+([`../infrastructure-profiles.md`](../infrastructure-profiles.md)). Three
+sizes exist: Small (`small-v2`), Medium (`medium-v1`) and Large
+(`large-v1`); `small-v1` stays frozen for existing deployments. The vendor
+sets a recommended size and a minimum size per application and can
+override the recommendation per link. The customer chooses any permitted
+size before installing. A size changes capacity only, never topology.
 
 Plan and status payloads may also name `worker`, `queue` and `schedule`
 component kinds. All three are real, provisioned components: a `queue` is
@@ -195,7 +198,8 @@ Not provided by the platform:
   image, so a worker that needs a different Dockerfile is unsupported.
 - Multi-Region or active-active deployments, on-premises, air-gapped
   environments.
-- Customer-selectable size profiles, changing the topology of an existing
+- Resizing an existing deployment, autoscaling, arbitrary AWS sizing,
+  more than one task per workload, changing the topology of an existing
   deployment (a new requirement means a new deployment), per-customer builds.
   A deploy to a deployment whose application now needs a database or cache
   that the deployment does not have, a different database engine (PostgreSQL
@@ -254,8 +258,9 @@ Recorded so they are not mistaken for gaps:
 
 - FIFO SQS queues and scheduled-job execution history/monitoring (see
   "Explicit MVP non-goals" above).
-- Additional infrastructure size profiles (`minimal`, `large`); each needs a
-  new infrastructure version and a security/cost review.
+- A topology-changing `minimal` size profile; it needs a new
+  infrastructure version and a security/cost review. In-place resizing of
+  an existing deployment.
 - Removal of the legacy deploy-link flow
   ([`../deploy-links.md`](../deploy-links.md)).
 - Customer-provided build-time values, Dockerfile `ARG` detection, format

@@ -5,6 +5,7 @@
 // customer by `deployment.customerId`. Email and name are contact metadata
 // that the vendor can change at any time without anything else moving.
 
+import type { InfrastructureSizeTier } from '@deployz/contracts';
 import {
   CUSTOMER_DEPLOYMENT_STATUS_BADGE,
   CUSTOMER_DEPLOYMENT_STATUS_LABELS,
@@ -48,6 +49,7 @@ export interface CustomerInvitation {
   id: string;
   applicationName: string;
   recommendedRegion: string | null;
+  recommendedSizeProfile: InfrastructureSizeTier | null;
   regionSelection: 'customer' | 'legacy_publisher_fixed';
   status: 'active' | 'expired' | 'revoked' | 'used';
   expiresAt: string | null;
@@ -67,6 +69,7 @@ export interface CreateInvitationInput {
   customerId: string;
   applicationId: string;
   recommendedRegion?: string;
+  recommendedSizeProfile?: InfrastructureSizeTier;
 }
 
 export interface CreatedInvitation {
@@ -74,6 +77,7 @@ export interface CreatedInvitation {
   token: string;
   expiresAt: string;
   recommendedRegion: string | null;
+  recommendedSizeProfile: InfrastructureSizeTier | null;
 }
 
 export function createInvitation(input: CreateInvitationInput): Promise<CreatedInvitation> {
@@ -84,6 +88,7 @@ export function createInvitation(input: CreateInvitationInput): Promise<CreatedI
       body: {
         applicationId: input.applicationId,
         ...(input.recommendedRegion ? { recommendedRegion: input.recommendedRegion } : {}),
+        ...(input.recommendedSizeProfile ? { recommendedSizeProfile: input.recommendedSizeProfile } : {}),
       },
     },
   );

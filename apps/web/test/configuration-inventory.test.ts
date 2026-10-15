@@ -5,7 +5,6 @@ import { buildInstallPlan, type DeploymentManifest, type DeploymentPlan, type Fo
 import type { Application } from '../src/lib/applications';
 import {
   deriveServiceInventory,
-  deriveSizeOptions,
   estimateKind,
   formatRowCost,
   summarizeCostItems,
@@ -18,7 +17,7 @@ import { webWorkersMysqlRedisArchitecture, webWorkersMysqlRedisPlan } from './fi
 
 // The Configuration tab's one "Services & resources" table: every AWS
 // resource and every cost item lands on exactly one row, unknown prices never
-// read as zero, and sizes come only from published profiles.
+// read as zero.
 
 function manifestWith(overrides: Partial<DeploymentManifest> = {}): DeploymentManifest {
   return {
@@ -76,6 +75,8 @@ function application(overrides: Partial<Application> = {}): Application {
     databaseRequired: true,
     storageRequired: true,
     redisRequired: true,
+    defaultSizeProfile: 'small',
+    minimumSizeProfile: 'small',
     analysisStatus: 'COMPLETE',
     compatibilityStatus: 'READY',
     compatibilityReason: null,
@@ -282,25 +283,6 @@ describe('cost aggregation', () => {
     expect(estimateKind({ ...base, monthlyMin: null, monthlyMax: null })).toBe('unavailable');
     expect(estimateKind(null)).toBe('unavailable');
     expect(estimateKind(STANDARD_PLAN.costEstimate)).toBe('baseline-plus-usage');
-  });
-});
-
-describe('deployment sizes', () => {
-  it('offers only published profiles and defaults to the size the plan was built with', () => {
-    const options = deriveSizeOptions(STANDARD_PLAN);
-    expect(options.map((option) => [option.label, option.available, option.selected, option.profileKey])).toEqual([
-      ['Small', true, true, 'small-v2'],
-      ['Medium', false, false, null],
-      ['Large', false, false, null],
-    ]);
-  });
-
-  it('follows the plan’s size, and a size without a published profile never becomes available', () => {
-    const options = deriveSizeOptions(webWorkersMysqlRedisPlan);
-    const medium = options.find((option) => option.id === 'medium')!;
-    expect(medium.selected).toBe(true);
-    expect(medium.available).toBe(false);
-    expect(deriveSizeOptions(null).find((option) => option.selected)?.id).toBe('small');
   });
 });
 

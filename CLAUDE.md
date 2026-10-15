@@ -58,6 +58,24 @@ and the relay trust boundary.
 For work that changes the MVP boundary, update docs/product/mvp-scope.md and
 record the reasoning in docs/decisions/README.md.
 
+## Infrastructure Sizing
+
+Before changing size profiles, size selection, pricing, or the sizing the
+compiler emits, read docs/infrastructure-profiles.md.
+
+- Never edit a published profile (`id` + `version`). New values for a size
+  are a new version.
+- Keep one size resolution (`resolveSizeSelection`) for every creation path.
+  Preview, pricing, compilation and deployment must use the same profile.
+- Keep compiler and pricing parity: every published profile has compiler pins
+  and pricing ranges.
+- Keep backward compatibility: deployments without a stored profile resolve
+  to `small-v2`; links without frozen sizing follow the application settings.
+- A size never changes topology and is never changed in place.
+- Test a sizing-code change with targeted vitest and the AWS size canary at one
+  non-default size. Certify a new or changed profile on real AWS for every
+  size and shape (docs/testing/aws-e2e.md#size-profiles).
+
 ## E2E testing
 
 Simulated E2E is the default (`pnpm e2e`). Do not invoke real AWS E2E

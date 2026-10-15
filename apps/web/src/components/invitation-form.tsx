@@ -3,6 +3,8 @@
 import { useEffect, useId, useState } from 'react';
 import { toast } from 'sonner';
 
+import { allowedSizeTiers, type InfrastructureSizeTier } from '@deployz/contracts';
+
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -22,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { copyInstallLink } from '@/components/copy-install-link';
+import { SizeSelect } from '@/components/size-select';
 import { apiUrl } from '@/lib/api-url';
 import { errorMessage } from '@/lib/api-client';
 import { fetchApplications, type Application } from '@/lib/applications';
@@ -53,10 +56,12 @@ export function InvitationDialog({
 }) {
   const appId = useId();
   const regionId = useId();
+  const sizeId = useId();
   const [applications, setApplications] = useState<Application[] | null>(null);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [applicationId, setApplicationId] = useState('');
   const [recommendedRegion, setRecommendedRegion] = useState('');
+  const [recommendedSize, setRecommendedSize] = useState<InfrastructureSizeTier | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<{ url: string; token: string } | null>(null);
@@ -67,6 +72,7 @@ export function InvitationDialog({
     setRevealed(null);
     setApplicationId('');
     setRecommendedRegion('');
+    setRecommendedSize(null);
     void fetchApplications()
       .then(setApplications)
       .catch(() => setError('Applications could not be loaded. Try again in a moment.'));
@@ -77,6 +83,14 @@ export function InvitationDialog({
         setRegions([]);
       });
   }, [open]);
+
+  const selectedApplication = (applications ?? []).find((application) => application.id === applicationId);
+
+  // The size starts at the application's recommended size.
+  function chooseApplication(id: string): void {
+    setApplicationId(id);
+    setRecommendedSize((applications ?? []).find((application) => application.id === id)?.defaultSizeProfile ?? null);
+  }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -93,6 +107,7 @@ export function InvitationDialog({
         body: JSON.stringify({
           applicationId,
           ...(recommendedRegion !== '' ? { recommendedRegion } : {}),
+          ...(recommendedSize ? { recommendedSizeProfile: recommendedSize } : {}),
         }),
       });
       if (!response.ok) {
@@ -127,7 +142,7 @@ export function InvitationDialog({
             <div className="flex flex-col gap-4 py-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor={appId}>Application</Label>
-                <Select value={applicationId} onValueChange={setApplicationId} required>
+                <Select value={applicationId} onValueChange={chooseApplication} required>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select an application" />
                   </SelectTrigger>
@@ -140,6 +155,17 @@ export function InvitationDialog({
                   </SelectContent>
                 </Select>
               </div>
+              {selectedApplication && recommendedSize ? (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={sizeId}>Recommended size</Label>
+                  <SizeSelect
+                    id={sizeId}
+                    value={recommendedSize}
+                    tiers={allowedSizeTiers(selectedApplication.minimumSizeProfile)}
+                    onValueChange={setRecommendedSize}
+                  />
+                </div>
+              ) : null}
               <div className="flex flex-col gap-2">
                 <Label htmlFor={regionId}>
                   Recommended AWS region <span className="text-muted-foreground">(Optional)</span>
