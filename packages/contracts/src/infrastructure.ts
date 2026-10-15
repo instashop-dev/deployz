@@ -404,10 +404,20 @@ export function aggregateInfrastructureComponents(
   const components: InfrastructureComponentSummary[] = [];
   for (const [kind, group] of byKind) {
     const display = INFRASTRUCTURE_COMPONENT_DISPLAY[kind];
+    // After deletion, a component whose primary resources are all removed is
+    // removed: a supporting leftover (a security group CloudFormation could
+    // not delete yet) is Purge's to sweep and stays visible in `resources`.
+    const primaryRows = group.filter((row) => row.resourceRole === 'primary');
+    const statusRows =
+      options.deploymentState === 'DELETED' &&
+      primaryRows.length > 0 &&
+      primaryRows.every((row) => row.resourceStatus === 'removed')
+        ? primaryRows
+        : group;
     // Highest-priority present status wins; a row whose mapped status is
     // outside the vocabulary degrades to 'unknown' rather than inventing one.
     const status =
-      COMPONENT_STATUS_PRIORITY.find((candidate) => group.some((row) => row.resourceStatus === candidate)) ??
+      COMPONENT_STATUS_PRIORITY.find((candidate) => statusRows.some((row) => row.resourceStatus === candidate)) ??
       'unknown';
     components.push({
       kind,
