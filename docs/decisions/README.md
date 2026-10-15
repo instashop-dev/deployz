@@ -710,7 +710,7 @@ not expire, and one key cannot separate staging from production.
 - Each GitHub Environment has its own IAM role, and the `deploy` job assumes
   it with OIDC (`id-token: write`). The trust policy holds one statement, with
   `StringEquals` only: the subject must be
-  `repo:instashop-dev/deployz:environment:<name>` and the audience must be
+  `repo:thalia-apps/deployz:environment:<name>` and the audience must be
   `sts.amazonaws.com`. A `StringLike` would also match another Environment.
 - The role ARN is the Environment variable `AWS_DEPLOY_ROLE_ARN`, not a
   secret. A role ARN is no credential, and a masked value would hide which

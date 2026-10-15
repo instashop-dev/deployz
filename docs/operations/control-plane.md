@@ -73,7 +73,7 @@ name the message id.
 
 GitHub Actions assumes one IAM role for each GitHub Environment with OIDC.
 Neither deploy workflow holds an AWS access key. Each role trusts only the
-subject `repo:instashop-dev/deployz:environment:<name>` with the audience
+subject `repo:thalia-apps/deployz:environment:<name>` with the audience
 `sts.amazonaws.com`. A job in another repository, or a job that declares no
 Environment, therefore gets no credentials.
 
