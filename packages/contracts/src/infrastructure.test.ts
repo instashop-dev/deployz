@@ -284,6 +284,36 @@ describe('aggregateInfrastructureComponents', () => {
     expect(result.components[0]!.status).toBe('retained');
     expect(result.summaryStatus).toBe('retained');
   });
+
+  it('delete — a removed cache stays removed when only its security group was skipped', () => {
+    const result = aggregateInfrastructureComponents(
+      [
+        row({
+          componentKind: 'cache',
+          logicalResourceId: 'CacheReplicationGroup',
+          resourceRole: 'primary',
+          resourceType: 'AWS::ElastiCache::ReplicationGroup',
+          lifecyclePolicy: 'delete',
+          resourceStatus: 'removed',
+          rawResourceStatus: 'DELETE_COMPLETE',
+        }),
+        row({
+          componentKind: 'cache',
+          logicalResourceId: 'CacheSecurityGroup',
+          resourceRole: 'supporting',
+          resourceType: 'AWS::EC2::SecurityGroup',
+          lifecyclePolicy: 'delete',
+          resourceStatus: 'retained',
+          rawResourceStatus: 'DELETE_SKIPPED',
+        }),
+      ],
+      { deploymentState: 'DELETED', region: 'us-east-1' },
+    );
+
+    expect(result.components[0]!.status).toBe('removed');
+    // The leftover is still listed with its raw status for Purge and support.
+    expect(result.components[0]!.resources[1]).toMatchObject({ status: 'DELETE_SKIPPED' });
+  });
 });
 
 describe('classifyResource', () => {
