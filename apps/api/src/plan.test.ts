@@ -9,8 +9,10 @@ import {
   buildDestroyPlan,
   buildInstallPlan,
   estimateFootprintCost,
+  MEDIUM_PROFILE,
   requiredAwsResources,
   resolveDeploymentFootprint,
+  SMALL_V2_PROFILE,
   toPlanAwsResource,
   type DeploymentManifest,
 } from '@deployz/contracts';
@@ -399,5 +401,81 @@ describe('deployment plans (Phase 4)', () => {
     expect(deploymentPlanResponse.statusCode, deploymentPlanResponse.body).toBe(200);
 
     expect(installBody.plan).toEqual(deploymentPlanResponse.json());
+  });
+
+  // ── Deployment sizes ─────────────────────────────────────────────────────
+
+  const workloadOf = (plan: unknown) =>
+    (plan as { footprint: { workloads: { compute: { cpuUnits: number; sizeLabel: string } }[] } }).footprint.workloads[0]!.compute;
+  const getApplicationPlan = (applicationId: string, query = '') =>
+    app.inject({ method: 'GET', url: `/api/applications/${applicationId}/plan${query}`, headers: { cookie: org.cookie } });
+  const patchApplication = (applicationId: string, payload: Record<string, unknown>) =>
+    app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${applicationId}`,
+      headers: { cookie: org.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify(payload),
+    });
+
+  it('GET /api/applications/:id/plan sizes the plan by ?profile, else the application default; an unknown profile is 422', async () => {
+    const application = await insertApplication(db, org.organizationId, { analysisStatus: 'COMPLETE' });
+    expect(workloadOf((await getApplicationPlan(application.id)).json())).toMatchObject({ cpuUnits: 256, sizeLabel: 'Small' });
+    expect(workloadOf((await getApplicationPlan(application.id, '?profile=large')).json())).toMatchObject({
+      cpuUnits: 2048,
+      sizeLabel: 'Large',
+    });
+
+    const sized = await insertApplication(db, org.organizationId, { analysisStatus: 'COMPLETE', defaultSizeProfile: 'medium' });
+    expect(workloadOf((await getApplicationPlan(sized.id)).json())).toMatchObject({ cpuUnits: 1024, sizeLabel: 'Medium' });
+
+    const unknown = await getApplicationPlan(application.id, '?profile=huge');
+    expect(unknown.statusCode).toBe(422);
+    expect(unknown.json()).toMatchObject({ error: { code: 'UNKNOWN_PROFILE' } });
+  });
+
+  it('PATCH /api/applications/:id persists valid size settings and refuses a default below the minimum', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const saved = await patchApplication(application.id, { defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const [row] = await db.select().from(schema.applications).where(eq(schema.applications.id, application.id));
+    expect(row).toMatchObject({ defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' });
+
+    for (const payload of [{ defaultSizeProfile: 'small' }, { minimumSizeProfile: 'large' }, { defaultSizeProfile: 'small', minimumSizeProfile: 'large' }]) {
+      const refused = await patchApplication(application.id, payload);
+      expect(refused.statusCode, refused.body).toBe(422);
+      expect(refused.json()).toMatchObject({ error: { code: 'SIZE_DEFAULT_BELOW_MINIMUM' } });
+    }
+    const [unchanged] = await db.select().from(schema.applications).where(eq(schema.applications.id, application.id));
+    expect(unchanged).toMatchObject({ defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' });
+  });
+
+  it('GET /api/deployments/:id/plan: a legacy deployment (no stored profile) plans as small-v2; a stored medium-v1 ref plans as medium', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const planOf = async (deployment: { id: string }) => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deployment.id}/plan?action=install`,
+        headers: { cookie: org.cookie },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json();
+    };
+
+    const legacy = await planOf(await insertDeployment(db, org.organizationId, application.id, customer.id));
+    expect(legacy).toMatchObject({
+      footprint: resolveDeploymentFootprint({ manifest: POSTGRES_MANIFEST, region: 'us-east-1', profile: SMALL_V2_PROFILE }),
+    });
+    expect(workloadOf(legacy)).toMatchObject({ cpuUnits: 256, sizeLabel: 'Small' });
+
+    const medium = await planOf(
+      await insertDeployment(db, org.organizationId, application.id, customer.id, {
+        desiredState: { manifest: POSTGRES_MANIFEST, infrastructureProfile: { id: 'medium', version: 1 } },
+      }),
+    );
+    expect(medium).toMatchObject({
+      footprint: resolveDeploymentFootprint({ manifest: POSTGRES_MANIFEST, region: 'us-east-1', profile: MEDIUM_PROFILE }),
+    });
+    expect(workloadOf(medium)).toMatchObject({ cpuUnits: 1024, sizeLabel: 'Medium' });
   });
 });

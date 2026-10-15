@@ -1,8 +1,13 @@
+import type { InfrastructureSizeTier } from '@deployz/contracts';
+
 import { apiUrl } from '@/lib/api-url';
 
 export interface PublicInstallConfirmBody {
   idempotencyKey: string;
   region: string;
+  sizeProfile: InfrastructureSizeTier;
+  /** The fingerprint of the plan the customer reviewed for this Region and size. */
+  planFingerprint: string;
   /** Required for a reusable link; a targeted invitation already names the customer. */
   customer?: { name: string; email: string };
   config: Array<{ key: string; value: string; isSecret: boolean }>;

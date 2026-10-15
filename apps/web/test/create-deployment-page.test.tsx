@@ -99,6 +99,8 @@ function application(overrides: Partial<Application> = {}): Application {
     databaseRequired: false,
     storageRequired: false,
     redisRequired: false,
+    defaultSizeProfile: 'small',
+    minimumSizeProfile: 'small',
     analysisStatus: 'COMPLETE',
     compatibilityStatus: 'READY',
     compatibilityReason: null,
@@ -266,6 +268,7 @@ describe('create-installation page (invitation-first)', () => {
     expect(mocks.createInvitation).toHaveBeenCalledWith({
       customerId: 'cus-new',
       applicationId: 'app-1',
+      recommendedSizeProfile: 'small',
     });
     expect(mocks.createDeploymentRecord).not.toHaveBeenCalled();
 
@@ -300,6 +303,7 @@ describe('create-installation page (invitation-first)', () => {
     expect(mocks.createInvitation).toHaveBeenCalledWith({
       customerId: 'cus-1',
       applicationId: 'app-1',
+      recommendedSizeProfile: 'small',
     });
     expect(mocks.createDeploymentRecord).not.toHaveBeenCalled();
   });
@@ -334,6 +338,36 @@ describe('create-installation page (invitation-first)', () => {
       customerId: 'cus-1',
       applicationId: 'app-1',
       recommendedRegion: 'us-east-1',
+      recommendedSizeProfile: 'small',
+    });
+  });
+
+  it('preselects the application default size, offers only sizes the minimum allows, and sends the choice', async () => {
+    mocks.fetchApplications.mockResolvedValue([
+      application({ defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' }),
+    ]);
+    mocks.fetchCustomers.mockResolvedValue([customer({ id: 'cus-1', name: 'Acme Corp' })]);
+
+    const container = await renderPage();
+    await selectCustomerOption('Acme Corp');
+
+    const sizeSelect = container.querySelector('#size') as HTMLSelectElement;
+    expect(container.querySelector('label[for="size"]')?.textContent).toBe('Recommended size');
+    expect(sizeSelect.value).toBe('medium');
+    expect(Array.from(sizeSelect.options).map((option) => option.value)).toEqual(['medium', 'large']);
+
+    await act(async () => {
+      sizeSelect.value = 'large';
+      sizeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      submitButton(container).click();
+    });
+
+    expect(mocks.createInvitation).toHaveBeenCalledWith({
+      customerId: 'cus-1',
+      applicationId: 'app-1',
+      recommendedSizeProfile: 'large',
     });
   });
 
@@ -454,10 +488,47 @@ describe('create-installation page (invitation-first)', () => {
         applicationId: 'app-1',
         region: 'us-east-1',
         deploymentType: 'TEST',
+        sizeProfile: 'small',
       }),
     );
     expect(mocks.createInvitation).not.toHaveBeenCalled();
     expect(container.textContent).toContain('Deployment created');
+  });
+
+  it('?test=true sends the chosen size profile', async () => {
+    mocks.fetchApplications.mockResolvedValue([application({ defaultSizeProfile: 'medium' })]);
+    mocks.fetchCustomers.mockResolvedValue([customer({ id: 'cus-1', name: 'Acme Corp' })]);
+    mocks.createDeploymentRecord.mockResolvedValue({
+      id: 'dep-1',
+      customerId: 'cus-1',
+      applicationId: 'app-1',
+      organizationId: 'org-1',
+      region: 'us-east-1',
+      state: 'NOT_INSTALLED',
+      installLinkId: 'link-1',
+      deploymentType: 'TEST',
+      createdAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    const container = await renderPage('test=true');
+    await selectCustomerOption('Acme Corp');
+
+    const sizeSelect = container.querySelector('#size') as HTMLSelectElement;
+    expect(container.querySelector('label[for="size"]')?.textContent).toBe('Size');
+    expect(sizeSelect.value).toBe('medium');
+    expect(Array.from(sizeSelect.options).map((option) => option.value)).toEqual(['small', 'medium', 'large']);
+
+    await act(async () => {
+      sizeSelect.value = 'large';
+      sizeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      submitButton(container).click();
+    });
+
+    expect(mocks.createDeploymentRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ deploymentType: 'TEST', sizeProfile: 'large' }),
+    );
   });
 });
 

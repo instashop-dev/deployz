@@ -8,6 +8,12 @@ import { ApiRequestError } from '../src/lib/api-client';
 import type { PublicInstallLinkCreated, PublicInstallLinkView } from '../src/lib/public-install-links';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom implements neither pointer capture nor scrollIntoView; Radix Select
+// calls them while handling pointer events.
+Element.prototype.scrollIntoView = () => {};
+Element.prototype.hasPointerCapture = () => false as never;
+Element.prototype.setPointerCapture = () => {};
+Element.prototype.releasePointerCapture = () => {};
 
 // InstallLinkControls / PublicInstallLinkCard render purely from the
 // `installLink` presentation the caller passes in — they never fetch. This
@@ -18,6 +24,7 @@ import type { PublicInstallLinkCreated, PublicInstallLinkView } from '../src/lib
 
 const linkMocks = vi.hoisted(() => ({
   createPublicInstallLink: vi.fn(),
+  fetchApplication: vi.fn(),
   setPublicInstallLinkEnabled: vi.fn(),
   revokePublicInstallLink: vi.fn(),
   regeneratePublicInstallLink: vi.fn(),
@@ -33,6 +40,10 @@ vi.mock('../src/lib/public-install-links', async (importOriginal) => {
     regeneratePublicInstallLink: linkMocks.regeneratePublicInstallLink,
   };
 });
+
+vi.mock('../src/lib/applications', () => ({
+  fetchApplication: linkMocks.fetchApplication,
+}));
 
 vi.mock('sonner', () => ({
   toast: {
@@ -81,6 +92,8 @@ function activeLink(overrides: Partial<PublicInstallLinkView> = {}): PublicInsta
     status: 'active',
     createdAt: '2026-09-04T00:00:00.000Z',
     revokedAt: null,
+    recommendedSizeProfile: null,
+    minimumSizeProfile: null,
     ...overrides,
   };
 }
@@ -115,6 +128,7 @@ let root: Root;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  linkMocks.fetchApplication.mockRejectedValue(new Error('no application in this test'));
   vi.stubGlobal('navigator', {
     clipboard: {
       writeText: vi.fn().mockResolvedValue(undefined),
@@ -229,9 +243,61 @@ describe('InstallLinkControls actions', () => {
     });
     await flush();
 
-    expect(linkMocks.createPublicInstallLink).toHaveBeenCalledWith(APP_ID);
+    expect(linkMocks.createPublicInstallLink).toHaveBeenCalledWith(APP_ID, undefined);
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(toast.success).toHaveBeenCalledWith('Install link created.');
+  });
+
+  it('shows the application default size, only sizes the minimum allows, and creates the link with the chosen size', async () => {
+    linkMocks.fetchApplication.mockResolvedValue({ defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' });
+    linkMocks.createPublicInstallLink.mockResolvedValue(createdLink());
+    renderControls({ kind: 'create', note: null });
+    await flush();
+
+    const trigger = container.querySelector('[data-slot="select-trigger"]') as HTMLElement;
+    expect(container.textContent).toContain('Recommended size');
+    expect(trigger.textContent).toContain('Medium');
+
+    await act(async () => {
+      for (const type of ['pointerdown', 'mousedown', 'click', 'pointerup']) {
+        trigger.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+      }
+    });
+    const options = Array.from(document.querySelectorAll('[role="option"]'));
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Medium (1 vCPU · 2 GiB)',
+      'Large (2 vCPU · 4 GiB)',
+    ]);
+    await act(async () => {
+      for (const type of ['pointerdown', 'mousedown', 'click', 'pointerup']) {
+        options[1]?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+      }
+    });
+
+    await act(async () => {
+      click(container.querySelector('[data-testid="public-install-link-create"]'));
+    });
+    await flush();
+
+    expect(linkMocks.createPublicInstallLink).toHaveBeenCalledWith(APP_ID, 'large');
+  });
+
+  it('shows the size a link froze, and nothing for an older link without one', () => {
+    renderControls(liveLink(activeLink({ recommendedSizeProfile: 'medium' })));
+    expect(container.querySelector('[data-testid="public-install-link-size"]')?.textContent).toBe(
+      'Recommended size: Medium',
+    );
+
+    act(() => {
+      root.render(
+        <InstallLinkControls
+          applicationId={APP_ID}
+          installLink={liveLink(activeLink())}
+          onChanged={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+    });
+    expect(container.querySelector('[data-testid="public-install-link-size"]')).toBeNull();
   });
 
   it('copies the direct link and reports success', async () => {

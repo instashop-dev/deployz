@@ -506,6 +506,11 @@ function DetailBody({
         <h2 id="infrastructure" className="text-base font-semibold">
           Infrastructure
         </h2>
+        {detail.size ? (
+          <p className="text-sm text-muted-foreground" data-testid="deployment-size-label">
+            Size: {detail.size.label}
+          </p>
+        ) : null}
         <InfrastructureSummary
           detail={detail}
           infrastructure={inventory}

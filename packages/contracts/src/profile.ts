@@ -14,7 +14,8 @@ import { z } from 'zod';
 // A topology- or sizing-changing option (a future `minimal` profile, a
 // different RDS class) requires a NEW version plus a new `infra_version` and a
 // security review — it never mutates a published entry. `small-v1` is the
-// original published profile; `small-v2` is the current default.
+// original published profile. The current version of each size tier
+// (`small-v2`, `medium-v1`, `large-v1`) is what new deployments freeze.
 
 export const INFRASTRUCTURE_SIZE_PROFILE_SCHEMA_VERSION = 1 as const;
 
@@ -86,15 +87,97 @@ export const SMALL_V2_PROFILE: InfrastructureSizeProfile = {
   },
 };
 
-// The published registry. Adding a new profile appends here and appends a
-// `resolveInfrastructureSizeProfile` entry; it never edits `SMALL_PROFILE`.
-export const INFRASTRUCTURE_SIZE_PROFILES: readonly InfrastructureSizeProfile[] = [SMALL_PROFILE, SMALL_V2_PROFILE];
+export const MEDIUM_PROFILE: InfrastructureSizeProfile = {
+  id: 'medium',
+  version: 1,
+  label: 'Medium',
+  description:
+    'Each container gets 1 vCPU / 2 GiB, a db.t3.medium PostgreSQL 16 or MySQL 8.0 instance (20 GB, gp3), and a single-node cache.t4g.small Valkey cache when the application needs one.',
+  workload: {
+    cpuUnits: 1024,
+    memoryMiB: 2048,
+    desiredCount: 1,
+  },
+  database: {
+    instanceClass: 'db.t3.medium',
+    storageGb: 20,
+    maxStorageGb: 100,
+    storageType: 'gp3',
+  },
+  cache: {
+    nodeType: 'cache.t4g.small',
+    nodeCount: 1,
+  },
+};
+
+export const LARGE_PROFILE: InfrastructureSizeProfile = {
+  id: 'large',
+  version: 1,
+  label: 'Large',
+  description:
+    'Each container gets 2 vCPU / 4 GiB, a db.t3.large PostgreSQL 16 or MySQL 8.0 instance (20 GB, gp3), and a single-node cache.t4g.medium Valkey cache when the application needs one.',
+  workload: {
+    cpuUnits: 2048,
+    memoryMiB: 4096,
+    desiredCount: 1,
+  },
+  database: {
+    instanceClass: 'db.t3.large',
+    storageGb: 20,
+    maxStorageGb: 100,
+    storageType: 'gp3',
+  },
+  cache: {
+    nodeType: 'cache.t4g.medium',
+    nodeCount: 1,
+  },
+};
+
+// The published registry. Adding a new profile appends here; it never edits
+// a published entry. A new version of a tier also moves that tier's entry in
+// `CURRENT_PROFILE_BY_TIER`.
+export const INFRASTRUCTURE_SIZE_PROFILES: readonly InfrastructureSizeProfile[] = [
+  SMALL_PROFILE,
+  SMALL_V2_PROFILE,
+  MEDIUM_PROFILE,
+  LARGE_PROFILE,
+];
+
+/** The size tiers a vendor or customer can choose, smallest first. */
+export const INFRASTRUCTURE_SIZE_TIERS = ['small', 'medium', 'large'] as const;
+export const infrastructureSizeTierSchema = z.enum(INFRASTRUCTURE_SIZE_TIERS);
+export type InfrastructureSizeTier = z.infer<typeof infrastructureSizeTierSchema>;
+
+/** The Deployz default tier: the last step of the selection precedence. */
+export const DEFAULT_INFRASTRUCTURE_SIZE_TIER: InfrastructureSizeTier = 'small';
+
+// The version of each tier that a NEW deployment freezes.
+const CURRENT_PROFILE_BY_TIER: Readonly<Record<InfrastructureSizeTier, InfrastructureSizeProfile>> = {
+  small: SMALL_V2_PROFILE,
+  medium: MEDIUM_PROFILE,
+  large: LARGE_PROFILE,
+};
+
+/** The profile a new deployment of `tier` freezes. */
+export function currentInfrastructureSizeProfile(tier: InfrastructureSizeTier): InfrastructureSizeProfile {
+  return CURRENT_PROFILE_BY_TIER[tier];
+}
+
+/** True when `tier` is the same size as `minimum` or bigger. */
+export function sizeTierMeetsMinimum(tier: InfrastructureSizeTier, minimum: InfrastructureSizeTier): boolean {
+  return INFRASTRUCTURE_SIZE_TIERS.indexOf(tier) >= INFRASTRUCTURE_SIZE_TIERS.indexOf(minimum);
+}
+
+/** The tiers a selection may use when `minimum` is the smallest supported size. */
+export function allowedSizeTiers(minimum: InfrastructureSizeTier): InfrastructureSizeTier[] {
+  return INFRASTRUCTURE_SIZE_TIERS.filter((tier) => sizeTierMeetsMinimum(tier, minimum));
+}
 
 const PROFILES_BY_KEY = new Map<string, InfrastructureSizeProfile>(
   INFRASTRUCTURE_SIZE_PROFILES.map((profile) => [profileKey(profile), profile]),
 );
 
-/** The stable registry key for a profile: `small-v1`, `small-v2`. */
+/** The stable registry key for a profile: `small-v1`, `small-v2`, `medium-v1`. */
 export function profileKey(profile: InfrastructureSizeProfile): string {
   return `${profile.id}-v${profile.version}`;
 }
@@ -109,8 +192,13 @@ export function resolveInfrastructureSizeProfile(
 
 /** The current default profile for newly created deployments. */
 export function defaultInfrastructureSizeProfile(): InfrastructureSizeProfile {
-  return SMALL_V2_PROFILE;
+  return currentInfrastructureSizeProfile(DEFAULT_INFRASTRUCTURE_SIZE_TIER);
 }
+
+// Deployments created before the registry stored no reference. They were
+// built with small-v2 sizing, so they resolve to small-v2 even when the
+// default tier or its current version changes later.
+const LEGACY_DEPLOYMENT_PROFILE = SMALL_V2_PROFILE;
 
 /** Zod schema for the frozen profile reference stored in a deployment's desired state. */
 export const infrastructureSizeProfileRefSchema = z
@@ -123,7 +211,7 @@ export type InfrastructureSizeProfileRef = z.infer<typeof infrastructureSizeProf
 
 /**
  * Resolve the profile a deployment was frozen with, from its desired state.
- * Existing deployments (no stored profile) resolve safely to `small-v1`. A
+ * Existing deployments (no stored profile) resolve safely to `small-v2`. A
  * stored reference that does not resolve to a published profile returns
  * `undefined` — callers must fail closed rather than guess a size.
  */
@@ -131,7 +219,7 @@ export function resolveStoredInfrastructureSizeProfile(
   desiredState: Record<string, unknown> | null | undefined,
 ): InfrastructureSizeProfile | undefined {
   const ref = (desiredState as { infrastructureProfile?: unknown } | null | undefined)?.infrastructureProfile;
-  if (ref === undefined) return defaultInfrastructureSizeProfile();
+  if (ref === undefined) return LEGACY_DEPLOYMENT_PROFILE;
   const parsed = infrastructureSizeProfileRefSchema.safeParse(ref);
   if (!parsed.success) return undefined;
   return resolveInfrastructureSizeProfile(parsed.data.id, parsed.data.version);

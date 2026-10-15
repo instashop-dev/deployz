@@ -1,10 +1,11 @@
 import { and, eq, lt } from 'drizzle-orm';
 
-import type { Region } from '@deployz/contracts';
+import type { InfrastructureSizeTier, Region } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, materializePendingSecretsForDeployment } from './deploy-links.js';
+import { resolveSizeSelection } from './deployment-size.js';
 import { ApiError } from './errors.js';
 import { recordEvent } from './events.js';
 import { newestDeployableRelease, releaseRequiredError } from './install-parameters.js';
@@ -47,6 +48,8 @@ export interface CreateCheckoutIntentParams {
   applicationId?: string;
   customerId?: string;
   region?: Region;
+  /** The size for the parked deployment; absent = the application default. */
+  sizeProfile?: InfrastructureSizeTier;
   createdBy: string | null;
 }
 
@@ -137,6 +140,7 @@ export async function createCheckoutIntent(
     }
     const application = await loadOwnedApplication(db, applicationId, params.organizationId);
     await loadOwnedCustomer(db, customerId, params.organizationId);
+    resolveSizeSelection(application, params.sizeProfile);
     const { result } = await runApplicationPreflight(db, application, customerId);
     requirePreflightReady(result);
     if (!(await newestDeployableRelease(db, applicationId))) throw releaseRequiredError();
@@ -160,6 +164,7 @@ export async function createCheckoutIntent(
     applicationId: params.applicationId ?? null,
     customerId: params.customerId ?? null,
     region: params.region ?? null,
+    sizeProfile: params.sizeProfile ?? null,
     createdBy: params.createdBy,
   };
   let intent: typeof schema.billingCheckoutIntents.$inferSelect;
@@ -300,6 +305,7 @@ export async function completePendingCheckoutIntent(
           applicationId: intent.applicationId,
           customerId: intent.customerId,
           region: intent.region,
+          ...(intent.sizeProfile !== null ? { sizeProfile: intent.sizeProfile } : {}),
           deploymentType: 'PRODUCTION',
           createdBy: intent.createdBy,
           updatedBy: intent.createdBy,

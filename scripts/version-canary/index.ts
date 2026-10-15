@@ -4,8 +4,10 @@
  *   pnpm e2e:canary:versions preflight             identity, region, control plane, fixture tags (no mutation)
  *   pnpm e2e:canary:versions core [--keep]         the golden path (docs/testing/aws-e2e.md)
  *   pnpm e2e:canary:versions resilience [--keep]   duplicate/concurrent requests and relay interruption
- *   pnpm e2e:canary:versions profile --profile <pg|stateless|redis> [--run-id <id>]
- *                                                  one infrastructure profile: install + teardown, no version ladder.
+ *   pnpm e2e:canary:versions profile --profile <pg|stateless|redis|combined> [--size <small|medium|large>] [--run-id <id>]
+ *                                                  one infrastructure profile: install + sizing check + teardown, no version ladder.
+ *   pnpm e2e:canary:versions journey [--size <small|medium|large>] [--profile <name>]
+ *                                                  vendor sizes -> link recommendation -> customer choice -> install, deploy, rollback.
  *   pnpm e2e:canary:versions cleanup --run-id <id> product destroy/purge + canary leftovers for a recorded run
  *   pnpm e2e:canary:versions audit --run-id <id>   leak audit for a recorded run (read-only)
  *   pnpm e2e:canary:versions env-probe --stack <name> --keys A,B [--expect <file>]
@@ -22,13 +24,13 @@ import { ControlPlane } from './control-plane.js';
 import { compareEnvProbe, expectedProbe, probeRuntimeEnv } from './env-probe.js';
 import { Evidence, type RunRecord } from './evidence.js';
 import { runResilience } from './resilience.js';
-import { runCore, runProfile } from './scenarios.js';
+import { runCore, runJourney, runProfile } from './scenarios.js';
 import { preflight, type Canary } from './steps.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teardown.js';
 
 function usage(): void {
   console.error(
-    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|profile --profile <pg|stateless|redis> [--run-id <id>]|cleanup --run-id <id>|audit --run-id <id>|env-probe --stack <name> --keys A,B [--expect <file>]>',
+    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|profile --profile <pg|stateless|redis|combined> [--size <small|medium|large>] [--run-id <id>]|journey [--size <small|medium|large>] [--profile <name>]|cleanup --run-id <id>|audit --run-id <id>|env-probe --stack <name> --keys A,B [--expect <file>]>',
   );
 }
 
@@ -40,6 +42,7 @@ function newRun(config: ReturnType<typeof loadConfig>, scenario: string): RunRec
     region: config.region,
     accountId: config.expectedAccountId,
     scenario,
+    ...(config.size ? { size: config.size } : {}),
     releases: {},
     markers: [],
     jobs: [],
@@ -57,6 +60,7 @@ async function main(): Promise<void> {
       'existing-image': { type: 'string' },
       'reuse-stack': { type: 'boolean', default: false },
       profile: { type: 'string' },
+      size: { type: 'string' },
       stack: { type: 'string' },
       keys: { type: 'string' },
       expect: { type: 'string' },
@@ -69,6 +73,7 @@ async function main(): Promise<void> {
     ...(values['existing-image'] ? { existingImageDigest: values['existing-image'] } : {}),
     reuseStack: values['reuse-stack'],
     ...(values['profile'] ? { profileName: values['profile'] } : {}),
+    ...(values['size'] ? { sizeName: values['size'] } : {}),
   });
 
   switch (command) {
@@ -95,13 +100,27 @@ async function main(): Promise<void> {
       return;
     }
     case 'profile': {
-      if (!values['profile']) throw new Error('profile needs --profile <pg|stateless|redis>');
+      if (!values['profile']) throw new Error('profile needs --profile <pg|stateless|redis|combined>');
       if (!config.profile) throw new Error(`--profile "${values['profile']}" did not resolve to a profile`);
       const evidence = new Evidence(config.resultsDir, newRun(config, `profile-${config.profile.name}`));
       const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl, config.webUrl) };
       console.log(`Run ${config.runId} (profile ${config.profile.name}) — evidence in ${evidence.dir}`);
       try {
         await runProfile(canary);
+        evidence.finish('PASS');
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        evidence.finish('FAIL');
+        process.exitCode = 1;
+      }
+      return;
+    }
+    case 'journey': {
+      const evidence = new Evidence(config.resultsDir, newRun(config, `journey-${config.size ?? 'small'}`));
+      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl, config.webUrl) };
+      console.log(`Run ${config.runId} (journey ${config.size ?? 'small'}) — evidence in ${evidence.dir}`);
+      try {
+        await runJourney(canary);
         evidence.finish('PASS');
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));

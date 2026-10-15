@@ -10,6 +10,7 @@ import {
   defaultCapabilityRegistry,
   defaultInfrastructureSizeProfile,
   type DeploymentManifest,
+  type InfrastructureSizeProfile,
   type DeploymentSpecV2,
   type Region,
 } from '@deployz/contracts';
@@ -110,14 +111,16 @@ export interface CompiledDeploymentIntent {
 export function compileDeploymentIntent(input: {
   manifest: DeploymentManifest;
   region: Region;
+  sizeProfile?: InfrastructureSizeProfile;
 }): CompiledDeploymentIntent {
+  const sizeProfile = input.sizeProfile ?? defaultInfrastructureSizeProfile();
   const graph = manifestToApplicationGraph(input.manifest);
-  const ir = planApplicationGraph({ graph, region: input.region });
-  const compilation = compileDeployzInfrastructure({ ir, region: input.region });
+  const ir = planApplicationGraph({ graph, region: input.region, sizeProfile });
+  const compilation = compileDeployzInfrastructure({ ir, region: input.region, sizeProfile });
   const spec = buildDeploymentSpecV2({
     graph,
     ir,
-    sizeProfileId: defaultInfrastructureSizeProfile().id,
+    sizeProfileId: sizeProfile.id,
     capabilityRegistryVersion: defaultCapabilityRegistry().version,
     compilation: {
       compilerVersion: compilation.artifact.compilerVersion,

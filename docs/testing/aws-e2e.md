@@ -197,8 +197,9 @@ auto-deploys the newest READY release, so v2/v3/v4 are only built once the
 - **Fixture B — the `core` ladder** (`pnpm e2e:canary:versions core`): the
   full release/rollback/failed-release/recovery/persistence/cleanup
   lifecycle described below, under the PostgreSQL+Redis shape.
-- **Other profiles** — `profile --profile pg` (PostgreSQL only) and
-  `profile --profile redis` (Redis only) each certify one infrastructure
+- **Other profiles** — `profile --profile pg` (PostgreSQL only),
+  `profile --profile redis` (Redis only) and `profile --profile combined`
+  (PostgreSQL and Redis) each certify one infrastructure
   shape: install to HEALTHY with the plan-vs-inventory gate, default HTTPS
   ACTIVE, bindings, then full teardown with its retained-state checks. No
   markers, no update/rollback ladder — `core` already proves that logic
@@ -210,7 +211,8 @@ auto-deploys the newest READY release, so v2/v3/v4 are only built once the
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions preflight
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core [--keep] [--existing-image=<digest>] [--reuse-stack]
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions resilience [--keep]
-DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile <pg|stateless|redis> [--run-id <id>] [--production]
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile <pg|stateless|redis|combined> [--size <small|medium|large>] [--run-id <id>] [--production]
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions journey --size <small|medium|large> [--profile <name>] [--run-id <id>]
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions cleanup --run-id <id>
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions audit --run-id <id>
 ```
@@ -227,6 +229,7 @@ Troubleshooting below).
 | `--existing-image=<digest>` (env `DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST`) | Skip CodeBuild/GitHub-source rebuilds and reuse the supplied digest (`sha256:[0-9a-f]{64}`) for every release version — v1, v2, v3 and v4 all share it, so version verification relies on release/deployment records, not image changes. Use during deployment-engine iteration when the image is already published and the ~20-minute build wait is unnecessary; the default path (no flag) builds each release through CodeBuild and is required for full build-pipeline validation. |
 | `--reuse-stack` | Skip bootstrap stack creation, application stack provisioning, and final infrastructure teardown; reuse a standing stack tagged `DeployzPersistent=true` and `DeployzTestMode=canary` (name defaults to `deployz-app`, override with `DEPLOYZ_E2E_CANARY_STACK_NAME`). Per-run resources (customer, deployment, releases) are still created and cleaned; infrastructure is left standing. Combine with `--keep` to leave both standing for the next reuse-stack run. Do not use when testing bootstrap or teardown logic itself. |
 | `--production` | `profile` only — see L6 below. |
+| `--size <small\|medium\|large>` (env `DEPLOYZ_CANARY_SIZE`) | Size of the deployment. Unset sends no size (application default). See [Size profiles](#size-profiles). |
 
 ### Runtime environment probe (`env-probe`)
 
@@ -279,6 +282,92 @@ therefore invoke the relay once between polls (the same handler the schedule
 invokes, synchronously, so nudges cannot overlap). The deploy/rollback
 ladder itself is never nudged, so the canary keeps proving a scheduled poll
 delivers release work.
+
+### Size profiles
+
+Deployz has three sizes: Small, Medium and Large
+([`infrastructure-profiles.md`](../infrastructure-profiles.md)). The version
+canary certifies a size on real AWS.
+
+**The `--size` flag.** `--size <small|medium|large>` (environment variable
+`DEPLOYZ_CANARY_SIZE`) sends `sizeProfile` when the canary creates the
+deployment. If you do not set it, the canary sends no size and the
+application default applies. The expected size is then Small. An unknown
+value stops the run before any AWS call. The run record (`run.json`) keeps
+the size in `size` and the last sizing check in `sizing`.
+
+**The `combined` profile.** `--profile combined` requires PostgreSQL and
+Redis. The `pg`, `stateless` and `redis` profiles each cover one part of
+this shape. Only `combined` shows that the database and the cache take the
+same size in one stack.
+
+**The sizing check (`assertSizing`).** The `profile` scenario runs it after
+the deployment is HEALTHY and before the teardown. The check reads three
+sources and compares each to the current profile of the expected size:
+
+1. The frozen size in `GET /api/deployments/:id` (`size.profileKey`).
+2. The install plan footprint (`GET /api/deployments/:id/plan?action=install`):
+   the CPU and memory of each workload, the database instance type and
+   storage, the cache node type and node count.
+3. AWS. The canary finds every resource through the application stack's own
+   resource list. It does not search the account. It reads the CPU and
+   memory of the task definition of every ECS service (the web service and
+   each worker), the desired count, the RDS `DBInstanceClass`,
+   `AllocatedStorage` and `StorageType`, and the ElastiCache replication
+   group `CacheNodeType` and node count. It reads the database and the cache
+   only when the profile has them.
+
+The check fails when AWS differs from the expected size, when the plan
+differs from the expected size, or when the plan and AWS differ from each
+other (plan parity). The message names each field with the value in AWS and
+the expected value. The step file keeps the expected and actual values.
+
+**The `journey` scenario.** It drives the whole size path through the
+product API:
+
+```
+vendor sets application default medium, minimum small
+→ build v1 → vendor invites a customer, link recommendation large
+→ customer (no session) opens the invitation: recommended is large
+→ customer reviews the plan for the chosen size (default small)
+→ a different size gives a different fingerprint and estimate
+→ a stale fingerprint is refused: 409 PLAN_CHANGED
+→ customer confirms → install → HEALTHY → default HTTPS → sizing check
+→ deploy v2 → sizing check → rollback to v1 → sizing check
+→ Disconnect → Purge → leftovers → leak audit
+```
+
+The chosen size is `--size`. The default is Small, so the customer's choice
+differs from the link recommendation (Large) and the application default
+(Medium). The journey sets the application sizes back to Small and Small
+when it ends. `--profile` is optional. Without it, the journey uses the
+legacy shape (PostgreSQL). Use `--profile stateless` to keep the run short.
+
+**Certification rule.**
+
+- A NEW or CHANGED size profile (a new version, a new instance class, a new
+  CPU or memory value) needs every size certified for every shape. That is
+  3 sizes × 4 profiles (`stateless`, `pg`, `redis`, `combined`). The runs are
+  independent. They can run in parallel in different Regions (one bootstrap
+  stack for each Region). Run the `journey` once at the end.
+- An ordinary change to the sizing code (selection, links, plan, pricing,
+  dashboard) needs the `stateless` profile at one size that is not the
+  default (for example `--size medium`), plus the `journey`.
+- A change that does not touch sizing needs no size run.
+
+**Parallel runs.** Each run has its own run id, evidence directory
+(`canary-results/<run-id>`), customer, release versions and stack names.
+Set `AWS_REGION` differently for each parallel run. Pass `--size` in every
+parallel run. The canary application is shared in the vendor organization.
+The `journey` changes its default and minimum sizes while it runs. A parallel
+run that does not set `--size` can then create its deployment with the wrong
+default. The workflow `aws-version-canary` concurrency group runs one workflow
+at a time, so run parallel certifications from separate local shells.
+
+**Cost.** Large uses `db.t3.large` and `cache.t4g.medium`, and 2 vCPU /
+4 GiB tasks. Medium uses `db.t3.medium` and `cache.t4g.small`. Keep the runs
+short. Do not use `--keep` on a Large run. Always run `cleanup --run-id` and
+`audit --run-id` after a failed run.
 
 ### The MVP release gate
 
@@ -590,6 +679,10 @@ invisible to unit tests, CI and the simulator — not a judgment call:
   stateless `profile`, plus `fresh` in addition when the change is under
   `packages/cdk/src/bootstrap/`, `bin/bootstrap.ts`, or
   `packages/cdk/artifacts/bootstrap-*`.
+- **A sizing change** (size profiles, size selection, pricing, or the
+  sizing the compiler emits): the stateless `profile` at one non-default
+  `--size`, plus the `journey` scenario. A new or changed profile needs the
+  full size certification in [Size profiles](#size-profiles).
 - **A `packages/fixture` change** (non-test):
   `pnpm canary:fixture-repo && DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless`
   — the fixture repository must be regenerated before a canary can use it.

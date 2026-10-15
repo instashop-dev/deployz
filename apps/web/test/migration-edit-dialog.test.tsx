@@ -36,6 +36,8 @@ const application: Application = {
   databaseRequired: true,
   storageRequired: false,
   redisRequired: false,
+  defaultSizeProfile: 'small',
+  minimumSizeProfile: 'small',
   analysisStatus: 'COMPLETE',
   compatibilityStatus: 'NEEDS_ATTENTION',
   compatibilityReason: null,

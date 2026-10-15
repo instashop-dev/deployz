@@ -1,9 +1,12 @@
 'use client';
 
 import { Copy, ExternalLink, Link2, MoreHorizontal, RotateCcw, TriangleAlert } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { toast } from 'sonner';
 
+import { allowedSizeTiers, type InfrastructureSizeTier } from '@deployz/contracts';
+
+import { SizeSelect } from '@/components/size-select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -24,8 +27,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiRequestError, errorMessage } from '@/lib/api-client';
+import { fetchApplication } from '@/lib/applications';
 import type { InstallLinkPresentation, InstallLinkStatus } from '@/lib/application-state';
 import {
   createPublicInstallLink,
@@ -35,6 +40,7 @@ import {
   setPublicInstallLinkEnabled,
   type PublicInstallLinkView,
 } from '@/lib/public-install-links';
+import { sizeTierLabel } from '@/lib/size-tiers';
 
 type Pending = 'idle' | 'creating' | 'enabling' | 'disabling' | 'regenerating' | 'revoking';
 
@@ -51,6 +57,47 @@ async function copyText(text: string, successMessage: string): Promise<void> {
   } catch {
     toast.error('Couldn\'t copy. Copy it manually.');
   }
+}
+
+/** The recommended size the new link freezes: the application default,
+ *  limited to sizes the application minimum allows. Renders nothing until
+ *  the application loads; without it the link follows the application default. */
+function RecommendedSizeSelect({
+  applicationId,
+  value,
+  onChange,
+  disabled,
+}: {
+  applicationId: string;
+  value: InfrastructureSizeTier | null;
+  onChange: (tier: InfrastructureSizeTier) => void;
+  disabled: boolean;
+}) {
+  const id = useId();
+  const [minimum, setMinimum] = useState<InfrastructureSizeTier | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchApplication(applicationId).then(
+      (application) => {
+        if (cancelled) return;
+        setMinimum(application.minimumSizeProfile);
+        onChange(application.defaultSizeProfile);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, onChange]);
+
+  if (value === null || minimum === null) return null;
+  return (
+    <div className="flex w-full flex-col gap-2 sm:w-72">
+      <Label htmlFor={id}>Recommended size</Label>
+      <SizeSelect id={id} value={value} tiers={allowedSizeTiers(minimum)} onValueChange={onChange} disabled={disabled} />
+    </div>
+  );
 }
 
 interface InstallLinkControlsProps {
@@ -72,6 +119,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
   const [pending, setPending] = useState<Pending>('idle');
   const [error, setError] = useState<string | null>(null);
   const [snippets, setSnippets] = useState<Record<string, string>>({});
+  const [size, setSize] = useState<InfrastructureSizeTier | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const [revokeOpen, setRevokeOpen] = useState(false);
@@ -81,7 +129,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
     setPending('creating');
     setError(null);
     try {
-      const created = await createPublicInstallLink(applicationId);
+      const created = await createPublicInstallLink(applicationId, size ?? undefined);
       setSnippets((prev) => ({ ...prev, [created.id]: created.htmlSnippet }));
       await onChanged();
       toast.success('Install link created.');
@@ -189,6 +237,12 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
           </Alert>
         ) : null}
         {installLink.note ? <p className="text-sm text-muted-foreground">{installLink.note}</p> : null}
+        <RecommendedSizeSelect
+          applicationId={applicationId}
+          value={size}
+          onChange={setSize}
+          disabled={pending === 'creating'}
+        />
         <Button
           size="sm"
           onClick={() => void handleCreate()}
@@ -224,6 +278,11 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
         <Badge variant={badge.variant} data-testid="public-install-link-status">
           {badge.label}
         </Badge>
+        {link.recommendedSizeProfile ? (
+          <Badge variant="outline" data-testid="public-install-link-size">
+            Recommended size: {sizeTierLabel(link.recommendedSizeProfile)}
+          </Badge>
+        ) : null}
         <Button
           size="sm"
           variant={primary ? 'default' : 'outline'}

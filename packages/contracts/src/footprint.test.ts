@@ -159,21 +159,21 @@ describe('resolveDeploymentFootprint', () => {
   });
 });
 
-// Extensibility: a synthetic fixture with a MySQL database, a scheduler
-// workload and a queue — resource types Deployz does not provision yet —
+// Extensibility: a synthetic fixture with a SQL Server database and a
+// scheduler workload — resource types Deployz does not provision —
 // must validate against the generic schema and degrade in pricing without
 // any PostgreSQL-specific code path. This proves the model (not rendering)
 // accepts future engines and roles.
 describe('generic model accepts future resource types', () => {
-  const mysqlResource: FootprintResource = {
+  const sqlServerResource: FootprintResource = {
     id: 'database',
     category: 'database',
     provider: 'aws',
-    service: 'rds-mysql',
+    service: 'rds-sqlserver',
     role: 'database',
     label: 'Database',
     quantity: 1,
-    configuration: { engine: 'mysql', engineVersion: '8', instanceType: 'db.t4g.micro', storageGb: 20 },
+    configuration: { engine: 'sqlserver', engineVersion: '2022', instanceType: 'db.t3.micro', storageGb: 20 },
     lifecycle: { persistent: true, retainOnDelete: true },
   };
   const schedulerWorkload: FootprintWorkload = {
@@ -198,13 +198,13 @@ describe('generic model accepts future resource types', () => {
       schedulerWorkload,
     ],
     resources: [
-      mysqlResource,
+      sqlServerResource,
       ...resolveDeploymentFootprint({ manifest: STATELESS, region: 'us-east-1' }).resources,
     ],
     generatedFrom: { infraVersion: null },
   };
 
-  it('validates a synthetic MySQL + scheduler footprint against the generic schema', () => {
+  it('validates a synthetic SQL Server + scheduler footprint against the generic schema', () => {
     expect(deploymentFootprintSchema.parse(FUTURE)).toEqual(FUTURE);
   });
 

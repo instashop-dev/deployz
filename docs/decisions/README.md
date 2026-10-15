@@ -161,13 +161,41 @@ Cloudflare edge. See [`../networking-and-https.md`](../networking-and-https.md).
 
 ## Infrastructure profiles are immutable and frozen per deployment (2026-09-03, registry 2026-09-22)
 
-Sizing lives in an immutable registry (`small-v2` today) and is frozen into
+Sizing lives in an immutable registry and is frozen into
 `desired_state.infrastructureProfile` at creation. A new size is a new
-registry version plus republished templates; `small-v1` and `small-v2` are
-never edited. A topology-changing `minimal` profile (no NAT, fewer AZs)
+registry version; published versions are never edited. A topology-changing `minimal` profile (no NAT, fewer AZs)
 needs a new infrastructure version and a security and cost review, not a
 registry row.
 See [`../infrastructure-profiles.md`](../infrastructure-profiles.md).
+
+
+## Vendor-recommended, customer-chosen sizes (2026-10-15)
+
+Deployz offers three sizes: Small (`small-v2`), Medium (`medium-v1`) and
+Large (`large-v1`). The vendor sets a recommended size and a minimum size
+per application and may override the recommendation per link; the
+customer chooses any permitted size before installing, because the
+customer pays the AWS bill and knows its load.
+
+- **Capacity, not topology.** A size changes task CPU/memory, the RDS
+  instance class and the cache node type only. The resource graph, AZ
+  count, NAT gateway and task count stay the same, so no new
+  infrastructure version or security review is needed, and every size runs
+  the same compiled-stack code path.
+- **Tiers, versioned profiles.** Vendors and links store a tier (`small`,
+  `medium`, `large`); a deployment freezes the tier's current profile
+  version. A later version of a tier never changes an existing deployment.
+- **Links freeze their sizing.** A link keeps the recommendation and the
+  minimum it was created with, so a vendor change cannot alter an offer a
+  customer already holds. Old links (null) follow the application.
+- **The customer approves one exact plan.** The confirmation echoes a
+  fingerprint of the compiled footprint and estimate; the server recompiles
+  inside the creation transaction and refuses a mismatch, so the stack can
+  never differ from what the customer reviewed.
+- **Classes.** `db.t3` (not `db.t4g`) and `cache.t4g` classes are offered in
+  every supported Region for PostgreSQL 16, MySQL 8.0 and Valkey.
+- **Deferred (post-MVP):** in-place resizing, autoscaling, more than one
+  task per workload, per-workload sizes, arbitrary AWS sizing.
 
 ## Jev shadow analysis is not adopted (2026-09-20)
 

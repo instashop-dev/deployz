@@ -146,6 +146,19 @@ describe('targeted installation invitations', () => {
     });
   }
 
+  // Approves the plan the way the install page does: fetch the plan for the
+  // payload's Region and size, then echo its fingerprint.
+  async function approvePlan(id: string, token: string, payload: Record<string, unknown>) {
+    const sizeProfile = (payload['sizeProfile'] as string | undefined) ?? 'small';
+    const plan = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${id}/plan?region=${String(payload['region'])}&profile=${sizeProfile}`,
+      headers: { 'x-deployz-token': token },
+    });
+    const fingerprint = (plan.json() as { planFingerprint?: string | null }).planFingerprint;
+    return { ...payload, sizeProfile, planFingerprint: fingerprint ?? '0'.repeat(64) };
+  }
+
   async function deploymentCount(): Promise<number> {
     const rows = await db.select({ id: schema.deployments.id }).from(schema.deployments);
     return rows.length;
@@ -198,7 +211,7 @@ describe('targeted installation invitations', () => {
       method: 'POST',
       url: `/api/public-install/${id}/confirm`,
       headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-      payload: JSON.stringify(payload),
+      payload: JSON.stringify(await approvePlan(id, token, payload)),
     });
     expect(confirm.statusCode, confirm.body).toBe(201);
     expect(await deploymentCount()).toBe(1);
@@ -222,7 +235,7 @@ describe('targeted installation invitations', () => {
       method: 'POST',
       url: `/api/public-install/${id}/confirm`,
       headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-      payload: JSON.stringify(payload),
+      payload: JSON.stringify(await approvePlan(id, token, payload)),
     });
     expect(replay.statusCode, replay.body).toBe(200);
     expect((replay.json() as { installLinkId: string }).installLinkId).toBe(
@@ -234,7 +247,7 @@ describe('targeted installation invitations', () => {
       method: 'POST',
       url: `/api/public-install/${id}/confirm`,
       headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-      payload: JSON.stringify({ ...payload, idempotencyKey: crypto.randomUUID() }),
+      payload: JSON.stringify(await approvePlan(id, token, { ...payload, idempotencyKey: crypto.randomUUID() })),
     });
     expect(differentKey.statusCode).toBe(410);
     expect((differentKey.json() as { error: { code: string } }).error.code).toBe('PUBLIC_INSTALL_LINK_USED');
@@ -265,7 +278,7 @@ describe('targeted installation invitations', () => {
     expect(undeployableBody.costEstimate).toBeNull();
 
     // Unknown profile: 422.
-    const unknownProfile = await plan('eu-west-1', 'large');
+    const unknownProfile = await plan('eu-west-1', 'huge');
     expect(unknownProfile.statusCode).toBe(422);
     expect((unknownProfile.json() as { error: { code: string } }).error.code).toBe('UNKNOWN_PROFILE');
   });
@@ -277,11 +290,11 @@ describe('targeted installation invitations', () => {
       method: 'POST',
       url: `/api/public-install/${toUse.id}/confirm`,
       headers: { 'content-type': 'application/json', 'x-deployz-token': toUse.token },
-      payload: JSON.stringify({
+      payload: JSON.stringify(await approvePlan(toUse.id, toUse.token, {
         idempotencyKey: crypto.randomUUID(),
         region: 'us-east-1',
         config: [{ key: 'STRIPE_API_KEY', value: 'sk_list_fixture', isSecret: true }],
-      }),
+      })),
     });
     expect(confirm.statusCode, confirm.body).toBe(201);
 
@@ -324,11 +337,11 @@ describe('targeted installation invitations', () => {
       method: 'POST',
       url: `/api/public-install/${id}/confirm`,
       headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-      payload: JSON.stringify({
+      payload: JSON.stringify(await approvePlan(id, token, {
         idempotencyKey: crypto.randomUUID(),
         region: 'eu-west-1', // differs from the recommendation on purpose
         config: [{ key: 'STRIPE_API_KEY', value: secretValue, isSecret: true }],
-      }),
+      })),
     });
     expect(confirm.statusCode, confirm.body).toBe(201);
 
@@ -357,16 +370,16 @@ describe('targeted installation invitations', () => {
 
   it('two concurrent confirms with different keys create exactly one deployment', async () => {
     const { id, token } = (await createInvitation('us-east-1')).json() as { id: string; token: string };
-    const confirmOnce = () =>
+    const confirmOnce = async () =>
       app.inject({
         method: 'POST',
         url: `/api/public-install/${id}/confirm`,
         headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-        payload: JSON.stringify({
+        payload: JSON.stringify(await approvePlan(id, token, {
           idempotencyKey: crypto.randomUUID(),
           region: 'eu-west-1',
           config: [{ key: 'STRIPE_API_KEY', value: 'sk_race_fixture', isSecret: true }],
-        }),
+        })),
       });
     const [first, second] = await Promise.all([confirmOnce(), confirmOnce()]);
     const codes = [first.statusCode, second.statusCode].sort();
@@ -387,12 +400,12 @@ describe('targeted installation invitations', () => {
       region: 'us-east-1',
       config: [{ key: 'STRIPE_API_KEY', value: 'sk_samekey_fixture', isSecret: true }],
     };
-    const confirmOnce = () =>
+    const confirmOnce = async () =>
       app.inject({
         method: 'POST',
         url: `/api/public-install/${id}/confirm`,
         headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-        payload: JSON.stringify(payload),
+        payload: JSON.stringify(await approvePlan(id, token, payload)),
       });
     const [first, second] = await Promise.all([confirmOnce(), confirmOnce()]);
     expect(first.statusCode, `${first.body} | ${second.body}`).toBeLessThan(300);
@@ -438,11 +451,11 @@ describe('targeted installation invitations', () => {
       method: 'POST',
       url: `/api/public-install/${id}/confirm`,
       headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-      payload: JSON.stringify({
+      payload: JSON.stringify(await approvePlan(id, token, {
         idempotencyKey: crypto.randomUUID(),
         region: 'eu-west-1',
         config: [{ key: 'STRIPE_API_KEY', value: 'sk_immutable_fixture', isSecret: true }],
-      }),
+      })),
     });
     expect(confirm.statusCode, confirm.body).toBe(201);
     const { installLinkId } = confirm.json() as { installLinkId: string };
@@ -476,11 +489,11 @@ describe('targeted installation invitations', () => {
       method: 'POST',
       url: `/api/public-install/${id}/confirm`,
       headers: { 'content-type': 'application/json', 'x-deployz-token': token },
-      payload: JSON.stringify({
+      payload: JSON.stringify(await approvePlan(id, token, {
         idempotencyKey: crypto.randomUUID(),
         region: 'us-east-1',
         config: [{ key: 'STRIPE_API_KEY', value: 'sk_backstop_fixture', isSecret: true }],
-      }),
+      })),
     });
     expect(confirm.statusCode, confirm.body).toBe(201);
     const before = await deploymentCount();
@@ -500,5 +513,53 @@ describe('targeted installation invitations', () => {
       }),
     ).rejects.toMatchObject({ statusCode: 422, code: 'REGION_NOT_SUPPORTED' });
     expect(await deploymentCount()).toBe(before);
+  });
+
+  it('freezes the vendor size recommendation on the invitation; the customer may choose a bigger size', async () => {
+    const defaulted = (await createInvitation()).json() as { recommendedSizeProfile: string };
+    expect(defaulted.recommendedSizeProfile).toBe('small');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/customers/${customerId}/invitations`,
+      headers: { 'content-type': 'application/json', cookie: org.cookie },
+      payload: JSON.stringify({ applicationId, recommendedSizeProfile: 'medium' }),
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const { id, token, recommendedSizeProfile } = created.json() as {
+      id: string;
+      token: string;
+      recommendedSizeProfile: string;
+    };
+    expect(recommendedSizeProfile).toBe('medium');
+
+    const resolved = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${id}`,
+      headers: { 'x-deployz-token': token },
+    });
+    const sizing = (resolved.json() as { sizing: { recommended: string; minimum: string; options: { id: string }[] } }).sizing;
+    expect(sizing).toMatchObject({ recommended: 'medium', minimum: 'small' });
+    expect(sizing.options.map((option) => option.id)).toEqual(['small', 'medium', 'large']);
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify(
+        await approvePlan(id, token, {
+          idempotencyKey: crypto.randomUUID(),
+          region: 'us-east-1',
+          sizeProfile: 'large',
+          config: [{ key: 'STRIPE_API_KEY', value: 'sk_size_fixture', isSecret: true }],
+        }),
+      ),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+    const [deployment] = await db
+      .select({ desiredState: schema.deployments.desiredState })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, id));
+    expect(deployment!.desiredState).toMatchObject({ infrastructureProfile: { id: 'large', version: 1 } });
   });
 });

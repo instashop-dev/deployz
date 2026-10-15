@@ -50,6 +50,10 @@ export interface RunRecord {
     health: { status: number; body: unknown };
     ready: { status: number; body: unknown };
   };
+  /** The size tier requested with `--size`; absent when the application default applied. */
+  size?: string;
+  /** What `assertSizing` last checked: the expected tier and its profile key, and the frozen size the deployment reported. */
+  sizing?: { tier: string; profileKey: string; frozenSize: string | null };
   applicationId?: string;
   customerId?: string;
   deploymentId?: string;

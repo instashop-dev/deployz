@@ -7,6 +7,7 @@ import {
   billingProviderEnum,
   billingReconciliationStatusEnum,
   billingSubscriptionStatusEnum,
+  infrastructureSizeTierEnum,
   regionEnum,
 } from '../enums.js';
 import { organization } from './auth.js';
@@ -92,6 +93,9 @@ export const billingCheckoutIntents = pgTable(
     applicationId: uuid('application_id').references(() => applications.id),
     customerId: uuid('customer_id').references(() => customers.id),
     region: regionEnum('region'),
+    // The size the vendor chose for the parked deployment; null = the
+    // application default when the checkout completes.
+    sizeProfile: infrastructureSizeTierEnum('size_profile'),
     provider: billingProviderEnum('provider').notNull().default('PADDLE'),
     // Null only in the instant between the row insert and the provider
     // accepting the transaction — the intent id goes into the transaction's

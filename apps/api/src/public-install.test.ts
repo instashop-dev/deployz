@@ -199,12 +199,25 @@ describe('public install links', () => {
   let publisherName: string;
 
   const resolve = (linkId: string) => app.inject({ method: 'GET', url: `/api/public-install/${linkId}` });
-  const confirm = (linkId: string, payload: Record<string, unknown>, query = '') =>
+  // Approves the plan the way the install page does: fetch the plan for the
+  // payload's Region and size, then echo its fingerprint. A link that cannot
+  // serve a plan gets a well-formed fingerprint that matches nothing.
+  const approvePlan = async (linkId: string, payload: Record<string, unknown>) => {
+    if ('planFingerprint' in payload) return payload;
+    const sizeProfile = (payload['sizeProfile'] as string | undefined) ?? 'small';
+    const plan = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${linkId}/plan?region=${String(payload['region'])}&profile=${sizeProfile}`,
+    });
+    const fingerprint = plan.statusCode === 200 ? (plan.json() as { planFingerprint: string | null }).planFingerprint : null;
+    return { ...payload, sizeProfile, planFingerprint: fingerprint ?? '0'.repeat(64) };
+  };
+  const confirm = async (linkId: string, payload: Record<string, unknown>, query = '') =>
     app.inject({
       method: 'POST',
       url: `/api/public-install/${linkId}/confirm${query}`,
       headers: { 'content-type': 'application/json' },
-      payload: JSON.stringify(payload),
+      payload: JSON.stringify(await approvePlan(linkId, payload)),
     });
   // ── Vendor management routes ────────────────────────────────────────────
   type LinkView = { id: string; url: string; status: string; createdAt: string; revokedAt: string | null };
@@ -892,6 +905,186 @@ describe('public install links', () => {
       [firstId, 'revoked'],
     ]);
     expect(links[1]!.revokedAt).not.toBeNull();
+  });
+
+  // ── Deployment sizes ─────────────────────────────────────────────────────
+
+  type SizedPlan = {
+    sizeProfile: string;
+    planFingerprint: string | null;
+    costEstimate: { monthlyMax: number | null } | null;
+    footprint: { workloads: { compute: { cpuUnits: number } }[] };
+  };
+  type Sizing = { recommended: string; minimum: string; options: { id: string; recommended: boolean; workload: { cpuUnits: number } }[] };
+  const planOf = (linkId: string, region: string, profile?: string) =>
+    app.inject({
+      method: 'GET',
+      url: `/api/public-install/${linkId}/plan?region=${region}${profile ? `&profile=${profile}` : ''}`,
+    });
+  const sizedPlan = async (linkId: string, region: string, profile?: string) => {
+    const response = await planOf(linkId, region, profile);
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json() as SizedPlan;
+  };
+  const sizingOf = async (linkId: string) => ((await resolve(linkId)).json() as { sizing: Sizing }).sizing;
+  const patchApplication = (applicationId: string, payload: Record<string, unknown>) =>
+    app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${applicationId}`,
+      headers: { cookie: org.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify(payload),
+    });
+  const createSizedLink = (applicationId: string, payload: Record<string, unknown>) =>
+    app.inject({
+      method: 'POST',
+      url: linksUrl(applicationId),
+      headers: { cookie: org.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify(payload),
+    });
+  const linkDeployments = (linkId: string) =>
+    db.select().from(schema.deployments).where(eq(schema.deployments.publicInstallLinkId, linkId));
+
+  it('resolve returns the permitted sizes; a legacy link (null sizing) follows the current application settings', async () => {
+    const { link, application } = await insertEnabledLink(db, org.organizationId);
+    expect(link.recommendedSizeProfile).toBeNull();
+    expect(link.minimumSizeProfile).toBeNull();
+
+    const initial = await sizingOf(link.id);
+    expect(initial).toMatchObject({ recommended: 'small', minimum: 'small' });
+    expect(initial.options.map((option) => [option.id, option.recommended, option.workload.cpuUnits])).toEqual([
+      ['small', true, 256],
+      ['medium', false, 1024],
+      ['large', false, 2048],
+    ]);
+
+    expect((await patchApplication(application.id, { minimumSizeProfile: 'medium', defaultSizeProfile: 'large' })).statusCode).toBe(200);
+    const followed = await sizingOf(link.id);
+    expect(followed).toMatchObject({ recommended: 'large', minimum: 'medium' });
+    expect(followed.options.map((option) => option.id)).toEqual(['medium', 'large']);
+  });
+
+  it('plan: each size has its own footprint, cost and fingerprint, and each Region changes the fingerprint', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const small = await sizedPlan(link.id, 'us-east-1');
+    const medium = await sizedPlan(link.id, 'us-east-1', 'medium');
+    const large = await sizedPlan(link.id, 'us-east-1', 'large');
+    expect([small, medium, large].map((plan) => plan.sizeProfile)).toEqual(['small', 'medium', 'large']);
+    expect([small, medium, large].map((plan) => plan.footprint.workloads[0]!.compute.cpuUnits)).toEqual([256, 1024, 2048]);
+    expect(small.costEstimate!.monthlyMax!).toBeLessThan(medium.costEstimate!.monthlyMax!);
+    expect(medium.costEstimate!.monthlyMax!).toBeLessThan(large.costEstimate!.monthlyMax!);
+    expect(new Set([small, medium, large].map((plan) => plan.planFingerprint)).size).toBe(3);
+    expect(await sizedPlan(link.id, 'us-east-1', 'small')).toEqual(small);
+
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const previous = mutableEnv.deployableAwsRegions;
+    try {
+      mutableEnv.deployableAwsRegions = ['us-east-1', 'eu-west-1'];
+      const europe = await sizedPlan(link.id, 'eu-west-1', 'medium');
+      expect(europe.planFingerprint).not.toBe(medium.planFingerprint);
+    } finally {
+      mutableEnv.deployableAwsRegions = previous;
+    }
+
+    const unknown = await planOf(link.id, 'us-east-1', 'huge');
+    expect(unknown.statusCode).toBe(422);
+    expect(unknown.json()).toMatchObject({ error: { code: 'UNKNOWN_PROFILE' } });
+  });
+
+  it('a size below the minimum is refused at plan and at confirm with 422, and creates nothing', async () => {
+    const { link, application } = await insertEnabledLink(db, org.organizationId);
+    expect((await patchApplication(application.id, { defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' })).statusCode).toBe(200);
+    const customers = await countOrgCustomers();
+
+    const plan = await planOf(link.id, 'us-east-1', 'small');
+    expect(plan.statusCode).toBe(422);
+    expect(plan.json()).toMatchObject({ error: { code: 'SIZE_PROFILE_NOT_ALLOWED' } });
+
+    const response = await confirm(link.id, confirmPayload({ sizeProfile: 'small' }));
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'SIZE_PROFILE_NOT_ALLOWED' } });
+    expect(await linkDeployments(link.id)).toEqual([]);
+    expect(await countOrgCustomers()).toBe(customers);
+  });
+
+  it('confirm with medium freezes medium-v1 and compiles the medium workload size', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const response = await confirm(link.id, confirmPayload({ sizeProfile: 'medium' }));
+    expect(response.statusCode, response.body).toBe(201);
+    const [deployment] = await linkDeployments(link.id);
+    expect(deployment!.desiredState).toMatchObject({ infrastructureProfile: { id: 'medium', version: 1 } });
+    const footprint = (deployment!.specV2 as { footprint: { workloads: { compute: { cpuUnits: number; memoryMiB: number; sizeLabel: string } }[] } }).footprint;
+    expect(footprint.workloads[0]!.compute).toMatchObject({ cpuUnits: 1024, memoryMiB: 2048, sizeLabel: 'Medium' });
+  });
+
+  it('confirm refuses a plan approved for another size, or a wrong fingerprint, with 409 PLAN_CHANGED and rolls everything back', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const small = await sizedPlan(link.id, 'us-east-1', 'small');
+    const customers = await countOrgCustomers();
+
+    const otherSize = await confirm(link.id, confirmPayload({ sizeProfile: 'medium', planFingerprint: small.planFingerprint }));
+    expect(otherSize.statusCode, otherSize.body).toBe(409);
+    expect(otherSize.json()).toMatchObject({ error: { code: 'PLAN_CHANGED' } });
+
+    const wrong = await confirm(link.id, confirmPayload({ sizeProfile: 'small', planFingerprint: 'f'.repeat(64) }));
+    expect(wrong.statusCode, wrong.body).toBe(409);
+    expect(wrong.json()).toMatchObject({ error: { code: 'PLAN_CHANGED' } });
+
+    expect(await linkDeployments(link.id)).toEqual([]);
+    expect(await countOrgCustomers()).toBe(customers);
+  });
+
+  it('confirm without a sizeProfile is a 400 VALIDATION_ERROR', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const response = await confirm(link.id, confirmPayload({ planFingerprint: 'a'.repeat(64) }));
+    expect(response.statusCode, response.body).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+  });
+
+  it('a link freezes its sizing: later application edits change only links created afterwards, and regenerate keeps it', async () => {
+    const first = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, first.id);
+    const created = await createSizedLink(first.id, { recommendedSizeProfile: 'large' });
+    expect(created.statusCode, created.body).toBe(201);
+    const frozenId = (created.json() as CreatedLinkView).id;
+    const [row] = await db.select().from(schema.publicInstallLinks).where(eq(schema.publicInstallLinks.id, frozenId));
+    expect(row).toMatchObject({ recommendedSizeProfile: 'large', minimumSizeProfile: 'small' });
+
+    expect((await patchApplication(first.id, { defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' })).statusCode).toBe(200);
+    const frozen = await sizingOf(frozenId);
+    expect(frozen).toMatchObject({ recommended: 'large', minimum: 'small' });
+    expect(frozen.options.map((option) => option.id)).toEqual(['small', 'medium', 'large']);
+    expect((await planOf(frozenId, 'us-east-1', 'small')).statusCode).toBe(200);
+
+    const regenerated = (await linkAction(frozenId, 'regenerate')).json() as CreatedLinkView;
+    expect(await sizingOf(regenerated.id)).toMatchObject({ recommended: 'large', minimum: 'small' });
+
+    // A link created after the edit freezes the new settings.
+    const second = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, second.id);
+    expect((await patchApplication(second.id, { defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' })).statusCode).toBe(200);
+    const later = await createSizedLink(second.id, {});
+    expect(later.statusCode, later.body).toBe(201);
+    const laterSizing = await sizingOf((later.json() as CreatedLinkView).id);
+    expect(laterSizing).toMatchObject({ recommended: 'medium', minimum: 'medium' });
+
+    // A recommendation below the application minimum cannot be frozen.
+    await linkAction((later.json() as CreatedLinkView).id, 'revoke');
+    const tooSmall = await createSizedLink(second.id, { recommendedSizeProfile: 'small' });
+    expect(tooSmall.statusCode, tooSmall.body).toBe(422);
+    expect(tooSmall.json()).toMatchObject({ error: { code: 'SIZE_DEFAULT_BELOW_MINIMUM' } });
+  });
+
+  it('a customer size below the link minimum is refused 422 even when the application minimum is lower', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    expect((await patchApplication(application.id, { defaultSizeProfile: 'medium', minimumSizeProfile: 'medium' })).statusCode).toBe(200);
+    const linkId = await createdLinkId(application.id);
+    expect((await patchApplication(application.id, { minimumSizeProfile: 'small' })).statusCode).toBe(200);
+
+    const response = await confirm(linkId, confirmPayload({ sizeProfile: 'small' }));
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'SIZE_PROFILE_NOT_ALLOWED' } });
+    expect(await linkDeployments(linkId)).toEqual([]);
   });
 });
 

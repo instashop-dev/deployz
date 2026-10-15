@@ -24,7 +24,7 @@ behind each step is in [`../architecture.md`](../architecture.md).
 | 3 | Connect GitHub | `/github/setup` | Installs the Deployz GitHub App and selects repositories. The App's Setup URL must point at this page (see [`../operations/control-plane.md`](../operations/control-plane.md)). Webhooks handle installation events only; pushes do not trigger builds. |
 | 4 | Create an application | `/dashboard/applications/new` | Picks a repository. Analysis starts automatically. One application per repository. The branch is the repository's default branch at creation and cannot be changed afterwards. |
 | 5 | Analysis and readiness | `/dashboard/applications/[id]` | Overview is the application's home: one status badge (Not analysed, Analysing, Needs input, Analysis failed, Ready to test, Testing, Test failed, Ready to share, Live), one state card with one primary action, the install-link row when a live link exists, and "N services detected · View". The setup lifecycle is **Analyse → Configure → Test → Share**. "Re-analyse application" is in the header's "More actions" menu, and is the primary action when the analysis failed. "Copy prompt for coding agent" produces fix instructions for blocking findings. See [`../ai-analysis.md`](../ai-analysis.md). |
-| 6 | Configuration | `…/config` | Sections in this order, empty ones hidden: Needs attention, Deployment size (only Small is available; estimated AWS cost per customer deployment), Services & resources (one table: each service with its sizing, AWS resources, estimate, Kept / Removed on removal, issues and actions; build & runtime settings as indented rows), Environment variables (one table for detected variables and vendor defaults), Settings. Customer overrides show only with `?customer=` (opened from a deployment's Configuration). Overrides for container port, health path, migration command, and the database / storage / Redis requirements; unresolved architecture questions open as focused cards. Application root, Dockerfile path, build context and build/start commands are settable through the API (`PATCH /api/applications/:id`) but have no UI. |
+| 6 | Configuration | `…/config` | Sections in this order, empty ones hidden: Needs attention, Deployment size (the recommended size and the minimum supported size, each size's resources and estimated AWS cost per customer deployment; changes apply to new links and deployments only), Services & resources (one table: each service with its sizing, AWS resources, estimate, Kept / Removed on removal, issues and actions; build & runtime settings as indented rows), Environment variables (one table for detected variables and vendor defaults), Settings. Customer overrides show only with `?customer=` (opened from a deployment's Configuration). Overrides for container port, health path, migration command, and the database / storage / Redis requirements; unresolved architecture questions open as focused cards. Application root, Dockerfile path, build context and build/start commands are settable through the API (`PATCH /api/applications/:id`) but have no UI. |
 | 7 | Environment variables | same page | For each detected variable: build or runtime, required, secret, and who provides it (Managed by Deployz / Set by vendor / Set by customer / Optional), plus a customer-facing label and help text. Vendor values are stored KMS-encrypted. See [`../environment-variables.md`](../environment-variables.md). |
 | 8 | Releases | `…/releases` | Picks a commit from the configured branch (or enters a full SHA), gives it a version, optionally overrides the migration command. CodeBuild builds the image into ECR by digest. States: Building, Ready, Build failed (with log evidence and an optional AI explanation), Unavailable (image deleted). Each release shows an Infrastructure line: "No infrastructure changes", or a warning that the release requires infrastructure changes and automatic infrastructure upgrades are not supported yet. Creating a release never updates a customer. |
 | 9 | Test deployment | `/dashboard/deployments/new?…&test=true` | One free TEST deployment per application, into the vendor's own AWS account, through the same install page a customer uses. The UI offers the customer install link only after a successful test deployment (the API does not enforce this). |
@@ -56,10 +56,15 @@ behind each step is in [`../architecture.md`](../architecture.md).
     format-checked), name and email, the INSTALL plan, the resources that
     will be created (grouped under generic headings), a Region-priced
     monthly cost estimate, and the retention
-   notice ("PostgreSQL and stored files are retained"). There is no
-   infrastructure-size choice. "Continue to setup" confirms: the server
-   re-checks the link, Region, preflight and the vendor's subscription, then
-   creates exactly one deployment. A vendor without an active subscription
+   notice ("PostgreSQL and stored files are retained"). The customer also
+   chooses the size: Small, Medium or Large, limited to the vendor's minimum,
+   with the link's recommendation preselected and labelled "Vendor
+   recommended". A change of size or Region recomputes the plan and the
+   estimate and keeps what the customer typed. "Continue to setup" confirms
+   the exact plan shown (its fingerprint): the server re-checks the link,
+   Region, size, preflight and the vendor's subscription, refuses a plan
+   that changed since the review (`409 PLAN_CHANGED`), then creates exactly
+   one deployment with that size frozen. A vendor without an active subscription
    gets `402 SUBSCRIPTION_REQUIRED` here, so the customer's confirmation is
    refused; the vendor must subscribe first. Customer secrets go into the KMS-encrypted
    pending-secret vault ([`../pending-secret-delivery.md`](../pending-secret-delivery.md)).
@@ -140,7 +145,8 @@ behind each step is in [`../architecture.md`](../architecture.md).
 | Deployz-managed bindings (`DATABASE_*`, Redis, S3, `AWS_REGION`, `PORT`) | Deployz | At install | Injected by the compiled application stack. |
 | Recommended Region | Vendor (optional) | On an invitation or public link | Shown as a badge and pre-selected. |
 | Region | Customer (public link, invitation) or vendor (vendor-created deployment, legacy deploy link) | At creation | Immutable afterwards. |
-| Infrastructure size | Nobody | At creation | `small-v2` is frozen on every deployment. |
+| Recommended and minimum size | Vendor | Application configuration; recommendation per link | A link freezes both when it is created. |
+| Infrastructure size | Customer (public link, invitation) or vendor (vendor-created deployment, legacy deploy link) | At creation | Any size at or above the minimum. Frozen afterwards; never resized. See [`../infrastructure-profiles.md`](../infrastructure-profiles.md#who-chooses-the-size). |
 | Deployment type | Vendor | At creation | TEST via the create page; every customer confirmation is PRODUCTION. |
 | AWS account | Customer | At launch | Whichever account runs the Quick Create. |
 | Custom domain hostname | Vendor | Day 2 | |

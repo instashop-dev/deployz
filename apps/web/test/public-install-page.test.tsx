@@ -6,9 +6,15 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { DeploymentPlan, PublicInstallResolve } from '../src/lib/public-install-types';
+import type { DeploymentPlan, PublicInstallPlan, PublicInstallResolve } from '../src/lib/public-install-types';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// Radix radio items measure their size with ResizeObserver, which jsdom lacks.
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 (globalThis as { Element?: { prototype: { scrollIntoView?: unknown } } }).Element!.prototype.scrollIntoView = vi.fn();
 
 const routerMocks = vi.hoisted(() => ({
@@ -77,6 +83,34 @@ function planFixture(): DeploymentPlan {
   };
 }
 
+function sizeOption(
+  id: 'small' | 'medium' | 'large',
+  label: string,
+  recommended: boolean,
+  cpuUnits: number,
+  memoryMiB: number,
+): PublicInstallResolve['sizing']['options'][number] {
+  return {
+    id,
+    label,
+    description: `${label} description`,
+    recommended,
+    workload: { cpuUnits, memoryMiB, desiredCount: 1 },
+    database: { instanceClass: `db.${id}`, storageGb: 20 },
+    cache: { nodeType: `cache.${id}`, nodeCount: 1 },
+  };
+}
+
+/** The plan the server returns for a Region and size; Regions other than the two fixtures cannot deploy. */
+function sizedPlan(region: string, profile: string): PublicInstallPlan {
+  return {
+    ...planFixture(),
+    region: region as DeploymentPlan['region'],
+    sizeProfile: profile as PublicInstallPlan['sizeProfile'],
+    planFingerprint: `${profile[0]}`.repeat(64),
+  };
+}
+
 function resolveFixture(overrides: Partial<PublicInstallResolve> = {}): PublicInstallResolve {
   return {
     application: { name: 'Acme App' },
@@ -93,6 +127,14 @@ function resolveFixture(overrides: Partial<PublicInstallResolve> = {}): PublicIn
       { key: 'ORG_NAME', required: true, secret: false },
       { key: 'WEBHOOK_URL', required: false, secret: false },
     ],
+    sizing: {
+      recommended: 'medium',
+      minimum: 'small',
+      options: [
+        sizeOption('small', 'Small', false, 1024, 2048),
+        sizeOption('medium', 'Medium', true, 2048, 4096),
+      ],
+    },
     plan: planFixture(),
     ...overrides,
   };
@@ -234,6 +276,8 @@ describe('InstallPage public resolution', () => {
         publisherName: 'Existing Publisher',
         customerName: 'Customer',
         region: 'us-east-1',
+      sizeProfile: 'medium',
+      planFingerprint: 'm'.repeat(64),
         plan: null,
         quickCreateUrl: 'https://quick.create',
         alreadyInstalled: false,
@@ -259,7 +303,11 @@ describe('PublicInstallFlow', () => {
   beforeEach(() => {
     confirmMocks.confirmPublicInstall.mockReset();
     routerMocks.push.mockReset();
-    pageMocks.fetchPublicInstallPlan.mockReset().mockResolvedValue(null);
+    pageMocks.fetchPublicInstallPlan
+      .mockReset()
+      .mockImplementation((_link: string, region: string, profile: string) =>
+        Promise.resolve(sizedPlan(region, profile)),
+      );
     vi.stubGlobal('crypto', { randomUUID: () => 'idem-key-1' });
   });
 
@@ -464,11 +512,11 @@ describe('PublicInstallFlow', () => {
     renderFlow();
     await fillForm();
 
-    expect(pageMocks.fetchPublicInstallPlan).toHaveBeenLastCalledWith(LINK_ID, 'us-east-1', undefined);
+    expect(pageMocks.fetchPublicInstallPlan).toHaveBeenLastCalledWith(LINK_ID, 'us-east-1', 'medium', undefined);
 
     await selectRegion('US West (Oregon)');
 
-    expect(pageMocks.fetchPublicInstallPlan).toHaveBeenLastCalledWith(LINK_ID, 'us-west-2', undefined);
+    expect(pageMocks.fetchPublicInstallPlan).toHaveBeenLastCalledWith(LINK_ID, 'us-west-2', 'medium', undefined);
     // Entered values survive the region change.
     expect((document.querySelector('input#API_KEY') as HTMLInputElement).value).toBe('secret-key');
     expect((document.querySelector('input#ORG_NAME') as HTMLInputElement).value).toBe('Acme');
@@ -537,6 +585,8 @@ describe('PublicInstallFlow', () => {
     expect(confirmMocks.confirmPublicInstall.mock.calls[0]![1]).toEqual({
       idempotencyKey: 'idem-key-1',
       region: 'us-east-1',
+      sizeProfile: 'medium',
+      planFingerprint: 'm'.repeat(64),
       config: [
         { key: 'API_KEY', value: 'secret-key', isSecret: true },
         { key: 'ORG_NAME', value: 'Acme', isSecret: false },
@@ -593,6 +643,8 @@ describe('PublicInstallFlow', () => {
     expect(confirmMocks.confirmPublicInstall.mock.calls[0]![1]).toEqual({
       idempotencyKey: 'idem-key-1',
       region: 'us-east-1',
+      sizeProfile: 'medium',
+      planFingerprint: 'm'.repeat(64),
       customer: { name: 'Ada Lovelace', email: 'ada@example.com' },
       config: [
         { key: 'API_KEY', value: 'secret-key', isSecret: true },
@@ -631,6 +683,106 @@ describe('PublicInstallFlow', () => {
     expect(confirmMocks.confirmPublicInstall).toHaveBeenCalledTimes(2);
     expect(confirmMocks.confirmPublicInstall.mock.calls[1]![0]).toBe(LINK_ID);
     expect(confirmMocks.confirmPublicInstall.mock.calls[1]![1].idempotencyKey).toBe('idem-key-1');
+  });
+
+  it('offers only the permitted sizes, preselects the recommendation and badges it', () => {
+    renderFlow();
+
+    const radios = Array.from(document.querySelectorAll('[role="radio"]')) as HTMLElement[];
+    expect(radios.map((radio) => radio.id)).toEqual(['size-small', 'size-medium']);
+    expect(document.querySelector('#size-large')).toBeNull();
+    expect(radios.map((radio) => radio.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+
+    const small = document.querySelector('label[for="size-small"]')!;
+    const medium = document.querySelector('label[for="size-medium"]')!;
+    expect(medium.textContent).toContain('Vendor recommended');
+    expect(small.textContent).not.toContain('Vendor recommended');
+    expect(small.textContent).toContain('1 vCPU \u00b7 2 GiB per service');
+    expect(medium.textContent).toContain('2 vCPU \u00b7 4 GiB per service');
+    expect(medium.textContent).toContain('Database db.medium');
+    expect(medium.textContent).not.toContain('Cache cache.medium');
+    expect(document.querySelector('[data-testid="selected-size"]')?.textContent).toContain('Medium');
+  });
+
+  it('re-fetches the plan with the chosen size and keeps entered values', async () => {
+    renderFlow();
+    await fillForm();
+
+    await act(async () => {
+      click(document.querySelector('#size-small') as HTMLElement);
+    });
+
+    expect(pageMocks.fetchPublicInstallPlan).toHaveBeenLastCalledWith(LINK_ID, 'us-east-1', 'small', undefined);
+    expect((document.querySelector('input#API_KEY') as HTMLInputElement).value).toBe('secret-key');
+    expect((document.querySelector('input#customer-email') as HTMLInputElement).value).toBe('ada@example.com');
+    expect(document.querySelector('[data-testid="selected-size"]')?.textContent).toContain('Small');
+  });
+
+  it('confirms the fingerprint of the plan for the chosen size', async () => {
+    confirmMocks.confirmPublicInstall.mockResolvedValue({ ok: true, installLinkId: 'new-link-id' });
+    renderFlow();
+    await fillForm();
+    await act(async () => {
+      click(document.querySelector('#size-small') as HTMLElement);
+    });
+
+    await act(async () => {
+      click(document.querySelector('button[type="submit"]') as HTMLButtonElement);
+    });
+
+    expect(confirmMocks.confirmPublicInstall.mock.calls[0]![1]).toMatchObject({
+      region: 'us-east-1',
+      sizeProfile: 'small',
+      planFingerprint: 's'.repeat(64),
+    });
+  });
+
+  it('disables confirm while the plan loads and when the Region has no fingerprint', async () => {
+    const pendingPlan = deferred<PublicInstallPlan | null>();
+    renderFlow();
+    await fillForm();
+    const button = () => document.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(button().disabled).toBe(false);
+
+    pageMocks.fetchPublicInstallPlan.mockImplementationOnce(() => pendingPlan.promise);
+    await act(async () => {
+      click(document.querySelector('#size-small') as HTMLElement);
+    });
+    expect(button().disabled).toBe(true);
+    expect(document.body.textContent).toContain('Updating for this selection');
+
+    await act(async () => {
+      pendingPlan.resolve({ ...sizedPlan('us-east-1', 'small'), planFingerprint: null });
+    });
+    expect(button().disabled).toBe(true);
+    expect(document.body.textContent).toContain('This Region cannot be installed right now.');
+  });
+
+  it('refetches the plan on PLAN_CHANGED, keeps the inputs and asks the customer to confirm again', async () => {
+    confirmMocks.confirmPublicInstall.mockResolvedValueOnce({ ok: false, code: 'PLAN_CHANGED' });
+    renderFlow();
+    await fillForm();
+    const callsBefore = pageMocks.fetchPublicInstallPlan.mock.calls.length;
+    pageMocks.fetchPublicInstallPlan.mockImplementationOnce(() =>
+      Promise.resolve({ ...sizedPlan('us-east-1', 'medium'), planFingerprint: 'b'.repeat(64) }),
+    );
+
+    await act(async () => {
+      click(document.querySelector('button[type="submit"]') as HTMLButtonElement);
+    });
+
+    expect(pageMocks.fetchPublicInstallPlan.mock.calls.length).toBe(callsBefore + 1);
+    expect(document.body.textContent).toContain(
+      'The installation plan changed after you reviewed it. Review the updated plan and confirm again.',
+    );
+    expect((document.querySelector('input#API_KEY') as HTMLInputElement).value).toBe('secret-key');
+    expect((document.querySelector('input#customer-name') as HTMLInputElement).value).toBe('Ada Lovelace');
+
+    confirmMocks.confirmPublicInstall.mockResolvedValue({ ok: true, installLinkId: 'new-link-id' });
+    await act(async () => {
+      click(document.querySelector('button[type="submit"]') as HTMLButtonElement);
+    });
+    expect(confirmMocks.confirmPublicInstall.mock.calls[1]![1].planFingerprint).toBe('b'.repeat(64));
   });
 
   it('shows actionable error copy for SUBSCRIPTION_REQUIRED and PUBLIC_INSTALL_CONFIG_INVALID', async () => {

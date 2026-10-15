@@ -201,7 +201,7 @@ that would replace or delete managed resources fail closed.
 The compiled stack contains: a VPC (two public and two private subnets, one
 NAT gateway, plus isolated DB-only subnets in the remaining available AZs when
 a database is present), an ECS cluster, and one Fargate service per persistent
-workload (`small-v2`: 0.25 vCPU / 512 MiB per task, deployment circuit
+workload (sized by the deployment's frozen profile, for example `small-v2`: 0.25 vCPU / 512 MiB per task; deployment circuit
 breaker with rollback). The web workload runs behind the internet-facing
 ALB (one HTTP listener, a target group, an unhealthy-target alarm, and a
 300-second health-check grace period, so an app that migrates at boot is not
@@ -339,7 +339,9 @@ derivation, so the vendor page and the customer page can never disagree.
 - The Region is chosen at deployment creation and is immutable
   ([`product/user-flows.md#who-chooses-the-aws-region`](product/user-flows.md#who-chooses-the-aws-region)).
 - Sizing is frozen per deployment from the immutable profile registry
-  (`small-v2` today) — [`infrastructure-profiles.md`](infrastructure-profiles.md).
+  (Small `small-v2`, Medium `medium-v1`, Large `large-v1`). The vendor
+  recommends, the customer chooses at or above the vendor minimum —
+  [`infrastructure-profiles.md`](infrastructure-profiles.md).
 
 ## Installation invitations and links
 

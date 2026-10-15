@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { CANARY_TAGS, canaryTags } from './config.js';
+import type { ObservedSizing } from './sizing.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -351,6 +352,68 @@ export async function describeRunningService(region: string, stackName: string):
     runningDigests: [...new Set(runningDigests)],
     runningTaskDefinitions: [...new Set(runningTaskDefinitions)],
   };
+}
+
+/**
+ * What AWS runs for the application stack's size: every ECS service's task
+ * definition CPU/memory, the RDS instance and the ElastiCache group. All are
+ * found through the stack's own resource list (physical ids), never by name
+ * pattern or tag search.
+ */
+export async function readStackSizing(region: string, stackName: string): Promise<ObservedSizing> {
+  const resources = await listStackResources(region, stackName);
+  const services: ObservedSizing['services'][number][] = [];
+  for (const serviceArn of resources.filter((r) => r.type === 'AWS::ECS::Service').map((r) => r.physicalId)) {
+    if (!serviceArn) continue;
+    const [, cluster, name] = serviceArn.split('/');
+    if (!cluster || !name) throw new Error(`unexpected ECS service id ${serviceArn}`);
+    const described = (await aws(['ecs', 'describe-services', '--cluster', cluster, '--services', serviceArn], region)) as {
+      services: { taskDefinition: string; desiredCount: number }[];
+    };
+    const service = described.services[0];
+    if (!service) throw new Error(`ECS service ${serviceArn} not found`);
+    const definition = (await aws(['ecs', 'describe-task-definition', '--task-definition', service.taskDefinition], region)) as {
+      taskDefinition: { cpu?: string; memory?: string };
+    };
+    const { cpu, memory } = definition.taskDefinition;
+    services.push({
+      name,
+      cpuUnits: cpu === undefined ? null : Number(cpu),
+      memoryMiB: memory === undefined ? null : Number(memory),
+      desiredCount: service.desiredCount,
+    });
+  }
+
+  let database: ObservedSizing['database'] = null;
+  const dbId = resources.find((r) => r.type === 'AWS::RDS::DBInstance')?.physicalId;
+  if (dbId) {
+    const response = (await aws(['rds', 'describe-db-instances', '--db-instance-identifier', dbId], region)) as {
+      DBInstances: { DBInstanceClass: string; AllocatedStorage: number; StorageType: string }[];
+    };
+    const instance = response.DBInstances[0];
+    if (instance) {
+      database = { instanceClass: instance.DBInstanceClass, storageGb: instance.AllocatedStorage, storageType: instance.StorageType };
+    }
+  }
+
+  let cache: ObservedSizing['cache'] = null;
+  const groupId = resources.find((r) => r.type === 'AWS::ElastiCache::ReplicationGroup')?.physicalId;
+  const clusterId = resources.find((r) => r.type === 'AWS::ElastiCache::CacheCluster')?.physicalId;
+  if (groupId) {
+    const response = (await aws(['elasticache', 'describe-replication-groups', '--replication-group-id', groupId], region)) as {
+      ReplicationGroups: { CacheNodeType: string; MemberClusters?: string[] }[];
+    };
+    const group = response.ReplicationGroups[0];
+    if (group) cache = { nodeType: group.CacheNodeType, nodeCount: group.MemberClusters?.length ?? 0 };
+  } else if (clusterId) {
+    const response = (await aws(['elasticache', 'describe-cache-clusters', '--cache-cluster-id', clusterId], region)) as {
+      CacheClusters: { CacheNodeType: string }[];
+    };
+    const cluster = response.CacheClusters[0];
+    if (cluster) cache = { nodeType: cluster.CacheNodeType, nodeCount: 1 };
+  }
+
+  return { services, database, cache };
 }
 
 export async function albDnsName(region: string, stackName: string): Promise<string | null> {

@@ -1,6 +1,6 @@
 import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
-import { analysisStatusEnum, buildStatusEnum, compatibilityStatusEnum, releaseStatusEnum } from '../enums.js';
+import { analysisStatusEnum, buildStatusEnum, compatibilityStatusEnum, infrastructureSizeTierEnum, releaseStatusEnum } from '../enums.js';
 import { organization } from './auth.js';
 import { auditFields, createdAt, id, updatedAt } from './common.js';
 
@@ -39,6 +39,10 @@ export const applications = pgTable('applications', {
   databaseRequired: boolean('database_required').notNull().default(false),
   storageRequired: boolean('storage_required').notNull().default(false),
   redisRequired: boolean('redis_required').notNull().default(false),
+  // Vendor sizing settings. Re-analysis never writes them; they apply to
+  // deployments and links created after a change.
+  defaultSizeProfile: infrastructureSizeTierEnum('default_size_profile').notNull().default('small'),
+  minimumSizeProfile: infrastructureSizeTierEnum('minimum_size_profile').notNull().default('small'),
   analysisStatus: analysisStatusEnum('analysis_status').notNull().default('PENDING'),
   compatibilityStatus: compatibilityStatusEnum('compatibility_status'),
   compatibilityReason: text('compatibility_reason'),

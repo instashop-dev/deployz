@@ -5,7 +5,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   bootstrapTemplateBucketName,
   deploymentSpecV2Schema,
+  estimateFootprintCost,
+  LARGE_PROFILE,
+  MEDIUM_PROFILE,
   requirementsFromSpec,
+  resolveDeploymentFootprint,
+  SMALL_V2_PROFILE,
 } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -88,6 +93,47 @@ describe('compileDeploymentIntent', () => {
       expect(record.physicalResourceId).toBeNull();
     }
     expect(first.spec.footprint!.region).toBe('us-east-1');
+  });
+});
+
+describe('size profiles', () => {
+  const WIDE_MANIFEST = {
+    ...MANIFEST,
+    redis: { required: true, envBindings: [] },
+    worker: { command: 'node dist/worker.js' },
+  } as typeof MANIFEST;
+  const MYSQL_MANIFEST = { ...WIDE_MANIFEST, database: { ...WIDE_MANIFEST.database, engine: 'mysql' } } as typeof MANIFEST;
+
+  it.each([
+    ['small-v2', SMALL_V2_PROFILE],
+    ['medium-v1', MEDIUM_PROFILE],
+    ['large-v1', LARGE_PROFILE],
+  ])('%s: the compiler footprint and its estimate equal the contracts footprint for the same manifest', (_key, profile) => {
+    for (const manifest of [WIDE_MANIFEST, MYSQL_MANIFEST]) {
+      const compiled = compileDeploymentIntent({ manifest, region: 'us-east-1', sizeProfile: profile }).spec.footprint!;
+      const resolved = resolveDeploymentFootprint({ manifest, region: 'us-east-1', profile });
+      // The only difference is provenance: the compiler records its own version.
+      expect(compiled.generatedFrom.infraVersion).toBe('dynamic-compiler-v2');
+      expect(compiled).toEqual({ ...resolved, generatedFrom: compiled.generatedFrom });
+      expect(estimateFootprintCost(compiled)).toEqual(estimateFootprintCost(resolved));
+      expect(compiled.workloads.every((workload) => workload.compute.cpuUnits === profile.workload.cpuUnits)).toBe(true);
+      expect(compiled.resources.find((resource) => resource.id === 'database')!.configuration).toMatchObject({
+        instanceType: profile.database.instanceClass,
+      });
+      expect(compiled.resources.find((resource) => resource.id === 'cache')!.configuration).toMatchObject({
+        nodeType: profile.cache.nodeType,
+      });
+    }
+  });
+
+  it('a different size changes the footprint and the content address, never the topology', () => {
+    const small = compileDeploymentIntent({ manifest: WIDE_MANIFEST, region: 'us-east-1', sizeProfile: SMALL_V2_PROFILE });
+    const large = compileDeploymentIntent({ manifest: WIDE_MANIFEST, region: 'us-east-1', sizeProfile: LARGE_PROFILE });
+    expect(large.templateHash).not.toBe(small.templateHash);
+    expect(Object.keys(large.template['Resources'] as object)).toEqual(Object.keys(small.template['Resources'] as object));
+    expect(large.spec.footprint!.resources.map((resource) => resource.id)).toEqual(
+      small.spec.footprint!.resources.map((resource) => resource.id),
+    );
   });
 });
 

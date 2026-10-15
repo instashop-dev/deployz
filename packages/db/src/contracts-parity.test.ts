@@ -18,6 +18,7 @@ import {
   infrastructureComponentStatusSchema,
   infrastructureLifecycleSchema,
   infrastructureResourceRoleSchema,
+  infrastructureSizeTierSchema,
   jobStateSchema,
   jobTypeSchema,
   regionSchema,
@@ -43,6 +44,7 @@ import {
   infrastructureComponentStatusEnum,
   infrastructureLifecycleEnum,
   infrastructureResourceRoleEnum,
+  infrastructureSizeTierEnum,
   jobStateEnum,
   jobTypeEnum,
   regionEnum,
@@ -78,6 +80,7 @@ describe('enum parity with @deployz/contracts zod schemas', () => {
     ['infrastructureComponentStatus', infrastructureComponentStatusEnum, infrastructureComponentStatusSchema.options],
     ['infrastructureLifecycle', infrastructureLifecycleEnum, infrastructureLifecycleSchema.options],
     ['infrastructureResourceRole', infrastructureResourceRoleEnum, infrastructureResourceRoleSchema.options],
+    ['infrastructureSizeTier', infrastructureSizeTierEnum, infrastructureSizeTierSchema.options],
   ] as const;
 
   for (const [name, dbEnum, contractsOptions] of pairs) {

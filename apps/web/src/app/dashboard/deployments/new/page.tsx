@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { allowedSizeTiers, type InfrastructureSizeTier } from '@deployz/contracts';
+
 import { copyInstallLink } from '@/components/copy-install-link';
 import { CustomerPicker } from '@/components/customer-picker';
 import { ManageBillingButton } from '@/components/manage-billing-button';
@@ -47,6 +49,7 @@ import {
 } from '@/lib/customers';
 import { fetchApplicationPreflight, type PreflightResult } from '@/lib/preflight';
 import { fetchRegions, type RegionOption } from '@/lib/regions';
+import { sizeTierCompute, sizeTierLabel } from '@/lib/size-tiers';
 import {
   BuildConfigurationMissingError,
   createRelease,
@@ -350,6 +353,7 @@ function NewDeploymentScreen() {
     const customerCompany = String(form.get('customerCompany') ?? '').trim();
     const applicationId = String(form.get('application') ?? '');
     const region = String(form.get('region') ?? '');
+    const size = String(form.get('size') ?? '') as InfrastructureSizeTier | '';
 
     let customerId: string | null = null;
     try {
@@ -387,6 +391,7 @@ function NewDeploymentScreen() {
           customerId,
           region: region || regions[0]?.value || '',
           deploymentType: 'TEST',
+          ...(size !== '' ? { sizeProfile: size } : {}),
         });
         setCreatedCustomerId(customerId);
         setCreatedApplicationId(applicationId);
@@ -399,6 +404,7 @@ function NewDeploymentScreen() {
           customerId,
           applicationId,
           ...(region !== '' ? { recommendedRegion: region } : {}),
+          ...(size !== '' ? { recommendedSizeProfile: size } : {}),
         });
         setCreatedCustomerId(customerId);
         setCreatedApplicationId(applicationId);
@@ -653,6 +659,25 @@ function NewDeploymentScreen() {
                   </>
                 )}
               </div>
+              {selectedApplication ? (
+                <div className="flex min-w-0 flex-col gap-2">
+                  <Label htmlFor="size">{isTestDeployment ? 'Size' : 'Recommended size'}</Label>
+                  <select
+                    key={selectedApplication.id}
+                    id="size"
+                    name="size"
+                    className={selectClass}
+                    defaultValue={selectedApplication.defaultSizeProfile}
+                    onChange={clearSubmitError}
+                  >
+                    {allowedSizeTiers(selectedApplication.minimumSizeProfile).map((tier) => (
+                      <option key={tier} value={tier}>
+                        {sizeTierLabel(tier)} ({sizeTierCompute(tier)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
             </div>
           </div>
 

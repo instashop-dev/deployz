@@ -9,9 +9,16 @@
  * assertion throws with the facts in the message.
  */
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
-import { applicationStackNameForInstallation, releaseImageTag } from '@deployz/contracts';
+import {
+  allowedSizeTiers,
+  applicationStackNameForInstallation,
+  currentInfrastructureSizeProfile,
+  profileKey,
+  releaseImageTag,
+  type InfrastructureSizeTier,
+} from '@deployz/contracts';
 
 import { probeLiveApp, probeUrl, readMarker, sampleLiveApp, writeMarker } from './app.js';
 import { withDiagnosticsOnFailure } from './diagnostics.js';
@@ -23,6 +30,7 @@ import {
   describeStack,
   ecrDigestForTag,
   lambdaFunctionNames,
+  readStackSizing,
   targetHealth,
   templateBucketName,
 } from './aws.js';
@@ -36,9 +44,11 @@ import {
   sleep,
   waitFor,
   type DeploymentDetail,
+  type PublicInstallConfirmInput,
 } from './control-plane.js';
 import type { Evidence } from './evidence.js';
 import { FIXTURE_RELEASES, type FixtureRelease } from './fixture-repo.js';
+import { compareSizing, plannedSizingFromFootprint } from './sizing.js';
 
 export const ECR_REPOSITORY = 'deployz-images';
 
@@ -326,37 +336,72 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
       email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
     });
     evidence.run.customerId = customer.id;
-    const deployment = await api.createDeployment({ applicationId, customerId: customer.id, region: config.region });
+    const deployment = await api.createDeployment({
+      applicationId,
+      customerId: customer.id,
+      region: config.region,
+      ...(config.size ? { sizeProfile: config.size } : {}),
+    });
     evidence.run.deploymentId = deployment.id;
     evidence.run.installLinkId = deployment.installLinkId;
     evidence.save();
     details['deploymentId'] = deployment.id;
-
-    const info = await api.getInstallInfo(deployment.installLinkId);
-    assert(info.quickCreateUrl, 'install link carries no Quick Create URL (bootstrap template unpublished?)');
-    const quick = parseQuickCreateUrl(info.quickCreateUrl);
-    details['quickCreate'] = { templateUrl: quick.templateUrl, stackName: quick.stackName, parameters: Object.keys(quick.parameters) };
-
-    // What the browser does when the customer presses "Deploy to AWS".
-    const launched = await api.markInstallLaunched(deployment.installLinkId);
-    assert(launched.state === 'WAITING_FOR_RELAY', `launched -> ${launched.state}`);
-
-    // What the customer's console does on "Create stack": pass the Quick
-    // Create parameters through unchanged, plus the canary tags. The
-    // control plane compiles the install template from the frozen manifest,
-    // so there is no application-template override to apply.
-    const stackId = await createBootstrapStack(config.region, {
-      stackName: quick.stackName,
-      templateUrl: quick.templateUrl,
-      parameters: quick.parameters,
-      runId: config.runId,
-    });
-    evidence.run.bootstrapStackName = quick.stackName;
-    evidence.save();
-    details['bootstrapStackId'] = stackId;
-    return deployment.id;
+    return launchInstall(canary, deployment.installLinkId, deployment.id, details);
   });
 
+  await waitForInstallHealthy(canary, deploymentId);
+  return deploymentId;
+}
+
+/**
+ * Continues an install from an install link that already exists - the
+ * customer's side of the public-link journey, where the confirmation (not the
+ * vendor) created the deployment.
+ */
+export async function continueInstallFromLink(canary: Canary, installLinkId: string): Promise<string> {
+  const { evidence, api } = canary;
+  const deploymentId = await evidence.step('Launch the install from the confirmed link', async (details) => {
+    const info = await api.getInstallInfo(installLinkId);
+    evidence.run.deploymentId = info.deploymentId;
+    evidence.run.installLinkId = installLinkId;
+    evidence.save();
+    details['deploymentId'] = info.deploymentId;
+    return launchInstall(canary, installLinkId, info.deploymentId, details);
+  });
+  await waitForInstallHealthy(canary, deploymentId);
+  return deploymentId;
+}
+
+async function launchInstall(canary: Canary, installLinkId: string, deploymentId: string, details: Record<string, unknown>): Promise<string> {
+  const { config, evidence, api } = canary;
+  const info = await api.getInstallInfo(installLinkId);
+  assert(info.quickCreateUrl, 'install link carries no Quick Create URL (bootstrap template unpublished?)');
+  const quick = parseQuickCreateUrl(info.quickCreateUrl);
+  details['quickCreate'] = { templateUrl: quick.templateUrl, stackName: quick.stackName, parameters: Object.keys(quick.parameters) };
+
+  // What the browser does when the customer presses "Deploy to AWS".
+  const launched = await api.markInstallLaunched(installLinkId);
+  assert(launched.state === 'WAITING_FOR_RELAY', `launched -> ${launched.state}`);
+
+  // What the customer's console does on "Create stack": pass the Quick
+  // Create parameters through unchanged, plus the canary tags. The
+  // control plane compiles the install template from the frozen manifest,
+  // so there is no application-template override to apply.
+  const stackId = await createBootstrapStack(config.region, {
+    stackName: quick.stackName,
+    templateUrl: quick.templateUrl,
+    parameters: quick.parameters,
+    runId: config.runId,
+  });
+  evidence.run.bootstrapStackName = quick.stackName;
+  evidence.save();
+  details['bootstrapStackId'] = stackId;
+  return deploymentId;
+  return deploymentId;
+}
+
+async function waitForInstallHealthy(canary: Canary, deploymentId: string): Promise<void> {
+  const { config, evidence, api } = canary;
   await evidence.step('Bootstrap stack creates and the connector enrolls', async (details) => {
     const stackName = evidence.run.bootstrapStackName!;
     const stack = await waitFor(
@@ -429,8 +474,6 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
       details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
     }),
   );
-
-  return deploymentId;
 }
 
 /**
@@ -967,4 +1010,166 @@ export function fixtureRelease(tag: string): FixtureRelease {
   const release = FIXTURE_RELEASES.find((r) => r.tag === tag);
   assert(release, `unknown fixture tag ${tag}`);
   return release;
+}
+
+// ── Sizing ─────────────────────────────────────────────────────────────────
+
+/**
+ * Proves the deployment runs the size it was created with: the frozen size on
+ * the deployment, the install plan footprint (plan parity) and the live AWS
+ * resources (ECS task definitions of every service, the RDS instance, the
+ * ElastiCache group) all equal the current profile of `expectedTier`. The
+ * expected tier is `--size`, else the Deployz default (small).
+ */
+export async function assertSizing(canary: Canary, expectedTier: InfrastructureSizeTier = canary.config.size ?? 'small'): Promise<void> {
+  const { config, evidence, api } = canary;
+  const deploymentId = evidence.run.deploymentId;
+  const stackName = evidence.run.applicationStackName;
+  assert(deploymentId && stackName, 'no installed deployment to check the size of');
+  await evidence.step(`Sizing: ${expectedTier} matches the frozen size, the plan and AWS`, async (details) => {
+    const bindings = expectedBindings(config.profile);
+    const detail = await api.getDeployment(deploymentId);
+    const plan = await api.plan(deploymentId, 'install');
+    assert(plan.footprint, 'the install plan carries no footprint');
+    const planned = plannedSizingFromFootprint(plan.footprint);
+    const observed = await readStackSizing(config.region, stackName);
+    const profile = currentInfrastructureSizeProfile(expectedTier);
+    details['expected'] = { tier: expectedTier, profileKey: profileKey(profile), workload: profile.workload, database: profile.database, cache: profile.cache };
+    details['actual'] = { frozenSize: detail.size ?? null, plan: planned, aws: observed };
+    evidence.run.sizing = { tier: expectedTier, profileKey: profileKey(profile), frozenSize: detail.size?.profileKey ?? null };
+    evidence.save();
+    const problems = compareSizing({
+      expectation: { tier: expectedTier, expectDatabase: bindings.database, expectCache: bindings.redis },
+      observed,
+      planned,
+      frozenSize: detail.size ?? null,
+    });
+    details['mismatches'] = problems;
+    assert(problems.length === 0, `size ${expectedTier} (${profileKey(profile)}) mismatch:\n  - ${problems.join('\n  - ')}`);
+  });
+}
+
+// ── Journey: vendor settings -> link override -> customer choice ────────────
+
+/** The application sizes the journey sets: the default differs from both the link recommendation and the customer's choice. */
+export const JOURNEY_APPLICATION_SIZES = { defaultSizeProfile: 'medium', minimumSizeProfile: 'small' } as const;
+export const JOURNEY_LINK_RECOMMENDATION: InfrastructureSizeTier = 'large';
+/** Applied again when the journey ends, so the shared canary application keeps the Deployz defaults. */
+export const RESTORED_APPLICATION_SIZES = { defaultSizeProfile: 'small', minimumSizeProfile: 'small' } as const;
+
+/** The body of the customer's confirmation (a targeted invitation sends no `customer`). */
+export function journeyConfirmBody(input: { idempotencyKey: string; region: string; sizeProfile: InfrastructureSizeTier; planFingerprint: string }): PublicInstallConfirmInput {
+  return { ...input, config: [] };
+}
+
+/** A size that is neither the customer's choice nor the vendor default, so a fingerprint for it is wrong for the choice. */
+export function otherTier(chosen: InfrastructureSizeTier): InfrastructureSizeTier {
+  return chosen === 'small' ? 'medium' : 'small';
+}
+
+export async function setApplicationSizes(
+  canary: Canary,
+  sizes: { defaultSizeProfile: InfrastructureSizeTier; minimumSizeProfile: InfrastructureSizeTier },
+): Promise<void> {
+  const { evidence, api } = canary;
+  const applicationId = evidence.run.applicationId;
+  assert(applicationId, 'no application yet');
+  await evidence.step(`Vendor sets the application sizes: default ${sizes.defaultSizeProfile}, minimum ${sizes.minimumSizeProfile}`, async (details) => {
+    await api.patchApplication(applicationId, sizes);
+    const application = await api.getApplication(applicationId);
+    details['application'] = { defaultSizeProfile: application['defaultSizeProfile'], minimumSizeProfile: application['minimumSizeProfile'] };
+    assert(
+      application['defaultSizeProfile'] === sizes.defaultSizeProfile && application['minimumSizeProfile'] === sizes.minimumSizeProfile,
+      `application sizes did not persist: ${JSON.stringify(details['application'])}`,
+    );
+  });
+}
+
+export interface JourneyInvitation {
+  readonly linkId: string;
+  readonly token: string;
+}
+
+/** The vendor creates a customer and a targeted invitation whose recommendation overrides the application default. */
+export async function createJourneyInvitation(canary: Canary): Promise<JourneyInvitation> {
+  const { config, evidence, api } = canary;
+  const applicationId = evidence.run.applicationId;
+  assert(applicationId, 'no application yet');
+  return evidence.step(`Vendor invites a customer with the link recommendation ${JOURNEY_LINK_RECOMMENDATION}`, async (details) => {
+    const customer = await api.createCustomer({
+      name: `Canary customer ${config.runId}`,
+      email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
+    });
+    evidence.run.customerId = customer.id;
+    evidence.save();
+    const invitation = await api.createInvitation(customer.id, {
+      applicationId,
+      recommendedRegion: config.region,
+      recommendedSizeProfile: JOURNEY_LINK_RECOMMENDATION,
+    });
+    details['invitationId'] = invitation.id;
+    details['recommendedSizeProfile'] = invitation.recommendedSizeProfile;
+    assert(
+      invitation.recommendedSizeProfile === JOURNEY_LINK_RECOMMENDATION,
+      `invitation recommends ${invitation.recommendedSizeProfile}, expected ${JOURNEY_LINK_RECOMMENDATION}`,
+    );
+    return { linkId: invitation.id, token: invitation.token };
+  });
+}
+
+/**
+ * The customer's side, with no session: resolve the invitation, check the
+ * link recommendation and the offered sizes, review the plan for the chosen
+ * size, prove a plan approved for another size is refused, then confirm.
+ * Returns the install link id the existing install flow continues from.
+ */
+export async function customerConfirmsChosenSize(canary: Canary, invitation: JourneyInvitation, chosen: InfrastructureSizeTier): Promise<string> {
+  const { config, evidence, api } = canary;
+  return evidence.step(`Customer reviews the invitation and confirms the ${chosen} size`, async (details) => {
+    const view = await api.publicInstall(invitation.linkId, invitation.token);
+    details['sizing'] = view.sizing;
+    assert(
+      view.sizing.recommended === JOURNEY_LINK_RECOMMENDATION,
+      `the page recommends ${view.sizing.recommended}, expected the link recommendation ${JOURNEY_LINK_RECOMMENDATION}`,
+    );
+    assert(view.sizing.minimum === JOURNEY_APPLICATION_SIZES.minimumSizeProfile, `the page minimum is ${view.sizing.minimum}`);
+    const offered = view.sizing.options.map((option) => option.id).join(',');
+    const expectedOffered = allowedSizeTiers(JOURNEY_APPLICATION_SIZES.minimumSizeProfile).join(',');
+    assert(offered === expectedOffered, `the page offers ${offered}, expected ${expectedOffered}`);
+    for (const option of view.sizing.options) {
+      const expectedKey = profileKey(currentInfrastructureSizeProfile(option.id as InfrastructureSizeTier));
+      assert(option.profileKey === expectedKey, `option ${option.id} is ${option.profileKey}, expected ${expectedKey}`);
+    }
+
+    const plan = await api.publicInstallPlan(invitation.linkId, invitation.token, config.region, chosen);
+    const other = otherTier(chosen);
+    const otherPlan = await api.publicInstallPlan(invitation.linkId, invitation.token, config.region, other);
+    details['plans'] = {
+      [chosen]: { sizeProfile: plan.sizeProfile, planFingerprint: plan.planFingerprint },
+      [other]: { sizeProfile: otherPlan.sizeProfile, planFingerprint: otherPlan.planFingerprint },
+    };
+    assert(plan.sizeProfile === chosen, `plan for ${chosen} answered size ${plan.sizeProfile}`);
+    assert(plan.planFingerprint && otherPlan.planFingerprint, `no plan fingerprint for ${config.region} (undeployable Region?)`);
+    assert(plan.planFingerprint !== otherPlan.planFingerprint, `plans for ${chosen} and ${other} carry the same fingerprint`);
+    assert(plan.costEstimate && otherPlan.costEstimate, 'a plan carries no cost estimate');
+    assert(JSON.stringify(plan.costEstimate) !== JSON.stringify(otherPlan.costEstimate), `plans for ${chosen} and ${other} carry the same cost estimate`);
+
+    const stale = await api.publicInstallConfirm(
+      invitation.linkId,
+      invitation.token,
+      journeyConfirmBody({ idempotencyKey: randomUUID(), region: config.region, sizeProfile: chosen, planFingerprint: otherPlan.planFingerprint }),
+      [409],
+    );
+    details['staleConfirm'] = { status: stale.status, code: stale.body.error?.code };
+    assert(stale.status === 409 && stale.body.error?.code === 'PLAN_CHANGED', `a stale fingerprint was answered ${stale.status} ${stale.body.error?.code ?? ''}, expected 409 PLAN_CHANGED`);
+
+    const confirmed = await api.publicInstallConfirm(
+      invitation.linkId,
+      invitation.token,
+      journeyConfirmBody({ idempotencyKey: randomUUID(), region: config.region, sizeProfile: chosen, planFingerprint: plan.planFingerprint }),
+    );
+    assert(confirmed.status === 201 && confirmed.body.installLinkId, `confirm -> ${confirmed.status}, expected 201 with an installLinkId`);
+    details['installLinkId'] = confirmed.body.installLinkId;
+    return confirmed.body.installLinkId;
+  });
 }

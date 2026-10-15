@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { estimateFootprintCost, footprintCostEstimateSchema } from './pricing.js';
 import { resolveDeploymentFootprint } from './footprint.js';
+import { LARGE_PROFILE, MEDIUM_PROFILE, SMALL_PROFILE } from './profile.js';
 import type { FootprintResource } from './footprint.js';
 import type { DeploymentManifest } from './manifest.js';
 
@@ -67,6 +68,47 @@ describe('estimateFootprintCost', () => {
     expect(estimate.complete).toBe(true);
     expect(estimate.usageDependent).toContain('Files stored in S3 and data transfer');
     expect(estimate).toEqual(footprintCostEstimateSchema.parse(estimate));
+  });
+
+  it('prices every published size from its own sizing', () => {
+    const itemRange = (profile: typeof MEDIUM_PROFILE, id: string) => {
+      const estimate = estimateFootprintCost(
+        resolveDeploymentFootprint({ manifest: WITH_POSTGRES_REDIS, region: 'us-east-1', profile }),
+      );
+      const item = estimate.items.find((entry) => entry.resourceId === id)!;
+      expect(estimate.complete).toBe(true);
+      return [item.monthlyMin, item.monthlyMax];
+    };
+    expect(itemRange(SMALL_PROFILE, 'database')).toEqual([14, 19]);
+    expect(itemRange(MEDIUM_PROFILE, 'web')).toEqual([33, 40]);
+    expect(itemRange(MEDIUM_PROFILE, 'database')).toEqual([50, 60]);
+    expect(itemRange(MEDIUM_PROFILE, 'cache')).toEqual([18, 24]);
+    expect(itemRange(LARGE_PROFILE, 'web')).toEqual([68, 80]);
+    expect(itemRange(LARGE_PROFILE, 'database')).toEqual([100, 115]);
+    expect(itemRange(LARGE_PROFILE, 'cache')).toEqual([36, 45]);
+  });
+
+  it('prices a MySQL database like the same RDS instance class', () => {
+    const estimate = estimateFootprintCost(
+      resolveDeploymentFootprint({
+        manifest: manifestWith({ database: { postgres: true, engine: 'mysql' } }),
+        region: 'us-east-1',
+        profile: MEDIUM_PROFILE,
+      }),
+    );
+    const database = estimate.items.find((item) => item.resourceId === 'database')!;
+    expect(database).toMatchObject({ label: 'MySQL', monthlyMin: 50, monthlyMax: 60, pricingStatus: 'estimated' });
+  });
+
+  it('a size with no pricing range is unavailable, never a guess', () => {
+    const footprint = resolveDeploymentFootprint({ manifest: STATELESS, region: 'us-east-1' });
+    const odd = {
+      ...footprint,
+      workloads: footprint.workloads.map((workload) => ({ ...workload, compute: { ...workload.compute, cpuUnits: 4096, memoryMiB: 8192 } })),
+    };
+    const estimate = estimateFootprintCost(odd);
+    expect(estimate.items.find((item) => item.resourceId === 'web')!.pricingStatus).toBe('unavailable');
+    expect(estimate.complete).toBe(false);
   });
 
   it('a stateless deployment still estimates (workload + endpoint + NAT)', () => {
