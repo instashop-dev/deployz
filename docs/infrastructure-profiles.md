@@ -93,7 +93,9 @@ server compiles the stack it will install, recomputes the fingerprint from
 its own state and refuses any difference with `409 PLAN_CHANGED` (a stale
 page, an application changed after the review, or an edited request). The
 transaction then rolls back, so nothing is created. A replay of the same
-idempotency key returns the existing deployment.
+idempotency key returns the existing deployment only when its Region and
+size match the request; otherwise it is `409 IDEMPOTENCY_KEY_REUSED`. The
+install page uses a new key whenever the Region or size changes.
 
 ## Footprint and cost estimate
 

@@ -10,6 +10,7 @@ import {
   evaluateEnvironmentSetup,
   infrastructureSizeTierSchema,
   isSupportedRegion,
+  resolveStoredInfrastructureSizeProfile,
   type DeploymentManifest,
   type DeploymentPlan,
   type EnvVariableClassification,
@@ -372,6 +373,28 @@ async function findConfirmedInstallLinkId(
   return rows[0]?.installLinkId ?? null;
 }
 
+/**
+ * A replay returns the deployment the key already created, so it must be for
+ * the Region and size the request approves. A different selection under the
+ * same key is refused: the customer would otherwise be sent to a stack they
+ * did not approve.
+ */
+async function assertReplayMatches(db: RuntimeDb, installLinkId: string, body: PublicInstallConfirmBody): Promise<void> {
+  const [replayed] = await db
+    .select({ region: schema.deployments.region, desiredState: schema.deployments.desiredState })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.installLinkId, installLinkId))
+    .limit(1);
+  const profile = replayed ? resolveStoredInfrastructureSizeProfile(replayed.desiredState) : undefined;
+  if (!replayed || replayed.region !== body.region || profile?.id !== body.sizeProfile) {
+    throw new ApiError(
+      409,
+      'IDEMPOTENCY_KEY_REUSED',
+      'This confirmation was already used for a different Region or size. Reload the page and confirm again.',
+    );
+  }
+}
+
 /** Whether an error is the confirm-idempotency unique violation (the insert race). */
 function isConfirmKeyViolation(error: unknown): boolean {
   for (let cause: unknown = error; cause; cause = (cause as { cause?: unknown }).cause) {
@@ -454,6 +477,7 @@ export async function confirmPublicInstall(
 
   const existing = await findConfirmedInstallLinkId(db, link.id, body.idempotencyKey);
   if (existing !== null) {
+    await assertReplayMatches(db, existing, body);
     // The first attempt's post-commit materialization may have failed (a KMS
     // error) and the client is retrying. Re-bind only the staged secrets that
     // have no bound row yet; bound rows are never touched. Only before the
@@ -655,6 +679,7 @@ export async function confirmPublicInstall(
     if (isConfirmKeyViolation(error) || (error instanceof ApiError && error.code === 'PUBLIC_INSTALL_LINK_USED')) {
       const winner = await findConfirmedInstallLinkId(db, link.id, body.idempotencyKey);
       if (winner !== null) {
+        await assertReplayMatches(db, winner, body);
         return { installLinkId: winner, created: false };
       }
     }

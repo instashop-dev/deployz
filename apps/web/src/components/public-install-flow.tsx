@@ -60,7 +60,9 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
   const [customerEmail, setCustomerEmail] = useState('');
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [idempotencyKey] = useState(generateIdempotencyKey);
+  // One key per selection: a retry of the same Region and size replays, a
+  // new selection is a new confirmation.
+  const [idempotencyKey, setIdempotencyKey] = useState(generateIdempotencyKey);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -201,7 +203,13 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
             {resolve.publisher.name} recommends {installPlanRegionLabel(resolve.recommendedRegion) ?? resolve.recommendedRegion}.
           </p>
         ) : null}
-        <Select value={region} onValueChange={setRegion}>
+        <Select
+          value={region}
+          onValueChange={(value) => {
+            setRegion(value);
+            setIdempotencyKey(generateIdempotencyKey());
+          }}
+        >
           <SelectTrigger aria-labelledby="public-region" className="w-full sm:w-[360px]">
             <SelectValue placeholder="Select a region" />
           </SelectTrigger>
@@ -228,7 +236,10 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         <RadioGroup
           aria-labelledby="public-size"
           value={size}
-          onValueChange={(value) => setSize(value as InfrastructureSizeTier)}
+          onValueChange={(value) => {
+            setSize(value as InfrastructureSizeTier);
+            setIdempotencyKey(generateIdempotencyKey());
+          }}
         >
           {resolve.sizing.options.map((option) => (
             <SizeChoice key={option.id} option={option} plan={plan} />

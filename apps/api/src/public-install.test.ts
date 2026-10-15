@@ -466,6 +466,30 @@ describe('public install links', () => {
     expect(await countOrgCustomers()).toBe(customersBefore + 1);
   });
 
+  it('a replayed key with a different size or Region is refused, never sent to the old deployment', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const payload = confirmPayload();
+    expect((await confirm(link.id, payload)).statusCode).toBe(201);
+    const otherSize = await confirm(link.id, { ...payload, sizeProfile: 'large' });
+    expect(otherSize.statusCode, otherSize.body).toBe(409);
+    expect(otherSize.json()).toMatchObject({ error: { code: 'IDEMPOTENCY_KEY_REUSED' } });
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prevRegions = mutableEnv.deployableAwsRegions;
+    try {
+      mutableEnv.deployableAwsRegions = ['us-east-1', 'eu-west-1'];
+      const otherRegion = await confirm(link.id, { ...payload, region: 'eu-west-1' });
+      expect(otherRegion.statusCode, otherRegion.body).toBe(409);
+      expect(otherRegion.json()).toMatchObject({ error: { code: 'IDEMPOTENCY_KEY_REUSED' } });
+    } finally {
+      mutableEnv.deployableAwsRegions = prevRegions;
+    }
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(1);
+  });
+
   it('a different key creates a different deployment', async () => {
     const { link } = await insertEnabledLink(db, org.organizationId);
     const first = await confirm(link.id, confirmPayload());

@@ -80,6 +80,8 @@ export function publicInstallErrorMessage(code: string): string {
       return 'Some configuration values are missing or not valid. Check the fields and try again.';
     case 'PLAN_CHANGED':
       return 'The installation plan changed after you reviewed it. Review the updated plan and confirm again.';
+    case 'IDEMPOTENCY_KEY_REUSED':
+      return 'This confirmation was already used for a different Region or size. Reload the page and confirm again.';
     case 'SIZE_PROFILE_NOT_ALLOWED':
     case 'UNKNOWN_PROFILE':
       return 'That size is not available for this application. Select a different size.';
