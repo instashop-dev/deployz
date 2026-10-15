@@ -169,7 +169,7 @@ the PostHog analysis.
 
 ## 6. Bugs fixed (generic, with regression tests)
 
-Phase 1, data integrity ([#487](https://github.com/instashop-dev/deployz/pull/487)):
+Phase 1, data integrity ([#487](https://github.com/thalia-apps/deployz/pull/487)):
 
 - **Compiler `dynamic-compiler-v2-4`**: every alias binding is in every task
   definition. Before, the migration task and scheduled jobs never got
@@ -187,7 +187,7 @@ Phase 1, data integrity ([#487](https://github.com/instashop-dev/deployz/pull/48
   undeclared CLIs, workspace filters, and scripts of another package. More
   startup shapes are recognised.
 
-Phase 2, false rejections ([#488](https://github.com/instashop-dev/deployz/pull/488)):
+Phase 2, false rejections ([#488](https://github.com/thalia-apps/deployz/pull/488)):
 
 - Only the production Compose file counts, and same-build or same-image
   services are workers.
@@ -196,7 +196,7 @@ Phase 2, false rejections ([#488](https://github.com/instashop-dev/deployz/pull/
 - Sample Helm/k8s/Terraform/Pulumi files under deployment directories are a
   warning.
 
-Phase 3, runtime precision ([#489](https://github.com/instashop-dev/deployz/pull/489)):
+Phase 3, runtime precision ([#489](https://github.com/thalia-apps/deployz/pull/489)):
 
 - Health path order: HEALTHCHECK, then a dedicated route with prefix and
   version, then a framework route, then the vendor is asked. There is no
@@ -205,14 +205,14 @@ Phase 3, runtime precision ([#489](https://github.com/instashop-dev/deployz/pull
 - Port from the runtime stage.
 - Dev scripts and CMD-run processes are never workers.
 
-Phase 4, configuration friction ([#490](https://github.com/instashop-dev/deployz/pull/490)):
+Phase 4, configuration friction ([#490](https://github.com/thalia-apps/deployz/pull/490)):
 
 - Valkey only on strong required Redis evidence.
 - MySQL detected across PHP, Python, JVM and ORM dialects.
 - Fewer false required keys.
 - A required public URL is derived as `https://d-<id>.deployz.dev`.
 
-Phase 5, remaining defects ([#491](https://github.com/instashop-dev/deployz/pull/491)):
+Phase 5, remaining defects ([#491](https://github.com/thalia-apps/deployz/pull/491)):
 
 - `database-connection-unverified` blocks a provisioned database whose
   connection names the app never shows.
@@ -353,12 +353,12 @@ Cleanup and leak audit (2026-10-07):
 
 | PR | Squash SHA |
 | --- | --- |
-| [#487](https://github.com/instashop-dev/deployz/pull/487) phase 1 | `9503f8fa` |
-| [#488](https://github.com/instashop-dev/deployz/pull/488) phase 2 | `ec8875ed` |
-| [#489](https://github.com/instashop-dev/deployz/pull/489) phase 3 | `74f7d55d` |
-| [#490](https://github.com/instashop-dev/deployz/pull/490) phase 4 | `c6fb1490` |
-| [#491](https://github.com/instashop-dev/deployz/pull/491) phase 5 | `8539c2f0` |
-| [#492](https://github.com/instashop-dev/deployz/pull/492) root build context (canary A finding) | `3c927afb` |
-| [#493](https://github.com/instashop-dev/deployz/pull/493) 300 s web health-check grace (canary B finding) | `3bc65f9c` |
+| [#487](https://github.com/thalia-apps/deployz/pull/487) phase 1 | `9503f8fa` |
+| [#488](https://github.com/thalia-apps/deployz/pull/488) phase 2 | `ec8875ed` |
+| [#489](https://github.com/thalia-apps/deployz/pull/489) phase 3 | `74f7d55d` |
+| [#490](https://github.com/thalia-apps/deployz/pull/490) phase 4 | `c6fb1490` |
+| [#491](https://github.com/thalia-apps/deployz/pull/491) phase 5 | `8539c2f0` |
+| [#492](https://github.com/thalia-apps/deployz/pull/492) root build context (canary A finding) | `3c927afb` |
+| [#493](https://github.com/thalia-apps/deployz/pull/493) 300 s web health-check grace (canary B finding) | `3bc65f9c` |
 
 MVP COMPATIBILITY GATE: FAIL
