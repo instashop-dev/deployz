@@ -111,6 +111,8 @@ export const recipeSchema = z
       .strict()
       .optional(),
     vendorInputs: z.array(vendorInputSchema).default([]),
+    /** The SQL engine whose URL the observation run gives, when the application reads only MySQL. Default: postgres. */
+    databaseEngine: z.enum(['postgres', 'mysql']).optional(),
     /** One HTTP request that uses the database, when a generic request cannot. */
     smoke: z
       .object({
