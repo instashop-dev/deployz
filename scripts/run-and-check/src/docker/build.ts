@@ -26,8 +26,10 @@ export function classifyBuildFailure(log: string, timedOut: boolean): { failure:
 
   const heap = matching(/JavaScript heap out of memory/);
   if (heap.length > 0) {
-    // A V8 heap limit is followed by a qemu signal line; the cause is the Dockerfile, not emulation.
-    return { failure: 'dockerfile', lines: ['heap-limit', ...heap, ...matching(/qemu: uncaught target signal/)] };
+    // Under QEMU a V8 heap limit is followed by a qemu signal line. documenso (repo-006) failed so here and
+    // built on a native x86_64 runner, so that case is emulation; a heap limit without qemu is the Dockerfile.
+    const qemu = matching(/qemu: uncaught target signal/);
+    return { failure: qemu.length > 0 ? 'emulation' : 'dockerfile', lines: ['heap-limit', ...heap, ...qemu] };
   }
   const signals = matching(EMULATION_SIGNAL);
   if (signals.length > 0 && /qemu/i.test(log)) return { failure: 'emulation', lines: signals };

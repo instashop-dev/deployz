@@ -13,7 +13,12 @@ type Decision = { [N in ObservationFactName]: (value: NonNullable<ObservationRun
 const DECISION: Decision = {
   build: (v) => v.ok,
   webHealthy: (v) => v,
-  listeningPorts: (v) => v.map((p) => `${p.port}/${p.bind}/${p.reachableFromProbe}`).sort(),
+  // A loopback port in the Linux ephemeral range (32768+) is an internal socket that changes on every start.
+  listeningPorts: (v) =>
+    v
+      .filter((p) => p.bind === 'all' || p.port < 32768)
+      .map((p) => `${p.port}/${p.bind}/${p.reachableFromProbe}`)
+      .sort(),
   httpPaths: (v) => v.map((p) => `${p.port}${p.path} ${statusClass(p.status)}`).sort(),
   smoke: (v) => statusClass(v.status),
   database: (v) => [v.engine, v.tablesAfterStart.length > 0, v.sqliteFileWritten],

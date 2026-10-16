@@ -42,3 +42,9 @@ describe('sqliteFileWritten', () => {
     expect(sqliteFileWritten(['A /app/data.txt'])).toBe(false);
   });
 });
+
+describe('the CA mount point', () => {
+  it('is not local state', () => {
+    expect(filterLocalDiskWrites(['C /deployz', 'A /deployz/certs', 'A /app/uploads/a.txt'])).toEqual(['/app/uploads/a.txt']);
+  });
+});

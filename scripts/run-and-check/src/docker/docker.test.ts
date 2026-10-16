@@ -84,14 +84,15 @@ describe('cleanEnv', () => {
 });
 
 describe('classifyBuildFailure', () => {
-  it('classifies a V8 heap limit followed by a qemu signal as dockerfile', () => {
+  it('classifies a V8 heap limit followed by a qemu signal as emulation', () => {
     const log = [
       'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory',
       'qemu: uncaught target signal 6 (Aborted) - core dumped',
     ].join('\n');
     const result = classifyBuildFailure(log, false);
-    expect(result.failure).toBe('dockerfile');
+    expect(result.failure).toBe('emulation');
     expect(result.lines).toContain('heap-limit');
+    expect(classifyBuildFailure('FATAL ERROR: JavaScript heap out of memory', false).failure).toBe('dockerfile');
   });
 
   it('classifies the other cases', () => {

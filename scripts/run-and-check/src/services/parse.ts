@@ -17,7 +17,9 @@ export interface ServiceNames {
 }
 
 /** Resource names of one service set. The container name is the host name on the network. */
-export function serviceNames(id: string, label: string): ServiceNames {
+export function serviceNames(rawId: string, label: string): ServiceNames {
+  // Fixture ids (F1) are upper case; the names are lower case on every path.
+  const id = rawId.toLowerCase();
   for (const part of [id, label]) {
     if (!NAME_PATTERN.test(part)) throw new Error(`Invalid service set name part: ${part}`);
   }
@@ -42,7 +44,7 @@ export function serviceNames(id: string, label: string): ServiceNames {
 
 /** Names of a set from its id and network name (`rc-<id>-<label>-net`). */
 export function serviceNamesOf(id: string, network: string): ServiceNames {
-  const prefix = `rc-${id}-`;
+  const prefix = `rc-${id.toLowerCase()}-`;
   if (!network.startsWith(prefix) || !network.endsWith('-net')) throw new Error(`Unexpected service network name: ${network}`);
   return serviceNames(id, network.slice(prefix.length, -'-net'.length));
 }

@@ -1,3 +1,8 @@
+import { CA_DIR } from '../services/index.js';
+
+/** The harness mounts the CA volume at CA_DIR; Docker creates that folder and its parents. */
+const MOUNT_POINTS = CA_DIR.split('/').slice(1).map((_, index, parts) => `/${parts.slice(0, index + 1).join('/')}`);
+
 const IGNORED_FOLDERS = ['/tmp', '/var/tmp', '/run', '/var/run', '/proc', '/dev', '/root/.cache', '/var/log', '/var/cache'];
 
 function stripKind(line: string): string {
@@ -5,6 +10,7 @@ function stripKind(line: string): string {
 }
 
 function isIgnored(path: string): boolean {
+  if (MOUNT_POINTS.includes(path)) return true;
   if (IGNORED_FOLDERS.some((folder) => path === folder || path.startsWith(`${folder}/`))) return true;
   if (/\.(pid|log)$/.test(path)) return true;
   if (/^\/home\/[^/]+\/\.cache(\/|$)/.test(path)) return true;

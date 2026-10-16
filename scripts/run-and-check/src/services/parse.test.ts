@@ -71,3 +71,10 @@ describe('parsers', () => {
     expect(replaceSecrets('bad pw s3cret here', ['s3cret', ''])).toBe('bad pw *** here');
   });
 });
+
+describe('serviceNames case', () => {
+  it('accepts an upper-case fixture id and names in lower case', () => {
+    expect(serviceNames('F1', 'a').network).toBe('rc-f1-a-net');
+    expect(serviceNamesOf('F1', 'rc-f1-a-net').network).toBe('rc-f1-a-net');
+  });
+});

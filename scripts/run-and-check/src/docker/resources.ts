@@ -12,7 +12,7 @@ export function createDockerResources(run: DockerFn = docker): DockerResources {
 
   async function remove(args: string[]): Promise<void> {
     const result = await run(args);
-    if (result.exitCode !== 0 && !/No such/i.test(result.stderr)) {
+    if (result.exitCode !== 0 && !/No such|not found/i.test(result.stderr)) {
       throw new Error(`docker ${args.slice(0, 2).join(' ')} failed: ${result.stderr.trim()}`);
     }
   }

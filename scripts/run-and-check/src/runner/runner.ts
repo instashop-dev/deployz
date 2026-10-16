@@ -153,13 +153,14 @@ export function createRunner(deps: RunnerDeps): Runner {
     request?: { method: 'GET' | 'POST'; path: string; body?: string; contentType?: string },
   ): Promise<HttpCheck[]> {
     const targets = request === undefined ? paths : [request.path];
-    const curl = ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}\\n', '-m', '10'];
+    const curl = ['curl', '-s', '-w', '%{http_code}\\n', '-m', '10'];
     if (request !== undefined) {
       curl.push('-X', request.method);
       if (request.contentType !== undefined) curl.push('-H', `Content-Type: ${request.contentType}`);
       if (request.body !== undefined) curl.push('--data-raw', request.body);
     }
-    for (const path of targets) curl.push(`http://${container.name}:${port}${path}`);
+    // `-o` applies to one URL only: each URL needs its own, or the bodies mix with the status codes.
+    for (const path of targets) curl.push('-o', '/dev/null', `http://${container.name}:${port}${path}`);
     const result = await docker(
       [...probeArguments(container.spec.id, container.spec.services.network), probeImage, ...curl],
       { timeoutMs: targets.length * 10_000 + 30_000 },
