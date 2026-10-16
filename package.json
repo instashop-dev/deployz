@@ -23,7 +23,7 @@
     "lint": "turbo run lint",
     "typecheck:e2e": "tsc --noEmit -p e2e/tsconfig.json",
     "synth:smoke": "node packages/cdk/scripts/bundle-smoke.mjs",
-    "typecheck:scripts": "tsc --noEmit -p scripts/customer-reset/tsconfig.json && tsc --noEmit -p scripts/repository-compatibility/tsconfig.json && tsc --noEmit -p scripts/repository-deployment/tsconfig.json && tsc --noEmit -p scripts/version-canary/tsconfig.json && tsc --noEmit -p scripts/jev-eval/tsconfig.json && tsc --noEmit -p scripts/remediation-benchmark/tsconfig.json",
+    "typecheck:scripts": "tsc --noEmit -p scripts/customer-reset/tsconfig.json && tsc --noEmit -p scripts/repository-compatibility/tsconfig.json && tsc --noEmit -p scripts/repository-deployment/tsconfig.json && tsc --noEmit -p scripts/version-canary/tsconfig.json && tsc --noEmit -p scripts/jev-eval/tsconfig.json && tsc --noEmit -p scripts/remediation-benchmark/tsconfig.json && tsc --noEmit -p scripts/run-and-check/tsconfig.json",
     "dev": "turbo run dev",
     "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts",
     "canary:fixture-repo": "tsx scripts/version-canary/fixture-repo.ts",
