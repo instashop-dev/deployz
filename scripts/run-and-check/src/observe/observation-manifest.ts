@@ -1,7 +1,7 @@
 import { deploymentManifestSchema, type DeploymentManifest, type ManifestEnvBinding } from '@deployz/contracts';
 
 import type { AnalysisResultFile, Claim, Recipe } from '../contract.js';
-import { collectCandidates } from './candidates.js';
+import { OBSERVATION_PORT, collectCandidates } from './candidates.js';
 
 const MINIMAL_MANIFEST: DeploymentManifest = {
   schemaVersion: 1,
@@ -40,14 +40,21 @@ export function buildObservationManifest(
   const candidates = collectCandidates(recipe, analyses, claims);
   const variables = new Map(manifests.flatMap((m) => m.environment.variables).map((variable) => [variable.key, variable] as const));
   const workers = new Map(manifests.flatMap((m) => m.workers ?? []).map((worker) => [worker.id, worker] as const));
-  const analysedPort = manifests.map((m) => m.web.port).find((port) => port !== null && port !== undefined);
   const migration = candidates.migrationCommands[0] ?? null;
   const workerCommand = candidates.workerCommands[0] ?? null;
+  // Every candidate worker command gets a worker entry, so the compiler emits its task definition.
+  const declaredCommands = new Set([...workers.values()].map((worker) => worker.command.trim()));
+  candidates.workerCommands
+    .filter((command) => !declaredCommands.has(command))
+    .forEach((command) => {
+      const id = candidates.workerIds[command]!;
+      if (!workers.has(id)) workers.set(id, { id, command, source: 'run-and-check candidate' });
+    });
   const declaredWorkers = [...workers.values()];
 
   return deploymentManifestSchema.parse({
     ...base,
-    web: { command: null, port: analysedPort ?? 8080 },
+    web: { command: null, port: OBSERVATION_PORT },
     health: { path: '/' },
     database: {
       postgres: true,

@@ -14,7 +14,7 @@ import type {
   ServiceSnapshot,
   SizeLimits,
 } from '../ports.js';
-import type { Candidates } from './candidates.js';
+import { OBSERVATION_PORT, type Candidates } from './candidates.js';
 import { filterLocalDiskWrites, sqliteFileWritten } from './diff-filter.js';
 import { failed, makeEvidence, notRun, observed, type Fact } from './facts.js';
 import type { ObserveDeps } from './types.js';
@@ -41,6 +41,8 @@ export interface RunInput {
   runsDir: string;
   harnessVersion: string;
   fixtureDir?: string;
+  /** `linux/arm64` only as the fallback after a QEMU crash at run time. */
+  platform?: 'linux/amd64' | 'linux/arm64';
 }
 
 /** A service or container did not start: the step is retried once and then reported apart from application results. */
@@ -166,7 +168,7 @@ function spec(
     id: ctx.recipe.id,
     name: `${ctx.recipe.id}-r${ctx.runIndex}-${scope.label}-${name}`,
     image: ctx.image,
-    platform: 'linux/amd64',
+    platform: ctx.arch === 'arm64-native' ? 'linux/arm64' : 'linux/amd64',
     role,
     command,
     env,
@@ -529,6 +531,7 @@ async function observeSizes(ctx: Ctx, health: Health | null): Promise<Fact<Of<'s
 
 function candidatesOf(c: Candidates): ObservationRun['candidates'] {
   return {
+    injectedPort: OBSERVATION_PORT,
     healthPaths: c.healthPaths,
     migrationCommands: c.migrationCommands,
     workerCommands: c.workerCommands,
@@ -576,7 +579,7 @@ export async function runOnce(input: RunInput): Promise<ObservationRun> {
         id: recipe.id,
         recipe,
         ...(input.fixtureDir === undefined ? {} : { fixtureDir: input.fixtureDir }),
-        platform: 'linux/amd64',
+        platform: input.platform ?? 'linux/amd64',
         logDir: join(input.runsDir, recipe.id, 'logs'),
       }),
     );

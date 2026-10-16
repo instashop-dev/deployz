@@ -347,11 +347,11 @@ describe('migration.mode', () => {
     expect(check(MODE('none'), startedTables)).toMatchObject({ verdict: 'CONTRADICTED', observed: 'startup' });
   });
 
-  it('contradicts none when the app used the database without tables', () => {
+  it('confirms none when the app used the database without tables', () => {
     const verdict = check(MODE('none'), {
       database: { engine: 'postgres', connections: 1, tablesAfterStart: [], sqliteFileWritten: false },
     });
-    expect(verdict).toMatchObject({ verdict: 'CONTRADICTED', observed: 'unknown' });
+    expect(verdict.verdict).toBe('CONFIRMED');
   });
 
   it('is NOT_CHECKABLE for unknown', () => {

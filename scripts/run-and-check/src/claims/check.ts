@@ -93,8 +93,10 @@ export const checkDockerfile: Rule = (claim, run) => {
 
 export const checkWebPort: Rule = (claim, run) => {
   const facts = ['listeningPorts', 'build'] as const;
-  const ports = observed(run, 'listeningPorts');
-  if (ports === null) return notCheckable('listening ports were not observed', facts);
+  const listening = observed(run, 'listeningPorts');
+  if (listening === null) return notCheckable('listening ports were not observed', facts);
+  // A loopback port in the Linux ephemeral range (32768+) is an internal socket, not the app's port.
+  const ports = listening.filter((entry) => entry.bind === 'all' || entry.port < 32768 || entry.port === claim.value);
   if (ports.length === 0) {
     return notCheckable(observed(run, 'build')?.ok === false ? 'the image did not build' : NOT_UP, facts);
   }
@@ -106,6 +108,13 @@ export const checkWebPort: Rule = (claim, run) => {
   }
   if (claimed?.bind === 'loopback') {
     return contradicted('loopback', 'the claimed port listens on the loopback interface only', facts);
+  }
+  const injected = ports.find((entry) => entry.port === run.candidates.injectedPort);
+  if (injected?.bind === 'loopback') {
+    return contradicted('loopback', 'the app follows PORT but listens on the loopback interface only', facts);
+  }
+  if (injected?.bind === 'all' && injected.reachableFromProbe) {
+    return confirmed('the app follows PORT, and production sets PORT to the claimed port', facts);
   }
   const actual = ports.find((entry) => entry.bind === 'all' && entry.reachableFromProbe) ?? ports[0]!;
   return contradicted(actual.port, 'the app listens on another port', facts);
@@ -179,7 +188,7 @@ export const checkStorageRequired: Rule = (claim, run) => {
 };
 
 export const checkStorageLocal: Rule = (claim, run) => {
-  const facts = ['localDiskWrites', ...UP_FACTS] as const;
+  const facts = ['localDiskWrites', 'objectStorage', 'database', ...UP_FACTS] as const;
   const writes = observed(run, 'localDiskWrites');
   if (writes === null) return notCheckable('local disk writes were not observed', facts);
   if (writes.length > 0) {
@@ -187,9 +196,13 @@ export const checkStorageLocal: Rule = (claim, run) => {
       ? confirmed('the app wrote data to local disk', facts)
       : contradicted(writes[0]!, 'the app wrote data to local disk', facts);
   }
-  if (claim.value === true) return notCheckable('no local write was seen', facts);
   if (!webIsUp(run)) return notCheckable(NOT_UP, facts);
-  return confirmed('the app wrote nothing to local disk', facts);
+  if (claim.value !== true) return confirmed('the app wrote nothing to local disk', facts);
+  // Absence alone proves nothing; data seen in S3 or in SQL tables is positive evidence of where the app keeps state.
+  const objects = observed(run, 'objectStorage')?.objectsWritten ?? 0;
+  const tables = observed(run, 'database')?.tablesAfterStart.length ?? 0;
+  if (objects > 0 || tables > 0) return contradicted(false, 'the app kept its data in S3 or the database, not on local disk', facts);
+  return notCheckable('no local write was seen', facts);
 };
 
 export const checkMigrationMode: Rule = (claim, run) => {
@@ -214,9 +227,8 @@ export const checkMigrationMode: Rule = (claim, run) => {
     case 'none':
       if (tablesExist) return contradicted('startup', 'tables exist after the first start', facts);
       if (commandMigrated) return contradicted('pre_deploy', 'a migration command created tables', facts);
-      if (database.connections > 0) return contradicted('unknown', 'the app uses a database without a migration', facts);
       if (!webIsUp(run)) return notCheckable(NOT_UP, facts);
-      return confirmed('no tables appeared and the database had no connections', facts);
+      return confirmed('no tables appeared', facts);
     default:
       return notCheckable('the Analysis found no migration evidence', facts);
   }

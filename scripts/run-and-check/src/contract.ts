@@ -258,6 +258,8 @@ export const observationRunSchema = z
     /** Candidate commands and health paths that the runs probed, and where they came from. */
     candidates: z
       .object({
+        /** The PORT value the observation gave the app; an app that listens on it follows PORT, as production sets PORT to the analysed port. */
+        injectedPort: z.number().int(),
         healthPaths: z.array(z.string()),
         migrationCommands: z.array(z.string()),
         workerCommands: z.array(z.string()),

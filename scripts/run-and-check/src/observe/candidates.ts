@@ -3,6 +3,9 @@ import type { AnalysisResultFile, Claim, Recipe } from '../contract.js';
 export const FIXED_HEALTH_PATHS = ['/health', '/healthz', '/up', '/api/health', '/status', '/ping', '/_health', '/actuator/health'];
 export const FIXED_PORTS = [8080, 3000, 80];
 
+/** The PORT value of every observation run: unusual, so that listening on it proves the app follows PORT. */
+export const OBSERVATION_PORT = 18080;
+
 export interface Candidates {
   healthPaths: string[];
   ports: number[];
@@ -44,18 +47,24 @@ export function collectCandidates(recipe: Recipe, analyses: readonly AnalysisRes
     }
   }
   const analysed = analyses.filter((file) => file.manifest !== null).map((file) => `analysis:${file.analyser}`);
+  const workerCommands = commands([
+    ...manifests.flatMap((m) => [...(m.workers ?? []).map((w) => w.command), m.worker.command]),
+    ...claimValues(claims, 'worker.command'),
+  ]);
+  // A command without a named worker gets a stable id, so the environment and the manifest name the same worker.
+  workerCommands.forEach((command, index) => {
+    workerIds[command] ??= `worker${index + 1}`;
+  });
   return {
     healthPaths: unique(['/', ...manifests.map((m) => m.health.path), ...claimValues(claims, 'health.path'), ...FIXED_HEALTH_PATHS]),
     ports: unique([
+      OBSERVATION_PORT,
       ...manifests.flatMap((m) => (m.web.port === null ? [] : [m.web.port])),
       ...claims.filter((claim) => claim.type === 'web.port' && typeof claim.value === 'number').map((claim) => claim.value as number),
       ...FIXED_PORTS,
     ]),
     migrationCommands: commands([...manifests.map((m) => m.migration.command), ...claimValues(claims, 'migration.command')]),
-    workerCommands: commands([
-      ...manifests.flatMap((m) => [...(m.workers ?? []).map((w) => w.command), m.worker.command]),
-      ...claimValues(claims, 'worker.command'),
-    ]),
+    workerCommands,
     workerIds,
     variables: unique([
       ...recipe.vendorInputs.map((input) => input.name),

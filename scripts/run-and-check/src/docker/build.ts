@@ -31,6 +31,9 @@ export function classifyBuildFailure(log: string, timedOut: boolean): { failure:
     const qemu = matching(/qemu: uncaught target signal/);
     return { failure: qemu.length > 0 ? 'emulation' : 'dockerfile', lines: ['heap-limit', ...heap, ...qemu] };
   }
+  // The Go runtime crashes this way under QEMU user emulation (F5 failed so); a native build does not.
+  const goRuntime = matching(/fatal error: lfstack\.push/);
+  if (goRuntime.length > 0) return { failure: 'emulation', lines: goRuntime };
   const signals = matching(EMULATION_SIGNAL);
   if (signals.length > 0 && /qemu/i.test(log)) return { failure: 'emulation', lines: signals };
   const network = matching(INFRASTRUCTURE);
@@ -81,6 +84,8 @@ export async function buildImage(req: BuildRequest, deps: BuildDeps = {}): Promi
     contextArg = path.resolve(req.fixtureDir, context);
     dockerfileArg = path.resolve(req.fixtureDir, dockerfile);
   }
+  // An arm64 fallback image has its own cache entry and tag, so it never replaces the amd64 image.
+  if (req.platform === 'linux/arm64') sha = `${sha}-arm64`;
   const ref = imageRef(req.id, sha);
 
   const base = { image: ref, dockerfile, context };

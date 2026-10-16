@@ -11,7 +11,7 @@ describe('buildObservationManifest', () => {
     expect(manifest.database).toMatchObject({ postgres: true, engine: 'postgres' });
     expect(manifest.redis.required).toBe(true);
     expect(manifest.storage.required).toBe(true);
-    expect(manifest.web).toEqual({ command: null, port: 8080 });
+    expect(manifest.web).toEqual({ command: null, port: 18080 });
     expect(manifest.health.path).toBe('/');
   });
 
@@ -31,7 +31,7 @@ describe('buildObservationManifest', () => {
     expect(manifest.redis.envBindings.map((b) => b.name)).toEqual(['REDIS_URL', 'REDIS_HOST']);
     expect(manifest.database.envBindings?.map((b) => b.name)).toEqual(['DATABASE_URL']);
     expect(manifest.environment.variables.map((v) => v.key)).toEqual(['SECRET_KEY', 'DATABASE_URL', 'LOG_LEVEL', 'EXTRA']);
-    expect(manifest.web).toEqual({ command: null, port: 4000 });
+    expect(manifest.web).toEqual({ command: null, port: 18080 });
     expect(manifest.migration.command).toBe('npm run migrate');
     expect(manifest.worker.command).toBe('node worker.js');
   });

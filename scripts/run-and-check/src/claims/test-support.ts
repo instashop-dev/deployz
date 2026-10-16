@@ -58,7 +58,7 @@ export function makeRun(values: Partial<FactValues> = {}, options: RunOptions = 
     startedAt: '2026-10-16T00:00:00.000Z',
     harnessVersion: 'test',
     ...facts,
-    candidates: { healthPaths: [], migrationCommands: [], workerCommands: [], variables: [], from: [] },
+    candidates: { injectedPort: 18080, healthPaths: [], migrationCommands: [], workerCommands: [], variables: [], from: [] },
     infrastructureFailures: options.infrastructureFailures ?? [],
     timings: {},
   };

@@ -1,5 +1,6 @@
 import type { Observation, ObservationRun, Recipe } from '../contract.js';
 import { collectCandidates } from './candidates.js';
+import { emulationCrash } from './emulation.js';
 import { buildObservationManifest } from './observation-manifest.js';
 import { runOnce } from './run-once.js';
 import { findUnstable } from './stability.js';
@@ -51,9 +52,11 @@ export async function observe(recipe: Recipe, deps: ObserveDeps, options: Observ
     complete,
   });
 
+  // After a QEMU crash at run time, the runs use a native arm64 image (behaviour evidence only).
+  let platform: 'linux/amd64' | 'linux/arm64' = runs.some((run) => run.webHealthy.arch === 'arm64-native') ? 'linux/arm64' : 'linux/amd64';
   // A failed build is not repeated: a second run would only build again.
   while (runs.length < 2 && !(runs.length === 1 && runs[0]?.build.value?.ok !== true)) {
-    const run = await runOnce({
+    const input = {
       recipe,
       deps,
       manifest,
@@ -62,7 +65,19 @@ export async function observe(recipe: Recipe, deps: ObserveDeps, options: Observ
       runsDir: options.runsDir,
       harnessVersion: options.harnessVersion,
       ...(options.fixtureDir === undefined ? {} : { fixtureDir: options.fixtureDir }),
-    });
+    };
+    let run = await runOnce({ ...input, platform });
+    const crash = platform === 'linux/amd64' ? emulationCrash(run) : null;
+    if (crash !== null) {
+      deps.log(`${recipe.id} run ${input.runIndex}: QEMU crashed at run time, repeating the run as native arm64`);
+      platform = 'linux/arm64';
+      const amd64Build = run.build;
+      run = await runOnce({ ...input, platform });
+      // The amd64 build stays the build evidence; the arm64 image only gives behaviour.
+      run = { ...run, build: amd64Build, infrastructureFailures: [...run.infrastructureFailures, `emulation: ${crash}`] };
+    } else if (platform === 'linux/arm64' && runs[0] !== undefined) {
+      run = { ...run, build: runs[0].build };
+    }
     runs.push(run);
     await writeObservation(partial, snapshot(false, []));
   }
