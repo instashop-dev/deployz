@@ -11,6 +11,7 @@ import {
   infrastructureSizeTierSchema,
   isSupportedRegion,
   resolveStoredInfrastructureSizeProfile,
+  sizeTierMeetsMinimum,
   type DeploymentManifest,
   type DeploymentPlan,
   type EnvVariableClassification,
@@ -1112,15 +1113,18 @@ export async function regeneratePublicInstallLink(db: RuntimeDb, params: PublicI
           .set({ revokedAt: new Date() })
           .where(eq(schema.publicInstallLinks.id, link.id));
       }
-      // The fresh link keeps the replaced link's frozen sizing.
+      // The fresh link keeps the replaced link's recommendation but takes the
+      // application's current minimum; a recommendation below it is raised.
+      const minimumSizeProfile = application.minimumSizeProfile;
+      const kept = link.recommendedSizeProfile ?? application.defaultSizeProfile;
       const [row] = await tx
         .insert(schema.publicInstallLinks)
         .values({
           organizationId: params.organizationId,
           applicationId: link.applicationId,
           enabled: true,
-          recommendedSizeProfile: link.recommendedSizeProfile,
-          minimumSizeProfile: link.minimumSizeProfile,
+          recommendedSizeProfile: sizeTierMeetsMinimum(kept, minimumSizeProfile) ? kept : minimumSizeProfile,
+          minimumSizeProfile,
         })
         .returning();
       await recordEvent(tx, {

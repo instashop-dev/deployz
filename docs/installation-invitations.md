@@ -29,7 +29,9 @@ Both kinds freeze `recommended_size_profile` and `minimum_size_profile`
 when they are created (migration `0052`): the vendor's per-link size
 recommendation (default: the application default) and the application's
 minimum at that time. Later application changes never alter an existing
-link; regenerating a reusable link copies the replaced link's values. Rows
+link; regenerating a reusable link keeps the replaced link's recommendation
+and takes the application's current minimum (a recommendation below it is
+raised). Rows
 created before sizing have both columns null and follow the application's
 current settings ([`infrastructure-profiles.md`](infrastructure-profiles.md#who-chooses-the-size)).
 
