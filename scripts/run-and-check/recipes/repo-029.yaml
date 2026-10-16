@@ -1,0 +1,17 @@
+id: repo-029
+set: tuning
+source:
+  kind: git
+  repository: postalsys/emailengine
+  commit: 1933e5d9952fab26fbd3f4a630adfc0ca341717a
+build:
+  buildArgs:
+    BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
+vendorInputs:
+  - name: EENGINE_SECRET
+    source:
+      kind: generated
+      format: hex32
+notes:
+  - Root Dockerfile. It runs COPY .git/refs/heads/master (Dockerfile, last COPY lines), so the Git URL context must keep the .git folder. BUILDKIT_CONTEXT_KEEP_GIT_DIR=1 does that. Reviewer to check that the branch ref exists in the kept folder.
+  - EENGINE_SECRET has no default (deploy-config.yaml repo-029 secrets).

@@ -1,0 +1,8 @@
+id: repo-008
+set: tuning
+source:
+  kind: git
+  repository: TwiN/gatus
+  commit: 4d15cb7eed6225ac0b03da3d2ab50c424b81c34c
+notes:
+  - Root Dockerfile (Go build, scratch image, config.yaml baked in). No vendor input. BASE_URL in deploy-config.yaml is not needed by the app.
