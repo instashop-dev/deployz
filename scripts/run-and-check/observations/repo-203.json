@@ -1,0 +1,907 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-203",
+  "set": "holdout",
+  "repository": "getfider/fider",
+  "commit": "f164f69172002aba6296980c27160a196191dbd6",
+  "recipeHash": "d48485afc917ca64cb73faab24bde6aa1d11383bd52d8e38968d32cab32f55e1",
+  "imageDigest": null,
+  "runs": [
+    {
+      "startedAt": "2026-10-16T20:25:34.335Z",
+      "harnessVersion": "1",
+      "build": {
+        "status": "observed",
+        "value": {
+          "ok": true,
+          "exitCode": 0,
+          "seconds": 0,
+          "imageBytes": 300731709,
+          "dockerfile": "Dockerfile",
+          "context": ".",
+          "failure": null,
+          "fromCache": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "image-cache",
+            "text": "loaded deployz-runcheck/repo-203:f164f69172002aba6296980c27160a196191dbd6 from the image cache"
+          }
+        ]
+      },
+      "webHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "web#1",
+            "text": "env names: NODE_ENV, PORT, DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER, NODE_EXTRA_CA_CERTS, PGSSLROOTCERT, STORAGE_BUCKET, S3_BUCKET, AWS_S3_BUCKET, AWS_REGION, REDIS_URL, REDIS_HOST, REDIS_PORT, DB_HOST, DB_PORT, DB_NAME, DB_USER, APP_API_KEY, APP_SIGNING_SECRET, DATABASE_PASSWORD, DATABASE_URL, DB_PASSWORD, EMAIL_NOREPLY, EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, BASE_URL, BLOB_STORAGE_S3_REGION, JWT_SECRET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_ENDPOINT_URL_S3, AWS_S3_FORCE_PATH_STYLE"
+          },
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=true exited=false oomKilled=false seconds=15.781\n18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m81\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/healthz\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/healthz\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m11\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/up\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/up\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m49\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/api/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/api/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m7\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/status\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/status\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m8\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/ping\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/ping\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m16\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/actuator/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:26:54Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web1:18080/actuator/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m26\u001b[0mms (committed)\n"
+          }
+        ]
+      },
+      "listeningPorts": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 18080,
+            "bind": "all",
+            "reachableFromProbe": true
+          },
+          {
+            "port": 34071,
+            "bind": "loopback",
+            "reachableFromProbe": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "inspect",
+            "source": "web#1",
+            "text": "18080 all reachable=true\n34071 loopback reachable=false"
+          }
+        ]
+      },
+      "httpPaths": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 18080,
+            "path": "/",
+            "status": 307
+          },
+          {
+            "port": 18080,
+            "path": "/_health",
+            "status": 200
+          },
+          {
+            "port": 18080,
+            "path": "/health",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/healthz",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/up",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/api/health",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/status",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/ping",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/actuator/health",
+            "status": 404
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404"
+          }
+        ]
+      },
+      "smoke": {
+        "status": "observed",
+        "value": {
+          "path": "/",
+          "status": 307
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "GET 18080/ 307"
+          }
+        ]
+      },
+      "database": {
+        "status": "observed",
+        "value": {
+          "engine": "postgres",
+          "connections": 17,
+          "tablesAfterStart": [
+            "attachments",
+            "blobs",
+            "comments",
+            "email_verifications",
+            "events",
+            "logs",
+            "mention_notifications",
+            "migrations_history",
+            "notifications",
+            "oauth_providers",
+            "post_subscribers",
+            "post_tags",
+            "post_votes",
+            "posts",
+            "reactions",
+            "system_settings",
+            "tags",
+            "tenant_providers",
+            "tenants",
+            "tenants_billing",
+            "user_providers",
+            "user_settings",
+            "users",
+            "webhooks"
+          ],
+          "sqliteFileWritten": false
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "postgres",
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 17 application connections; tables in deployz: attachments, blobs, comments, email_verifications, events, logs, mention_notifications, migrations_history, notifications, oauth_providers, post_subscribers, post_tags, post_votes, posts, reactions, system_settings, tags, tenant_providers, tenants, tenants_billing, user_providers, user_settings, users, webhooks"
+          },
+          {
+            "kind": "command",
+            "source": "mysql",
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          },
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-203: 0 objects"
+          }
+        ]
+      },
+      "startupMigration": {
+        "status": "observed",
+        "value": {
+          "tablesCreatedByStart": true,
+          "secondStartHealthy": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": []
+      },
+      "migrationCommands": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate migration command"
+      },
+      "redis": {
+        "status": "observed",
+        "value": {
+          "connected": false,
+          "clients": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          }
+        ]
+      },
+      "objectStorage": {
+        "status": "observed",
+        "value": {
+          "objectsWritten": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-203: 0 objects"
+          }
+        ]
+      },
+      "localDiskWrites": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "no local writes"
+          }
+        ]
+      },
+      "workers": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate worker command"
+      },
+      "requiredVariables": {
+        "status": "observed",
+        "value": [
+          {
+            "name": "EMAIL_NOREPLY",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "EMAIL_SMTP_HOST",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "EMAIL_SMTP_PORT",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "BASE_URL",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "JWT_SECRET",
+            "healthyWithout": false,
+            "healthyWith": true
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web without EMAIL_NOREPLY",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without EMAIL_NOREPLY",
+            "text": "panic: Error Trace: \n\t- failed to parse environment variables (app/pkg/env/env.go:167)\n\t- the environment variable \"EMAIL_NOREPLY\" is missing\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:167 +0x358\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without EMAIL_SMTP_HOST",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without EMAIL_SMTP_HOST",
+            "text": "panic: could not find environment variable named 'EMAIL_SMTP_HOST'\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.mustBeSet({0x211a4f4, 0xf})\n\t/server/app/pkg/env/env.go:218 +0x85\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:203 +0x1ba\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without EMAIL_SMTP_PORT",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without EMAIL_SMTP_PORT",
+            "text": "panic: could not find environment variable named 'EMAIL_SMTP_PORT'\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.mustBeSet({0x211a503, 0xf})\n\t/server/app/pkg/env/env.go:218 +0x85\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:204 +0x1cb\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without BASE_URL",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without BASE_URL",
+            "text": "panic: could not find environment variable named 'BASE_URL'\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.mustBeSet({0x2112edf, 0x8})\n\t/server/app/pkg/env/env.go:218 +0x85\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:175 +0xaf\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without JWT_SECRET",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without JWT_SECRET",
+            "text": "panic: Error Trace: \n\t- failed to parse environment variables (app/pkg/env/env.go:167)\n\t- the environment variable \"JWT_SECRET\" is missing\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:167 +0x358\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          }
+        ]
+      },
+      "twoCopiesHealthy": {
+        "status": "observed",
+        "value": false,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=true exited=false oomKilled=false seconds=27.175\n18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "0:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m291\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/healthz\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/healthz\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m79\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/up\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/up\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m143\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/api/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/api/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m35\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/status\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/status\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m91\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/ping\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/ping\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m62\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:38Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/actuator/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:39Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-c-web1:18080/actuator/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m110\u001b[0mms (committed)\n"
+          },
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:23Z] [MIGRATE] Running migrations...\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:23Z] [MIGRATE] Found total of 95 migration files.\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:24Z] [MIGRATE] Current version is 201701281131\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:28:24Z] [MIGRATE] Running Version: 201702072040 (201702072040_create_ideas.up.sql)\n\u001b[1m\u001b[31mERROR\u001b[0m\u001b[0m [2026-10-16T20:28:25Z] [MIGRATE] Error Trace: \n- failed to run migration '201702072040_create_ideas.up.sql' (app/pkg/dbx/migrate.go:76)\n- failed to execute trx.Execute (app/pkg/dbx/dbx.go:319)\n- pq: duplicate key value violates unique constraint \"migrations_history_pkey\" (23505)\n"
+          }
+        ]
+      },
+      "restartHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=true exited=false oomKilled=false seconds=21.555\n18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "T20:27:33Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m390\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/healthz\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/healthz\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m75\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/up\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/up\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m93\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/api/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/api/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m94\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/status\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/status\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m90\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/ping\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/ping\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m65\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/actuator/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:27:34Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r1-a-web2:18080/actuator/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m63\u001b[0mms (committed)\n"
+          }
+        ]
+      },
+      "sizes": {
+        "status": "observed",
+        "value": [
+          {
+            "profile": "small-v2",
+            "memoryMiB": 512,
+            "cpus": 1,
+            "healthy": true,
+            "startSeconds": 15.781,
+            "oomKilled": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "small-v2",
+            "text": "healthy=true oomKilled=false exited=false"
+          }
+        ]
+      },
+      "candidates": {
+        "injectedPort": 18080,
+        "healthPaths": [
+          "/",
+          "/_health",
+          "/health",
+          "/healthz",
+          "/up",
+          "/api/health",
+          "/status",
+          "/ping",
+          "/actuator/health"
+        ],
+        "migrationCommands": [],
+        "workerCommands": [],
+        "variables": [
+          "EMAIL_NOREPLY",
+          "EMAIL_SMTP_HOST",
+          "EMAIL_SMTP_PORT",
+          "BASE_URL",
+          "JWT_SECRET"
+        ],
+        "from": [
+          "recipe",
+          "analysis:rules@b028a8bc",
+          "fixed-list"
+        ]
+      },
+      "infrastructureFailures": [],
+      "timings": {
+        "build": 31.849,
+        "setA": 97.323,
+        "twoCopies": 66.02,
+        "requiredVariables": 368.36699999999996
+      }
+    },
+    {
+      "startedAt": "2026-10-16T20:34:57.909Z",
+      "harnessVersion": "1",
+      "build": {
+        "status": "observed",
+        "value": {
+          "ok": true,
+          "exitCode": 0,
+          "seconds": 0,
+          "imageBytes": 300731709,
+          "dockerfile": "Dockerfile",
+          "context": ".",
+          "failure": null,
+          "fromCache": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "image-cache",
+            "text": "loaded deployz-runcheck/repo-203:f164f69172002aba6296980c27160a196191dbd6 from the image cache"
+          }
+        ]
+      },
+      "webHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "web#1",
+            "text": "env names: NODE_ENV, PORT, DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER, NODE_EXTRA_CA_CERTS, PGSSLROOTCERT, STORAGE_BUCKET, S3_BUCKET, AWS_S3_BUCKET, AWS_REGION, REDIS_URL, REDIS_HOST, REDIS_PORT, DB_HOST, DB_PORT, DB_NAME, DB_USER, APP_API_KEY, APP_SIGNING_SECRET, DATABASE_PASSWORD, DATABASE_URL, DB_PASSWORD, EMAIL_NOREPLY, EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, BASE_URL, BLOB_STORAGE_S3_REGION, JWT_SECRET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_ENDPOINT_URL_S3, AWS_S3_FORCE_PATH_STYLE"
+          },
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=true exited=false oomKilled=false seconds=18.376\n18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m65\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/healthz\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/healthz\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m10\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/up\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/up\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m12\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/api/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/api/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m8\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/status\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/status\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m50\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/ping\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/ping\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m12\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/actuator/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:36:44Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web1:18080/actuator/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m42\u001b[0mms (committed)\n"
+          }
+        ]
+      },
+      "listeningPorts": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 18080,
+            "bind": "all",
+            "reachableFromProbe": true
+          },
+          {
+            "port": 39877,
+            "bind": "loopback",
+            "reachableFromProbe": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "inspect",
+            "source": "web#1",
+            "text": "18080 all reachable=true\n39877 loopback reachable=false"
+          }
+        ]
+      },
+      "httpPaths": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 18080,
+            "path": "/",
+            "status": 307
+          },
+          {
+            "port": 18080,
+            "path": "/_health",
+            "status": 200
+          },
+          {
+            "port": 18080,
+            "path": "/health",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/healthz",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/up",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/api/health",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/status",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/ping",
+            "status": 404
+          },
+          {
+            "port": 18080,
+            "path": "/actuator/health",
+            "status": 404
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404"
+          }
+        ]
+      },
+      "smoke": {
+        "status": "observed",
+        "value": {
+          "path": "/",
+          "status": 307
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "GET 18080/ 307"
+          }
+        ]
+      },
+      "database": {
+        "status": "observed",
+        "value": {
+          "engine": "postgres",
+          "connections": 18,
+          "tablesAfterStart": [
+            "attachments",
+            "blobs",
+            "comments",
+            "email_verifications",
+            "events",
+            "logs",
+            "mention_notifications",
+            "migrations_history",
+            "notifications",
+            "oauth_providers",
+            "post_subscribers",
+            "post_tags",
+            "post_votes",
+            "posts",
+            "reactions",
+            "system_settings",
+            "tags",
+            "tenant_providers",
+            "tenants",
+            "tenants_billing",
+            "user_providers",
+            "user_settings",
+            "users",
+            "webhooks"
+          ],
+          "sqliteFileWritten": false
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "postgres",
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 18 application connections; tables in deployz: attachments, blobs, comments, email_verifications, events, logs, mention_notifications, migrations_history, notifications, oauth_providers, post_subscribers, post_tags, post_votes, posts, reactions, system_settings, tags, tenant_providers, tenants, tenants_billing, user_providers, user_settings, users, webhooks"
+          },
+          {
+            "kind": "command",
+            "source": "mysql",
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          },
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-203: 0 objects"
+          }
+        ]
+      },
+      "startupMigration": {
+        "status": "observed",
+        "value": {
+          "tablesCreatedByStart": true,
+          "secondStartHealthy": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": []
+      },
+      "migrationCommands": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate migration command"
+      },
+      "redis": {
+        "status": "observed",
+        "value": {
+          "connected": false,
+          "clients": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          }
+        ]
+      },
+      "objectStorage": {
+        "status": "observed",
+        "value": {
+          "objectsWritten": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-203: 0 objects"
+          }
+        ]
+      },
+      "localDiskWrites": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "no local writes"
+          }
+        ]
+      },
+      "workers": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate worker command"
+      },
+      "requiredVariables": {
+        "status": "observed",
+        "value": [
+          {
+            "name": "EMAIL_NOREPLY",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "EMAIL_SMTP_HOST",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "EMAIL_SMTP_PORT",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "BASE_URL",
+            "healthyWithout": false,
+            "healthyWith": true
+          },
+          {
+            "name": "JWT_SECRET",
+            "healthyWithout": false,
+            "healthyWith": true
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web without EMAIL_NOREPLY",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without EMAIL_NOREPLY",
+            "text": "panic: Error Trace: \n\t- failed to parse environment variables (app/pkg/env/env.go:167)\n\t- the environment variable \"EMAIL_NOREPLY\" is missing\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:167 +0x358\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without EMAIL_SMTP_HOST",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without EMAIL_SMTP_HOST",
+            "text": "panic: could not find environment variable named 'EMAIL_SMTP_HOST'\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.mustBeSet({0x211a4f4, 0xf})\n\t/server/app/pkg/env/env.go:218 +0x85\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:203 +0x1ba\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without EMAIL_SMTP_PORT",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without EMAIL_SMTP_PORT",
+            "text": "panic: could not find environment variable named 'EMAIL_SMTP_PORT'\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.mustBeSet({0x211a503, 0xf})\n\t/server/app/pkg/env/env.go:218 +0x85\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:204 +0x1cb\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without BASE_URL",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without BASE_URL",
+            "text": "panic: could not find environment variable named 'BASE_URL'\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.mustBeSet({0x2112edf, 0x8})\n\t/server/app/pkg/env/env.go:218 +0x85\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:175 +0xaf\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          },
+          {
+            "kind": "http",
+            "source": "web without JWT_SECRET",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without JWT_SECRET",
+            "text": "panic: Error Trace: \n\t- failed to parse environment variables (app/pkg/env/env.go:167)\n\t- the environment variable \"JWT_SECRET\" is missing\n\ngoroutine 1 [running]:\ngithub.com/getfider/fider/app/pkg/env.Reload()\n\t/server/app/pkg/env/env.go:167 +0x358\ngithub.com/getfider/fider/app/pkg/env.init.0()\n\t/server/app/pkg/env/env.go:159 +0xf\n"
+          }
+        ]
+      },
+      "twoCopiesHealthy": {
+        "status": "observed",
+        "value": false,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/_health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/actuator/health none\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:56Z] [MIGRATE] Running migrations...\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:56Z] [MIGRATE] Found total of 95 migration files.\n\u001b[1m\u001b[31mERROR\u001b[0m\u001b[0m [2026-10-16T20:37:57Z] [MIGRATE] Error Trace: \n- failed to get last migration record (app/pkg/dbx/migrate.go:57)\n- pq: duplicate key value violates unique constraint \"pg_type_typname_nsp_index\" (23505)\n"
+          },
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=true exited=false oomKilled=false seconds=18.193\n18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m229\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/healthz\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/healthz\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m63\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/up\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/up\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m94\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/api/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/api/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m35\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:06Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/status\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:07Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/status\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m90\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:07Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/ping\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:07Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/ping\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m75\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:07Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/actuator/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:38:07Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-c-web2:18080/actuator/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m76\u001b[0mms (committed)\n"
+          }
+        ]
+      },
+      "restartHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=true exited=false oomKilled=false seconds=13.652\n18080/ 307\n18080/_health 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/actuator/health 404\n3000/ none\n3000/_health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/actuator/health none\n8080/ none\n8080/_health none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/actuator/health none\n80/ none\n80/_health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m49\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/healthz\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/healthz\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m9\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/up\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/up\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m7\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/api/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/api/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m5\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/status\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/status\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m36\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/ping\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/ping\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m6\u001b[0mms (committed)\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:01Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/actuator/health\u001b[0m started\n\u001b[1m\u001b[34mINFO\u001b[0m\u001b[0m [2026-10-16T20:37:02Z] [WEB] \u001b[36mGET\u001b[0m \u001b[36mhttp://repo-203-r2-a-web2:18080/actuator/health\u001b[0m finished with \u001b[36m404\u001b[0m in \u001b[36m11\u001b[0mms (committed)\n"
+          }
+        ]
+      },
+      "sizes": {
+        "status": "observed",
+        "value": [
+          {
+            "profile": "small-v2",
+            "memoryMiB": 512,
+            "cpus": 1,
+            "healthy": true,
+            "startSeconds": 18.376,
+            "oomKilled": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "small-v2",
+            "text": "healthy=true oomKilled=false exited=false"
+          }
+        ]
+      },
+      "candidates": {
+        "injectedPort": 18080,
+        "healthPaths": [
+          "/",
+          "/_health",
+          "/health",
+          "/healthz",
+          "/up",
+          "/api/health",
+          "/status",
+          "/ping",
+          "/actuator/health"
+        ],
+        "migrationCommands": [],
+        "workerCommands": [],
+        "variables": [
+          "EMAIL_NOREPLY",
+          "EMAIL_SMTP_HOST",
+          "EMAIL_SMTP_PORT",
+          "BASE_URL",
+          "JWT_SECRET"
+        ],
+        "from": [
+          "recipe",
+          "analysis:rules@b028a8bc",
+          "fixed-list"
+        ]
+      },
+      "infrastructureFailures": [],
+      "timings": {
+        "build": 46.017,
+        "setA": 91.73,
+        "twoCopies": 68.816,
+        "requiredVariables": 301.915
+      }
+    }
+  ],
+  "unstable": [],
+  "complete": true
+}
