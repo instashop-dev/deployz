@@ -4,7 +4,7 @@ import { checkClaims } from '../claims/check.js';
 import { extractClaims } from '../claims/extract.js';
 import { makeAnalysis, makeManifest, makeObservation, makeRun } from '../claims/test-support.js';
 import type { AnalysisResultFile, ClaimVerdict, FullRun, Observation, RepositoryReport } from '../contract.js';
-import { renderMarkdown, repositoryReport, summaryReport } from './report.js';
+import { fullRunHealth, renderMarkdown, repositoryReport, summaryReport } from './report.js';
 
 type Values = Parameters<typeof makeRun>[0];
 
@@ -362,5 +362,32 @@ describe('renderMarkdown', () => {
     ]) {
       expect(text).toContain(title);
     }
+  });
+});
+
+describe('fullRunHealth', () => {
+  const base = {
+    schemaVersion: 1 as const,
+    id: 'repo-007',
+    analyser: 'rules@x',
+    arch: 'amd64-emulated' as const,
+    startedAt: '2026-10-16T00:00:00.000Z',
+    environmentNames: [],
+    migration: null,
+    healthPathStatus: null,
+    smokeStatus: null,
+    workers: [],
+    evidence: [],
+  };
+
+  it('is null when the run failed on a limit of the test', () => {
+    expect(fullRunHealth({ ...base, webHealthy: false, infrastructureFailures: ['needs internet at run time: getaddrinfo EAI_AGAIN'] })).toBeNull();
+    expect(fullRunHealth({ ...base, webHealthy: false, infrastructureFailures: ['emulation: qemu-x86_64: QEMU internal SIGSEGV'] })).toBeNull();
+  });
+
+  it('is the health otherwise', () => {
+    expect(fullRunHealth({ ...base, webHealthy: false, infrastructureFailures: [] })).toBe(false);
+    expect(fullRunHealth({ ...base, webHealthy: true, infrastructureFailures: ['needs internet at run time: x'] })).toBe(true);
+    expect(fullRunHealth(null)).toBeNull();
   });
 });

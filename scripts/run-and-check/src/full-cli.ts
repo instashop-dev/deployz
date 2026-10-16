@@ -52,26 +52,43 @@ export async function main(argv: readonly string[]): Promise<void> {
       console.log(`${analysis.id}: image did not build (${image.failure}), no full run`);
       return;
     }
-    const set = await services.start(analysis.id, 'full');
+    const fullRunOn = async (built: typeof image) => {
+      const set = await services.start(analysis.id, built.arch === 'arm64-native' ? 'fullarm' : 'full');
+      try {
+        return await runFull({
+          analysis,
+          image: built.image,
+          arch: built.arch,
+          recipe: loaded.recipe,
+          runner,
+          services: set,
+          env: productionEnvironment,
+          logDir,
+        });
+      } finally {
+        await services.stop(set);
+      }
+    };
     try {
-      const result = await runFull({
-        analysis,
-        image: image.image,
-        arch: image.arch,
-        recipe: loaded.recipe,
-        runner,
-        services: set,
-        env: productionEnvironment,
-        logDir,
-      });
+      let result = await fullRunOn(image);
+      // QEMU crashed the app: repeat on a native arm64 image (behaviour evidence only).
+      if (!result.webHealthy && result.infrastructureFailures.some((note) => note.startsWith('emulation'))) {
+        console.log(`${analysis.id}: QEMU crashed the app, repeating the full run as native arm64`);
+        const native = await buildImage({
+          id: analysis.id,
+          recipe: loaded.recipe,
+          platform: 'linux/arm64',
+          logDir,
+          ...(loaded.fixtureDir === undefined ? {} : { fixtureDir: loaded.fixtureDir }),
+        });
+        if (native.ok) result = await fullRunOn(native);
+      }
       mkdirSync(outDir, { recursive: true });
       writeFileSync(outFile, `${JSON.stringify(fullRunSchema.parse(result), null, 2)}\n`);
       console.log(`${analysis.id}: full run ${result.webHealthy ? 'healthy' : 'NOT healthy'}`);
     } catch (error) {
       failures += 1;
       console.log(`${analysis.id}: full run failed: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      await services.stop(set);
     }
   });
   if (failures > 0) process.exitCode = 1;

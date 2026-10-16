@@ -100,6 +100,7 @@ describe('classifyBuildFailure', () => {
     expect(classifyBuildFailure('qemu: uncaught target signal 11 (Segmentation fault)', false).failure).toBe('emulation');
     expect(classifyBuildFailure('Segmentation fault', false).failure).toBe('dockerfile');
     expect(classifyBuildFailure('#12 0.923 fatal error: lfstack.push', false).failure).toBe('emulation');
+    expect(classifyBuildFailure('#13 323.3 TimeoutError: The operation was aborted due to timeout', false).failure).toBe('infrastructure');
     for (const line of ['TLS handshake timeout', 'toomanyrequests: rate limit', 'Could not resolve host: x', 'read: ECONNRESET']) {
       expect(classifyBuildFailure(`step\n${line}`, false).failure).toBe('infrastructure');
     }

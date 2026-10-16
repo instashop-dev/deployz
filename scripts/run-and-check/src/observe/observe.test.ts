@@ -29,6 +29,15 @@ async function setup(options: FakeOptions = {}) {
 }
 
 describe('observe', () => {
+  it('runs the candidate migration before a second web start when the start alone is not healthy', async () => {
+    const { run } = await setup({ needsMigration: true });
+    const result = await run();
+    const first = result.runs[0]!;
+    expect(first.webHealthy.value).toBe(true);
+    expect(first.startupMigration.value?.tablesCreatedByStart).toBe(false);
+    expect(first.webHealthy.evidence.some((item) => item.source === 'migration#1')).toBe(true);
+  });
+
   it('assembles every fact of two runs from the application behaviour', async () => {
     const { dir, fake, run } = await setup();
     const result = await run();

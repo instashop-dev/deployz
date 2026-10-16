@@ -48,6 +48,8 @@ export interface FakeOptions {
   failServiceStarts?: number;
   /** Every start of a service set with this label part throws. */
   alwaysFailLabel?: string;
+  /** The web container is healthy only after a migration ran in its set, and its start creates no table. */
+  needsMigration?: boolean;
 }
 
 interface SetState {
@@ -131,10 +133,11 @@ export function makeFake(options: FakeOptions = {}): Fake {
         const state = states.get(spec.services.id) as SetState;
         if (spec.role === 'web') {
           calls.webStarts += 1;
-          const healthy = SECRET_KEY_NAME in spec.env && !(broken() && spec.size.memoryMiB < 2048);
+          const migrated = options.needsMigration !== true || state.tables.includes('migrated');
+          const healthy = SECRET_KEY_NAME in spec.env && !(broken() && spec.size.memoryMiB < 2048) && migrated;
           up.set(spec.name, healthy);
           if (healthy) {
-            if (!state.tables.includes('users')) state.tables.push('users');
+            if (options.needsMigration !== true && !state.tables.includes('users')) state.tables.push('users');
             state.pgConns = 1;
             state.valkeyClients = 1;
           }

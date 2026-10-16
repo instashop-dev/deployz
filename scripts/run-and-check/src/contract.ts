@@ -81,6 +81,8 @@ export const vendorInputSchema = z
           value: z.string(),
         })
         .strict(),
+      /** The app's own URL (`${DEPLOYZ_APP_URL}` in deploy-config.yaml); the harness fills it per run. */
+      z.object({ kind: z.literal('deploymentUrl') }).strict(),
     ]),
   })
   .strict();

@@ -19,6 +19,17 @@ const MAX_PROBLEM_TEXT = 160;
 type Readiness = NonNullable<RepositoryReport['readiness']>;
 
 /**
+ * The full run's health, or null when there is no full run or when it failed
+ * on a limit of the test (QEMU crashed the app, or it needs the internet).
+ */
+export function fullRunHealth(fullRun: FullRun | null): boolean | null {
+  if (fullRun === null) return null;
+  if (fullRun.webHealthy) return true;
+  const limited = fullRun.infrastructureFailures.some((note) => note.startsWith('emulation') || note.startsWith('needs internet'));
+  return limited ? null : false;
+}
+
+/**
  * The readiness verdict comes from the full run, not from the observation.
  * READY is right when the full run is healthy. NOT_COMPATIBLE is right when
  * it is not. NEEDS_CONFIGURATION stays open: the full run already supplies
@@ -26,8 +37,11 @@ type Readiness = NonNullable<RepositoryReport['readiness']>;
  */
 function decideReadiness(verdict: ClaimVerdict, state: Readiness, fullRun: FullRun | null): ClaimVerdict {
   if (fullRun === null) return verdict;
-  const healthy = fullRun.webHealthy;
+  const healthy = fullRunHealth(fullRun);
   const facts = { ...verdict, facts: [], arch: fullRun.arch, unstable: false };
+  if (healthy === null) {
+    return { ...facts, verdict: 'NOT_CHECKABLE', reason: `the full run hit a limit of the test: ${fullRun.infrastructureFailures[0] ?? ''}` };
+  }
   if (state === 'NEEDS_CONFIGURATION') {
     return { ...facts, verdict: 'NOT_CHECKABLE', reason: 'the full run supplies the recipe inputs, so it cannot show whether configuration was needed' };
   }
@@ -70,7 +84,7 @@ function falseProblems(
   const find = (type: ClaimVerdict['claim']['type']) => verdicts.find((entry) => entry.claim.type === type);
   const findings = (id: string) => gate.findings.filter((finding) => finding.id === id);
 
-  const healthy = fullRun !== null ? fullRun.webHealthy : run.webHealthy.status === 'observed' && run.webHealthy.value === true;
+  const healthy = fullRun !== null ? fullRunHealth(fullRun) === true : run.webHealthy.status === 'observed' && run.webHealthy.value === true;
   if (gate.state === 'NOT_COMPATIBLE' && healthy) {
     for (const finding of findings('unsupported')) problems.push(`NOT_COMPATIBLE but the application is healthy: ${shorten(finding.message)}`);
   }
@@ -127,8 +141,8 @@ export function repositoryReport(
     arch: observation.runs[0]!.build.arch,
     readiness,
     verdicts: decided,
-    healthyWithAnalysedSettings: fullRun?.webHealthy ?? null,
-    hiddenProblem: readiness === 'READY' && fullRun !== null && !fullRun.webHealthy,
+    healthyWithAnalysedSettings: fullRunHealth(fullRun),
+    hiddenProblem: readiness === 'READY' && fullRunHealth(fullRun) === false,
     falseProblems: falseProblems(analysis, decided, observation, fullRun),
     vendorQuestions: analysis.vendorQuestions,
     unstableFacts: observation.unstable,

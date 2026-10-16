@@ -8,4 +8,10 @@ build:
   dockerfile: scripts/Dockerfile
   context: .
 notes:
-  - The root has no Dockerfile. scripts/Dockerfile builds the Go backend from the repository root (COPY . .). No vendor input. The default stage is the last stage, monolithic.
+  - The root has no Dockerfile. scripts/Dockerfile builds the Go backend from the repository root (COPY . .).  The default stage is the last stage, monolithic.
+  - "Vendor inputs MEMOS_DRIVER: taken from docs/testing/repository-deployment/deploy-config.yaml (the values the vendor set on the real-AWS run; ${DEPLOYZ_APP_URL} becomes deploymentUrl)."
+vendorInputs:
+  - name: MEMOS_DRIVER
+    source:
+      kind: fixed
+      value: postgres

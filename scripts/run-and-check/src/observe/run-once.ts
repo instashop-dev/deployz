@@ -14,7 +14,7 @@ import type {
   ServiceSnapshot,
   SizeLimits,
 } from '../ports.js';
-import { QEMU_CRASH } from '../emulation.js';
+import { runtimeLimit } from '../emulation.js';
 import { OBSERVATION_PORT, type Candidates } from './candidates.js';
 import { filterLocalDiskWrites, sqliteFileWritten } from './diff-filter.js';
 import { failed, makeEvidence, notRun, observed, type Fact } from './facts.js';
@@ -217,10 +217,16 @@ async function healthEvidence(ctx: Ctx, source: string, container: RunningContai
   const logs = await ctx.deps.runner.logs(container, 40).catch((error: unknown) => `logs unavailable: ${message(error)}`);
   const evidence = [ev(ctx, 'http', source, [summary, httpLines(health.checks)].join('\n')), ev(ctx, 'log', source, logs)];
   // A crash dump puts the QEMU or Go runtime line far above the last 40 lines.
-  if (!health.healthy && container.spec.platform === 'linux/amd64') {
-    const longer = await ctx.deps.runner.logs(container, 400).catch(() => '');
-    const crash = longer.split('\n').find((line) => QEMU_CRASH.test(line));
-    if (crash !== undefined) evidence.push(ev(ctx, 'log', source, `emulation crash: ${crash.trim()}`));
+  if (!health.healthy) {
+    const limit = runtimeLimit(await ctx.deps.runner.logs(container, 400).catch(() => ''));
+    if (limit?.kind === 'emulation' && container.spec.platform === 'linux/amd64') {
+      evidence.push(ev(ctx, 'log', source, `emulation crash: ${limit.line}`));
+    }
+    if (limit?.kind === 'internet') {
+      const note = `needs internet at run time: ${limit.line}`;
+      evidence.push(ev(ctx, 'log', source, note));
+      if (!ctx.failures.includes(note)) ctx.failures.push(note);
+    }
   }
   return evidence;
 }
@@ -271,10 +277,10 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
   const { runner, services } = deps;
   return withScope(ctx, 'a', async (scope) => {
     const webEnv = envFor(ctx, scope, 'web');
-    const web1 = await startContainer(ctx, scope, 'web', 'web1', null, webEnv);
+    let web1 = await startContainer(ctx, scope, 'web', 'web1', null, webEnv);
     const held: { health: Health | null; ports: Of<'listeningPorts'> } = { health: null, ports: [] };
 
-    const webHealthy = await check(ctx, async () => {
+    let webHealthy = await check(ctx, async () => {
       const health = await waitForWeb(ctx, web1, STARTUP_MS);
       held.health = health;
       const names = `env names: ${Object.keys(webEnv).join(', ')}`;
@@ -283,6 +289,32 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
         evidence: [ev(ctx, 'command', 'web#1', names), ...(await healthEvidence(ctx, 'web#1', web1, health))],
       };
     });
+
+    // Production runs the migration before the web container. When the start alone is not healthy,
+    // run each candidate migration command in this set and start the web again; the tables seen
+    // before the migration still tell whether the start alone migrates.
+    let tablesBeforeMigration: string[] | null = null;
+    if (held.health?.healthy !== true && candidates.migrationCommands.length > 0) {
+      tablesBeforeMigration = allTables(await services.inspect(scope.set));
+      await runner.stop(web1);
+      const migrated: Evidence[] = [];
+      for (const [index, command] of candidates.migrationCommands.entries()) {
+        const migration = spec(ctx, scope, 'migration', `premigration${index + 1}`, command, envFor(ctx, scope, 'migration'), SMALL);
+        const run = await runner.runOnce(migration, MIGRATION_MS);
+        migrated.push(ev(ctx, 'command', `migration#${index + 1}`, `${command} exit=${run.exitCode ?? 'none'}`));
+      }
+      web1 = await startContainer(ctx, scope, 'web', 'web1m', null, webEnv);
+      const after = web1;
+      const previous = webHealthy;
+      webHealthy = await check(ctx, async () => {
+        const health = await waitForWeb(ctx, after, STARTUP_MS);
+        held.health = health;
+        return {
+          value: health.healthy,
+          evidence: [...previous.evidence, ...migrated, ...(await healthEvidence(ctx, 'web#1 after migration', after, health))],
+        };
+      });
+    }
     const alive = held.health === null || !held.health.exited;
     const exited = (): Fact<never[]> => observed([], ctx.arch, [], 'container exited');
 
@@ -411,7 +443,7 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
 
     const startupMigration = await check(ctx, async () => ({
       value: {
-        tablesCreatedByStart: allTables(await snapshot()).length > 0,
+        tablesCreatedByStart: (tablesBeforeMigration ?? allTables(await snapshot())).length > 0,
         secondStartHealthy: restartHealthy.status === 'observed' ? restartHealthy.value : null,
       },
     }));

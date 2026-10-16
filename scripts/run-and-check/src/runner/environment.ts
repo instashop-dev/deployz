@@ -228,9 +228,12 @@ function addConfiguration(input: {
   const { env, secretNames, manifest, recipe, services } = input;
   const configured = new Set<string>();
   const redirected: string[] = [];
+  const deploymentUrl = `http://${webHostName(services)}:${input.port}`;
   for (const vendorInput of recipe.vendorInputs) {
     if (vendorInput.source.kind === 'fixed') {
       env[vendorInput.name] = vendorInput.source.value;
+    } else if (vendorInput.source.kind === 'deploymentUrl') {
+      env[vendorInput.name] = deploymentUrl;
     } else {
       const format = vendorInput.source.format;
       env[vendorInput.name] = generated(services, `vendor:${vendorInput.name}`, () => vendorValue(format));
@@ -238,7 +241,6 @@ function addConfiguration(input: {
     }
     configured.add(vendorInput.name);
   }
-  const deploymentUrl = `http://${webHostName(services)}:${input.port}`;
   for (const variable of manifest.environment.variables) {
     if (configured.has(variable.key)) continue;
     const value =

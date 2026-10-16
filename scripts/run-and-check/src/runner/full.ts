@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import type { DeploymentManifest } from '@deployz/contracts';
 
 import { fullRunSchema, type AnalysisResultFile, type Architecture, type Evidence, type FullRun, type Recipe } from '../contract.js';
+import { runtimeLimit } from '../emulation.js';
 import type { ContainerSpec, ProductionEnvironmentFn, RunningContainer, Runner, ServiceSet, SizeLimits } from '../ports.js';
 import { webHostName } from './environment.js';
 import { redact } from './runner.js';
@@ -81,6 +82,12 @@ export async function runFull(input: FullRunInput): Promise<FullRun> {
 
   const record = async (source: string, container: RunningContainer): Promise<void> => {
     const text = redact(await runner.logs(container, LOG_LINES), secretValues);
+    // A limit of the test (QEMU or no internet) is not an application result.
+    const limit = runtimeLimit(text);
+    if (limit !== null && (limit.kind === 'internet' || platform === 'linux/amd64')) {
+      const note = `${limit.kind === 'internet' ? 'needs internet at run time' : 'emulation'}: ${limit.line}`;
+      if (!infrastructureFailures.includes(note)) infrastructureFailures.push(note);
+    }
     await mkdir(logDir, { recursive: true });
     await writeFile(join(logDir, `${analysis.id}-full-${source}.log`), text);
     evidence.push({ kind: 'log', source, text: redact(text.split('\n').slice(-EVIDENCE_LINES).join('\n'), secretValues).slice(-2000) });
