@@ -34,6 +34,11 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # pipefail: a failed `docker build | tee` or `docker save | gzip` must fail the step.
+    shell: bash
+
 jobs:
   build:
     runs-on: ubuntu-latest
