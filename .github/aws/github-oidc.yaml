@@ -67,6 +67,11 @@ Resources:
         Statement:
           # One statement, and StringEquals only. A StringLike on the sub
           # claim also matches another Environment or another branch.
+          #
+          # The repository uses GitHub's immutable subject, so the sub claim
+          # names the owner and repository by name and by numeric id
+          # (`gh api repos/thalia-apps/deployz/actions/oidc/customization/sub`).
+          # A subject without the ids matches no token.
           - Effect: Allow
             Principal:
               # !If instead of DependsOn: the !Ref makes the order certain
@@ -80,7 +85,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: repo:thalia-apps/deployz:environment:production
+                token.actions.githubusercontent.com:sub: repo:thalia-apps@342445206/deployz@1339375286:environment:production
       Policies:
         - PolicyName: deployz-github-deploy-production
           PolicyDocument:
@@ -162,7 +167,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: repo:thalia-apps/deployz:environment:staging
+                token.actions.githubusercontent.com:sub: repo:thalia-apps@342445206/deployz@1339375286:environment:staging
       Policies:
         - PolicyName: deployz-github-deploy-staging
           PolicyDocument:

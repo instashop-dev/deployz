@@ -710,8 +710,11 @@ not expire, and one key cannot separate staging from production.
 - Each GitHub Environment has its own IAM role, and the `deploy` job assumes
   it with OIDC (`id-token: write`). The trust policy holds one statement, with
   `StringEquals` only: the subject must be
-  `repo:thalia-apps/deployz:environment:<name>` and the audience must be
-  `sts.amazonaws.com`. A `StringLike` would also match another Environment.
+  `repo:thalia-apps@342445206/deployz@1339375286:environment:<name>` and the
+  audience must be `sts.amazonaws.com`. A `StringLike` would also match
+  another Environment. The repository uses GitHub's immutable subject, so the
+  subject carries the owner and repository ids. A repository that someone
+  creates again with the same name gets other ids and no credentials.
 - The role ARN is the Environment variable `AWS_DEPLOY_ROLE_ARN`, not a
   secret. A role ARN is no credential, and a masked value would hide which
   role a run assumed. The completeness gate fails a run that misses the value,
