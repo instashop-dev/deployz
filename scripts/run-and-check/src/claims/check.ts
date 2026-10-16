@@ -43,15 +43,16 @@ const contradicted = (observedValue: Observed, reason: string, facts: readonly O
   facts,
 });
 
-/** The web app answered HTTP on some path. */
+/** The web app answered HTTP on some path, or its server opened a listening socket (also one on loopback only). */
 function webIsUp(run: ObservationRun): boolean {
   return (
     observed(run, 'webHealthy') === true ||
-    (observed(run, 'httpPaths') ?? []).some((check) => check.status !== null)
+    (observed(run, 'httpPaths') ?? []).some((check) => check.status !== null) ||
+    (observed(run, 'listeningPorts') ?? []).some((entry) => entry.bind === 'all' || entry.port < 32768)
   );
 }
 
-const UP_FACTS = ['webHealthy', 'httpPaths'] as const satisfies readonly ObservationFactName[];
+const UP_FACTS = ['webHealthy', 'httpPaths', 'listeningPorts'] as const satisfies readonly ObservationFactName[];
 const NOT_UP = 'the web app did not start';
 
 function normalisePath(path: string): string {
@@ -137,7 +138,7 @@ export const checkHealthPath: Rule = (claim, run) => {
 };
 
 export const checkDatabaseEngine: Rule = (claim, run) => {
-  const facts = ['database', 'smoke', 'webHealthy', 'httpPaths'] as const;
+  const facts = ['database', 'smoke', 'webHealthy', 'httpPaths', 'listeningPorts'] as const;
   const database = observed(run, 'database');
   if (database === null) return notCheckable('the database was not observed', facts);
   const used = database.connections > 0 || database.tablesAfterStart.length > 0;
@@ -148,7 +149,13 @@ export const checkDatabaseEngine: Rule = (claim, run) => {
     if (used) return contradicted(engine, 'the app connected to a SQL database', facts);
     if (!webIsUp(run)) return notCheckable(NOT_UP, facts);
     const status = observed(run, 'smoke')?.status ?? null;
-    if (status === null) return notCheckable('the database request got no response', facts);
+    if (status === null) {
+      // A server on loopback only can get no request at all, so no request can touch a database.
+      const reachable = (observed(run, 'listeningPorts') ?? []).some((entry) => entry.bind === 'all' && entry.reachableFromProbe);
+      return reachable
+        ? notCheckable('the database request got no response', facts)
+        : confirmed('no SQL connection while the app ran, and no request can reach it', facts);
+    }
     if (status >= 500) return contradicted(`http ${status}`, 'the request that uses the database failed', facts);
     return confirmed('no SQL connection, no tables, and the database request succeeded', facts);
   }

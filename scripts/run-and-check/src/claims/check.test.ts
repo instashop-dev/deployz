@@ -158,7 +158,7 @@ describe('health.path', () => {
   });
 
   it('is NOT_CHECKABLE when the app is not up', () => {
-    const verdict = check(HEALTH, { webHealthy: false, httpPaths: [{ port: 8080, path: '/healthz', status: null }] });
+    const verdict = check(HEALTH, { webHealthy: false, listeningPorts: [], httpPaths: [{ port: 8080, path: '/healthz', status: null }] });
     expect(verdict).toMatchObject({ verdict: 'NOT_CHECKABLE', reason: 'the web app did not start' });
   });
 
@@ -204,12 +204,17 @@ describe('database.engine', () => {
   });
 
   it('is NOT_CHECKABLE when the app did not start and used no database', () => {
-    const verdict = check(POSTGRES, { webHealthy: false, httpPaths: [{ port: 8080, path: '/', status: null }] });
+    const verdict = check(POSTGRES, { webHealthy: false, listeningPorts: [], httpPaths: [{ port: 8080, path: '/', status: null }] });
     expect(verdict).toMatchObject({ verdict: 'NOT_CHECKABLE', reason: 'the web app did not start' });
   });
 
   it('confirms none when there is no connection, no table and the request succeeds', () => {
     expect(check(NONE).verdict).toBe('CONFIRMED');
+  });
+
+  it('confirms none for a server on loopback only, which no request can reach', () => {
+    const loopback = { webHealthy: false, listeningPorts: [{ port: 8080, bind: 'loopback' as const, reachableFromProbe: false }], smoke: { path: '/', status: null } };
+    expect(check(NONE, loopback).verdict).toBe('CONFIRMED');
   });
 
   it('contradicts none when the app connected', () => {
@@ -251,7 +256,7 @@ describe('redis.required', () => {
   });
 
   it('is NOT_CHECKABLE when the app did not start', () => {
-    const down = { webHealthy: false, httpPaths: [{ port: 8080, path: '/', status: null }] };
+    const down = { webHealthy: false, listeningPorts: [], httpPaths: [{ port: 8080, path: '/', status: null }] };
     expect(check({ type: 'redis.required', value: true }, down).verdict).toBe('NOT_CHECKABLE');
     expect(check({ type: 'redis.required', value: false }, down).verdict).toBe('NOT_CHECKABLE');
   });
@@ -296,7 +301,7 @@ describe('storage.local', () => {
   });
 
   it('is NOT_CHECKABLE for false when the app did not start', () => {
-    const down = { webHealthy: false, httpPaths: [{ port: 8080, path: '/', status: null }] };
+    const down = { webHealthy: false, listeningPorts: [], httpPaths: [{ port: 8080, path: '/', status: null }] };
     expect(check({ type: 'storage.local', value: false }, down).verdict).toBe('NOT_CHECKABLE');
   });
 });
