@@ -1,0 +1,729 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-008",
+  "set": "tuning",
+  "repository": "TwiN/gatus",
+  "commit": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+  "recipeHash": "2e0b7b4c5b263bcabbf59d8af260cfffa9d08e0c027f11dd876eb3c63281c820",
+  "imageDigest": null,
+  "runs": [
+    {
+      "startedAt": "2026-10-16T18:01:22.045Z",
+      "harnessVersion": "1",
+      "build": {
+        "status": "observed",
+        "value": {
+          "ok": true,
+          "exitCode": 0,
+          "seconds": 0,
+          "imageBytes": 51062152,
+          "dockerfile": "Dockerfile",
+          "context": ".",
+          "failure": null,
+          "fromCache": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "image-cache",
+            "text": "loaded deployz-runcheck/repo-008:4d15cb7eed6225ac0b03da3d2ab50c424b81c34c from the image cache"
+          }
+        ]
+      },
+      "webHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "web#1",
+            "text": "env names: NODE_ENV, PORT, DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER, NODE_EXTRA_CA_CERTS, PGSSLROOTCERT, STORAGE_BUCKET, S3_BUCKET, AWS_S3_BUCKET, AWS_REGION, REDIS_URL, REDIS_HOST, REDIS_PORT, DB_HOST, DB_PORT, DB_NAME, DB_USER, APP_API_KEY, APP_SIGNING_SECRET, DATABASE_PASSWORD, DATABASE_URL, DB_PASSWORD, BASE_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_ENDPOINT_URL_S3, AWS_S3_FORCE_PATH_STYLE"
+          },
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=true exited=false oomKilled=false seconds=3.669\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "ng on 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:02:29 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=31ms\n2026/10/16 18:02:29 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=3ms\n2026/10/16 18:02:29 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=3ms\n2026/10/16 18:02:29 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=7ms\n2026/10/16 18:02:29 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:02:29 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:02:30 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:02:30 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:02:30 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:02:30 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:02:30 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:02:30 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:02:30 [api.ErrorHandler] Cannot GET /actuator/health\n2026/10/16 18:02:30 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:02:30 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n"
+          }
+        ]
+      },
+      "listeningPorts": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 8080,
+            "bind": "all",
+            "reachableFromProbe": true
+          },
+          {
+            "port": 33267,
+            "bind": "loopback",
+            "reachableFromProbe": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "inspect",
+            "source": "web#1",
+            "text": "8080 all reachable=true\n33267 loopback reachable=false"
+          }
+        ]
+      },
+      "httpPaths": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 8080,
+            "path": "/",
+            "status": 200
+          },
+          {
+            "port": 8080,
+            "path": "/health",
+            "status": 200
+          },
+          {
+            "port": 8080,
+            "path": "/healthz",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/up",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/api/health",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/status",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/ping",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/_health",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/actuator/health",
+            "status": 404
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404"
+          }
+        ]
+      },
+      "smoke": {
+        "status": "observed",
+        "value": {
+          "path": "/",
+          "status": 200
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "GET 8080/ 200"
+          }
+        ]
+      },
+      "database": {
+        "status": "observed",
+        "value": {
+          "engine": null,
+          "connections": 0,
+          "tablesAfterStart": [],
+          "sqliteFileWritten": false
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "postgres",
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "mysql",
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          },
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-008: 0 objects"
+          }
+        ]
+      },
+      "startupMigration": {
+        "status": "observed",
+        "value": {
+          "tablesCreatedByStart": false,
+          "secondStartHealthy": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": []
+      },
+      "migrationCommands": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate migration command"
+      },
+      "redis": {
+        "status": "observed",
+        "value": {
+          "connected": false,
+          "clients": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          }
+        ]
+      },
+      "objectStorage": {
+        "status": "observed",
+        "value": {
+          "objectsWritten": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-008: 0 objects"
+          }
+        ]
+      },
+      "localDiskWrites": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "no local writes"
+          }
+        ]
+      },
+      "workers": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate worker command"
+      },
+      "requiredVariables": {
+        "status": "observed",
+        "value": [
+          {
+            "name": "BASE_URL",
+            "healthyWithout": true,
+            "healthyWith": true
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web without BASE_URL",
+            "text": "healthy=true exited=false oomKilled=false seconds=3.833\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without BASE_URL",
+            "text": "ng on 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:05:09 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=36ms\n2026/10/16 18:05:10 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=8ms\n2026/10/16 18:05:10 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=8ms\n2026/10/16 18:05:10 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=7ms\n2026/10/16 18:05:10 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:05:10 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:05:10 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:05:10 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:05:10 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:05:10 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:05:10 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:05:10 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:05:10 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:05:10 [api.ErrorHandler] Cannot GET /actuator/health\n2026/10/16 18:05:11 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n"
+          }
+        ]
+      },
+      "twoCopiesHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=true exited=false oomKilled=false seconds=3.568\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "ng on 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:03:51 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=31ms\n2026/10/16 18:03:51 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=5ms\n2026/10/16 18:03:51 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=8ms\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=7ms\n2026/10/16 18:03:52 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /actuator/health\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n"
+          },
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=true exited=false oomKilled=false seconds=3.508\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "ng on 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:03:51 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=52ms\n2026/10/16 18:03:51 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=3ms\n2026/10/16 18:03:51 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=7ms\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=3ms\n2026/10/16 18:03:52 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:03:52 [api.ErrorHandler] Cannot GET /actuator/health\n2026/10/16 18:03:52 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n"
+          }
+        ]
+      },
+      "restartHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=true exited=false oomKilled=false seconds=4.097\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "ng on 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:02:37 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=28ms\n2026/10/16 18:02:37 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=8ms\n2026/10/16 18:02:38 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=3ms\n2026/10/16 18:02:38 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=5ms\n2026/10/16 18:02:38 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:02:38 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:02:38 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:02:38 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:02:38 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:02:38 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:02:38 [api.ErrorHandler] Cannot GET /actuator/health\n2026/10/16 18:02:38 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:02:38 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:02:38 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:02:39 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n"
+          }
+        ]
+      },
+      "sizes": {
+        "status": "observed",
+        "value": [
+          {
+            "profile": "small-v2",
+            "memoryMiB": 512,
+            "cpus": 1,
+            "healthy": true,
+            "startSeconds": 3.669,
+            "oomKilled": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "small-v2",
+            "text": "healthy=true oomKilled=false exited=false"
+          }
+        ]
+      },
+      "candidates": {
+        "injectedPort": 18080,
+        "healthPaths": [
+          "/",
+          "/health",
+          "/healthz",
+          "/up",
+          "/api/health",
+          "/status",
+          "/ping",
+          "/_health",
+          "/actuator/health"
+        ],
+        "migrationCommands": [],
+        "workerCommands": [],
+        "variables": [
+          "BASE_URL"
+        ],
+        "from": [
+          "recipe",
+          "analysis:rules@b028a8bc",
+          "fixed-list"
+        ]
+      },
+      "infrastructureFailures": [],
+      "timings": {
+        "build": 3.282,
+        "setA": 85.504,
+        "twoCopies": 72.163,
+        "requiredVariables": 78.635
+      }
+    },
+    {
+      "startedAt": "2026-10-16T18:05:21.642Z",
+      "harnessVersion": "1",
+      "build": {
+        "status": "observed",
+        "value": {
+          "ok": true,
+          "exitCode": 0,
+          "seconds": 0,
+          "imageBytes": 51062152,
+          "dockerfile": "Dockerfile",
+          "context": ".",
+          "failure": null,
+          "fromCache": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "image-cache",
+            "text": "loaded deployz-runcheck/repo-008:4d15cb7eed6225ac0b03da3d2ab50c424b81c34c from the image cache"
+          }
+        ]
+      },
+      "webHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "web#1",
+            "text": "env names: NODE_ENV, PORT, DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER, NODE_EXTRA_CA_CERTS, PGSSLROOTCERT, STORAGE_BUCKET, S3_BUCKET, AWS_S3_BUCKET, AWS_REGION, REDIS_URL, REDIS_HOST, REDIS_PORT, DB_HOST, DB_PORT, DB_NAME, DB_USER, APP_API_KEY, APP_SIGNING_SECRET, DATABASE_PASSWORD, DATABASE_URL, DB_PASSWORD, BASE_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_ENDPOINT_URL_S3, AWS_S3_FORCE_PATH_STYLE"
+          },
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=true exited=false oomKilled=false seconds=7.79\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "on 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:06:31 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=27ms\n2026/10/16 18:06:31 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=37ms\n2026/10/16 18:06:31 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=11ms\n2026/10/16 18:06:31 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=32ms\n2026/10/16 18:06:31 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:06:31 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:06:32 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:06:32 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n2026/10/16 18:06:33 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:06:33 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:06:33 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:06:33 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:06:33 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:06:33 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:06:33 [api.ErrorHandler] Cannot GET /actuator/health\n"
+          }
+        ]
+      },
+      "listeningPorts": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 8080,
+            "bind": "all",
+            "reachableFromProbe": true
+          },
+          {
+            "port": 42357,
+            "bind": "loopback",
+            "reachableFromProbe": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "inspect",
+            "source": "web#1",
+            "text": "8080 all reachable=true\n42357 loopback reachable=false"
+          }
+        ]
+      },
+      "httpPaths": {
+        "status": "observed",
+        "value": [
+          {
+            "port": 8080,
+            "path": "/",
+            "status": 200
+          },
+          {
+            "port": 8080,
+            "path": "/health",
+            "status": 200
+          },
+          {
+            "port": 8080,
+            "path": "/healthz",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/up",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/api/health",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/status",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/ping",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/_health",
+            "status": 404
+          },
+          {
+            "port": 8080,
+            "path": "/actuator/health",
+            "status": 404
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404"
+          }
+        ]
+      },
+      "smoke": {
+        "status": "observed",
+        "value": {
+          "path": "/",
+          "status": 200
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "GET 8080/ 200"
+          }
+        ]
+      },
+      "database": {
+        "status": "observed",
+        "value": {
+          "engine": null,
+          "connections": 0,
+          "tablesAfterStart": [],
+          "sqliteFileWritten": false
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "postgres",
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "mysql",
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          },
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-008: 0 objects"
+          }
+        ]
+      },
+      "startupMigration": {
+        "status": "observed",
+        "value": {
+          "tablesCreatedByStart": false,
+          "secondStartHealthy": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": []
+      },
+      "migrationCommands": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate migration command"
+      },
+      "redis": {
+        "status": "observed",
+        "value": {
+          "connected": false,
+          "clients": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          }
+        ]
+      },
+      "objectStorage": {
+        "status": "observed",
+        "value": {
+          "objectsWritten": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-008: 0 objects"
+          }
+        ]
+      },
+      "localDiskWrites": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "no local writes"
+          }
+        ]
+      },
+      "workers": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate worker command"
+      },
+      "requiredVariables": {
+        "status": "observed",
+        "value": [
+          {
+            "name": "BASE_URL",
+            "healthyWithout": true,
+            "healthyWith": true
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web without BASE_URL",
+            "text": "healthy=true exited=false oomKilled=false seconds=9.708\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web without BASE_URL",
+            "text": "on 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:09:00 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=168ms\n2026/10/16 18:09:00 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=8ms\n2026/10/16 18:09:00 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=34ms\n2026/10/16 18:09:00 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=19ms\n2026/10/16 18:09:01 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:09:01 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:09:01 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:09:01 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n2026/10/16 18:09:03 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:09:03 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:09:03 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:09:03 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:09:03 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:09:03 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:09:03 [api.ErrorHandler] Cannot GET /actuator/health\n"
+          }
+        ]
+      },
+      "twoCopiesHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=true exited=false oomKilled=false seconds=10.486\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "n 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:07:55 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=85ms\n2026/10/16 18:07:55 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=308ms\n2026/10/16 18:07:55 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=11ms\n2026/10/16 18:07:56 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=13ms\n2026/10/16 18:07:56 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:07:56 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:07:56 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:07:56 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n2026/10/16 18:07:58 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /actuator/health\n"
+          },
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=true exited=false oomKilled=false seconds=10.985\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "n 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:07:55 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=179ms\n2026/10/16 18:07:55 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=25ms\n2026/10/16 18:07:55 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=65ms\n2026/10/16 18:07:55 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=15ms\n2026/10/16 18:07:56 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:07:56 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:07:56 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:07:56 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:07:59 [api.ErrorHandler] Cannot GET /actuator/health\n"
+          }
+        ]
+      },
+      "restartHealthy": {
+        "status": "observed",
+        "value": true,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "http",
+            "source": "web#2",
+            "text": "healthy=true exited=false oomKilled=false seconds=9.233\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ 200\n8080/health 200\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#2",
+            "text": "n 0.0.0.0:8080\n\n ┌───────────────────────────────────────────────────┐ \n │                  Fiber v2.52.13                   │ \n │                 http://[::]:8080                  │ \n │                                                   │ \n │ Handlers ............ 41  Processes ........... 1 │ \n │ Prefork ....... Disabled  PID ................. 1 │ \n └───────────────────────────────────────────────────┘ \n\n2026/10/16 18:06:54 [watchdog.executeEndpoint] Monitored group=core; endpoint=front-end; key=core_front-end; success=false; errors=1; duration=187ms\n2026/10/16 18:06:54 [watchdog.executeEndpoint] Monitored group=core; endpoint=back-end; key=core_back-end; success=false; errors=1; duration=43ms\n2026/10/16 18:06:54 [watchdog.executeEndpoint] Monitored group=internal; endpoint=monitoring; key=internal_monitoring; success=false; errors=1; duration=23ms\n2026/10/16 18:06:54 [watchdog.executeEndpoint] Monitored group=internal; endpoint=nas; key=internal_nas; success=false; errors=1; duration=27ms\n2026/10/16 18:06:55 [client.QueryDNS] Error exchanging DNS message: dial udp 8.8.8.8:53: connect: network is unreachable\n2026/10/16 18:06:55 [watchdog.executeEndpoint] Monitored group=; endpoint=example-dns-query; key=_example-dns-query; success=false; errors=1; duration=0s\n2026/10/16 18:06:55 [watchdog.executeEndpoint] Monitored group=; endpoint=icmp-ping; key=_icmp-ping; success=false; errors=0; duration=0s\n2026/10/16 18:06:55 [watchdog.executeEndpoint] Monitored group=; endpoint=check-domain-expiration; key=_check-domain-expiration; success=false; errors=1; duration=0s\n2026/10/16 18:06:56 [api.ErrorHandler] Cannot GET /healthz\n2026/10/16 18:06:56 [api.ErrorHandler] Cannot GET /up\n2026/10/16 18:06:56 [api.ErrorHandler] Cannot GET /api/health\n2026/10/16 18:06:56 [api.ErrorHandler] Cannot GET /status\n2026/10/16 18:06:56 [api.ErrorHandler] Cannot GET /ping\n2026/10/16 18:06:56 [api.ErrorHandler] Cannot GET /_health\n2026/10/16 18:06:56 [api.ErrorHandler] Cannot GET /actuator/health\n"
+          }
+        ]
+      },
+      "sizes": {
+        "status": "observed",
+        "value": [
+          {
+            "profile": "small-v2",
+            "memoryMiB": 512,
+            "cpus": 1,
+            "healthy": true,
+            "startSeconds": 7.79,
+            "oomKilled": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "small-v2",
+            "text": "healthy=true oomKilled=false exited=false"
+          }
+        ]
+      },
+      "candidates": {
+        "injectedPort": 18080,
+        "healthPaths": [
+          "/",
+          "/health",
+          "/healthz",
+          "/up",
+          "/api/health",
+          "/status",
+          "/ping",
+          "/_health",
+          "/actuator/health"
+        ],
+        "migrationCommands": [],
+        "workerCommands": [],
+        "variables": [
+          "BASE_URL"
+        ],
+        "from": [
+          "recipe",
+          "analysis:rules@b028a8bc",
+          "fixed-list"
+        ]
+      },
+      "infrastructureFailures": [],
+      "timings": {
+        "build": 30.402,
+        "setA": 81.189,
+        "twoCopies": 60.343,
+        "requiredVariables": 61.902
+      }
+    }
+  ],
+  "unstable": [],
+  "complete": true
+}
