@@ -31,8 +31,10 @@ import { readLocalTree, serveLocalTree } from './local-tree.js';
 const FIXTURE_OWNER = 'fixture';
 
 /** `rules@<short sha of HEAD>`: the Analysis implementation under test. */
+/** Names the rules, not the harness: the git tree of `packages/analysis/src` changes only when the rules change. */
 export function rulesAnalyserName(cwd: string): string {
-  return `rules@${execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd, encoding: 'utf8' }).trim()}`;
+  const tree = execFileSync('git', ['rev-parse', '--short', 'HEAD:packages/analysis/src'], { cwd, encoding: 'utf8' }).trim();
+  return `rules@${tree}`;
 }
 
 /**
