@@ -107,7 +107,7 @@ Services.
 **Configuration** — sections with anchors, in this order:
 
 1. Needs attention (only when present) — each item once, linked to its row.
-2. Deployment size — size and the estimated AWS cost per customer deployment.
+2. Deployment size — the recommended size (one segmented control), its resources and estimated AWS cost per customer deployment, and the minimum allowed size.
 3. Services & resources — the canonical vendor resource view (§8), with
    build & runtime (port, health path, migration, start and build command)
    as indented rows under the web application.

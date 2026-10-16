@@ -82,3 +82,50 @@ test('the customer installs its chosen size from an invitation with a vendor ove
   await page.goto(`/dashboard/deployments/${deployment!.id}`);
   await expect(page.getByTestId('deployment-size-label')).toHaveText('Size: Medium');
 });
+
+test('the vendor sets the recommended and minimum sizes and they persist after a reload', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  await signUp(page);
+  const appResponse = await page.request.post(`${API_URL}/api/applications`, {
+    data: {
+      name: `Size Config ${crypto.randomUUID().slice(0, 8)}`,
+      githubInstallationId: 'e2e-installation',
+      repoFullName: 'deployz-demo/express-api',
+      repoUrl: 'https://github.com/deployz-demo/express-api',
+      defaultBranch: 'main',
+    },
+  });
+  expect(appResponse.ok()).toBeTruthy();
+  const application = (await appResponse.json()) as { id: string };
+  expect((await page.request.post(`${API_URL}/api/applications/${application.id}/analyse`, {})).ok()).toBeTruthy();
+
+  await page.goto(`/dashboard/applications/${application.id}/config`);
+  const card = page.getByTestId('deployment-size');
+  const sizes = card.getByRole('tablist', { name: 'Recommended size' });
+  await expect(sizes.getByRole('tab', { name: 'Small' })).toHaveAttribute('aria-selected', 'true');
+  await expect(card.getByTestId('deployment-size-small-cost')).toHaveText(/^~\$\d+–\d+\/month/);
+  await card.scrollIntoViewIfNeeded();
+  await card.screenshot({ path: testInfo.outputPath('size-card-desktop.png') });
+
+  // Recommended Large, minimum Medium: Small becomes unavailable.
+  await sizes.getByRole('tab', { name: 'Large' }).click();
+  await expect(card.getByTestId('deployment-size-large')).toContainText('2 vCPU · 4 GiB per service');
+  await card.getByLabel('Minimum allowed size').click();
+  await page.getByRole('option', { name: /^Medium/ }).click();
+  await expect(sizes.getByRole('tab', { name: 'Small' })).toBeDisabled();
+  await card.getByRole('button', { name: 'Estimate details' }).click();
+  await expect(card.getByTestId('deployment-cost-details')).toContainText('730 hours a month');
+  await card.getByTestId('deployment-size-save').click();
+  await expect(card.getByText('Saved.')).toBeVisible();
+
+  await page.reload();
+  await expect(sizes.getByRole('tab', { name: 'Large' })).toHaveAttribute('aria-selected', 'true');
+  await expect(card.getByLabel('Minimum allowed size')).toContainText('Medium');
+  await expect(sizes.getByRole('tab', { name: 'Small' })).toBeDisabled();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await card.scrollIntoViewIfNeeded();
+  const width = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(width).toBeLessThanOrEqual(375);
+  await card.screenshot({ path: testInfo.outputPath('size-card-mobile.png') });
+});
