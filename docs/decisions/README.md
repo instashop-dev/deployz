@@ -188,6 +188,8 @@ customer pays the AWS bill and knows its load.
 - **Links freeze their sizing.** A link keeps the recommendation and the
   minimum it was created with, so a vendor change cannot alter an offer a
   customer already holds. Old links (null) follow the application.
+  Regenerating a reusable link is the vendor's deliberate step to re-offer
+  it, so the fresh link takes the application's current minimum.
 - **The customer approves one exact plan.** The confirmation echoes a
   fingerprint of the compiled footprint and estimate; the server recompiles
   inside the creation transaction and refuses a mismatch, so the stack can

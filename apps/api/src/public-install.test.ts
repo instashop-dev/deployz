@@ -1064,7 +1064,7 @@ describe('public install links', () => {
     expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
   });
 
-  it('a link freezes its sizing: later application edits change only links created afterwards, and regenerate keeps it', async () => {
+  it('a link freezes its sizing: later application edits change only links created afterwards, and regenerate takes the current minimum', async () => {
     const first = await insertApplication(db, org.organizationId);
     await insertReadyRelease(db, first.id);
     const created = await createSizedLink(first.id, { recommendedSizeProfile: 'large' });
@@ -1079,8 +1079,9 @@ describe('public install links', () => {
     expect(frozen.options.map((option) => option.id)).toEqual(['small', 'medium', 'large']);
     expect((await planOf(frozenId, 'us-east-1', 'small')).statusCode).toBe(200);
 
+    // Regenerate keeps the link's recommendation and takes the application's current minimum.
     const regenerated = (await linkAction(frozenId, 'regenerate')).json() as CreatedLinkView;
-    expect(await sizingOf(regenerated.id)).toMatchObject({ recommended: 'large', minimum: 'small' });
+    expect(await sizingOf(regenerated.id)).toMatchObject({ recommended: 'large', minimum: 'medium' });
 
     // A link created after the edit freezes the new settings.
     const second = await insertApplication(db, org.organizationId);
@@ -1096,6 +1097,18 @@ describe('public install links', () => {
     const tooSmall = await createSizedLink(second.id, { recommendedSizeProfile: 'small' });
     expect(tooSmall.statusCode, tooSmall.body).toBe(422);
     expect(tooSmall.json()).toMatchObject({ error: { code: 'SIZE_DEFAULT_BELOW_MINIMUM' } });
+  });
+
+  it('regenerate raises a recommendation that is below the current minimum', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const created = await createSizedLink(application.id, { recommendedSizeProfile: 'small' });
+    expect(created.statusCode, created.body).toBe(201);
+    expect((await patchApplication(application.id, { defaultSizeProfile: 'large', minimumSizeProfile: 'large' })).statusCode).toBe(200);
+    const regenerated = (await linkAction((created.json() as CreatedLinkView).id, 'regenerate')).json() as CreatedLinkView;
+    const sizing = await sizingOf(regenerated.id);
+    expect(sizing).toMatchObject({ recommended: 'large', minimum: 'large' });
+    expect(sizing.options.map((option) => option.id)).toEqual(['large']);
   });
 
   it('a customer size below the link minimum is refused 422 even when the application minimum is lower', async () => {

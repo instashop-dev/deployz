@@ -45,7 +45,10 @@ applies only to links and deployments created afterwards.
 A link freezes its recommendation and minimum when it is created
 (`public_install_links.recommended_size_profile` /
 `minimum_size_profile`). Later application changes never alter an existing
-link. Regenerating a reusable link keeps the replaced link's frozen values.
+link. Regenerating a reusable link keeps the replaced link's recommendation
+and takes the application's current minimum; a recommendation below that
+minimum is raised to it. This is how a vendor moves a live link to a new
+minimum.
 A link created before sizing existed has both columns null and follows the
 application's current settings.
 
