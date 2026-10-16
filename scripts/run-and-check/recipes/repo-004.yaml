@@ -1,0 +1,12 @@
+id: repo-004
+set: tuning
+source:
+  kind: git
+  repository: miniflux/v2
+  commit: a84533db6ca0a2ff9a47800fbf0326be6d9b3170
+build:
+  dockerfile: packaging/docker/alpine/Dockerfile
+  context: .
+notes:
+  - The root has no Dockerfile. packaging/docker/alpine/Dockerfile builds the Go binary from the repository root (ADD . /go/src/app), so the context is the root (deploy-config.yaml repo-004). The other options are the distroless, debian and rpm packaging files.
+  - No vendor input. deploy-config.yaml sets RUN_MIGRATIONS, CREATE_ADMIN and BASE_URL, but the app starts without them.
