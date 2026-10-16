@@ -73,7 +73,8 @@ name the message id.
 
 GitHub Actions assumes one IAM role for each GitHub Environment with OIDC.
 Neither deploy workflow holds an AWS access key. Each role trusts only the
-subject `repo:thalia-apps/deployz:environment:<name>` with the audience
+subject `repo:thalia-apps@342445206/deployz@1339375286:environment:<name>`
+(GitHub's immutable subject, with the owner and repository ids) with the audience
 `sts.amazonaws.com`. A job in another repository, or a job that declares no
 Environment, therefore gets no credentials.
 
@@ -275,7 +276,11 @@ Every Lambda cold start (API and worker) applies the bundled drizzle
 migrations (`packages/cdk/src/lambda/db-connection.ts`), except when one query
 shows the newest bundled migration is already recorded in
 `drizzle.__drizzle_migrations` (`migration-check.ts`); then the migrator is
-skipped. Any error in that check runs the migrator as before. A new migration under
+skipped. Any error in that check runs the migrator as before. Each pending
+migration applies and commits in its own transaction, so a migration can use
+an enum value that an earlier migration adds, also on a fresh database. A
+value that one migration adds and also uses still fails with 55P04; see
+`0006_funny_pete_wisdom.sql` for the workaround. A new migration under
 `packages/db/drizzle/` needs a matching hand-written import in that file;
 `packages/cdk/test/lambda-migrations.test.ts` fails when one is missing. A
 migration that cannot apply kills Lambda initialization: `/health/ready`
