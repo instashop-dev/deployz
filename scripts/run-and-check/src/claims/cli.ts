@@ -52,7 +52,7 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
-function newestAnalysisDir(): string {
+export function newestAnalysisDir(): string {
   const dirs = existsSync(ANALYSES_DIR)
     ? readdirSync(ANALYSES_DIR)
         .filter((name) => name.startsWith('rules@'))
@@ -133,13 +133,4 @@ export function main(argv: readonly string[] = process.argv.slice(2)): number {
   }
   console.log(`Wrote ${reports.length} report(s) and the summary to ${outDir}`);
   return 0;
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    process.exit(main());
-  } catch (error) {
-    console.error(error);
-    process.exit(1);
-  }
 }

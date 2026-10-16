@@ -90,13 +90,3 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   console.log(`Wrote ${recipes.length} analysis file(s) to ${outDir}`);
   return failed > 0 ? 1 : 0;
 }
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().then(
-    (code) => process.exit(code),
-    (error) => {
-      console.error(error);
-      process.exit(1);
-    },
-  );
-}

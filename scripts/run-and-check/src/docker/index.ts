@@ -7,3 +7,4 @@ export { runcheckHome } from './paths.js';
 export { preflight, type PreflightCheck, type PreflightReport } from './preflight.js';
 export { createDockerResources } from './resources.js';
 export { assertSafeArgs, labelArgs } from './safety.js';
+export { ensureProbeImage, PROBE_IMAGE } from './probe.js';

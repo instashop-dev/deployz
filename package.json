@@ -30,7 +30,13 @@
     "benchmark:compat": "tsx scripts/repository-compatibility/index.ts",
     "benchmark:deploy": "tsx scripts/repository-deployment/index.ts",
     "benchmark:remediation": "tsx scripts/remediation-benchmark/index.ts",
-    "jev:eval": "tsx scripts/jev-eval/index.ts"
+    "jev:eval": "tsx scripts/jev-eval/index.ts",
+    "runcheck:preflight": "tsx scripts/run-and-check/src/cli.ts preflight",
+    "runcheck:analyse": "tsx scripts/run-and-check/src/cli.ts analyse",
+    "runcheck:observe": "tsx scripts/run-and-check/src/cli.ts observe",
+    "runcheck:claims": "tsx scripts/run-and-check/src/cli.ts claims",
+    "runcheck:full": "tsx scripts/run-and-check/src/cli.ts full",
+    "runcheck:fixtures": "tsx scripts/run-and-check/src/cli.ts fixtures"
   },
   "devDependencies": {
     "@aws-sdk/client-cloudformation": "^3.1115.0",

@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 import { parse } from 'yaml';
 
-import { analysisResultFileSchema, recipeSchema, type AnalysisResultFile, type Recipe } from '../contract.js';
-import type { BuildRequest, BuiltImage, DockerFn, DockerResources, ProductionEnvironmentFn, Runner, Services } from '../ports.js';
+import { analysisResultFileSchema, fixtureAnswersSchema, recipeSchema, type AnalysisResultFile, type Claim, type Recipe } from '../contract.js';
+import { buildImage, createDockerResources, docker, ensureProbeImage, labelArgs } from '../docker/index.js';
+import { createRunner, productionEnvironment } from '../runner/index.js';
+import { createServices } from '../services/index.js';
 import { observe } from './observe.js';
 import type { ObserveDeps } from './types.js';
 
@@ -34,9 +36,11 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   return { repos, force };
 }
 
-interface LoadedRecipe {
+export interface LoadedRecipe {
   recipe: Recipe;
   fixtureDir?: string;
+  /** A fixture's `answers.json` claims, probed as candidates. */
+  claims?: Claim[];
 }
 
 async function listDir(dir: string): Promise<string[]> {
@@ -47,7 +51,7 @@ async function listDir(dir: string): Promise<string[]> {
   }
 }
 
-async function loadRecipes(): Promise<LoadedRecipe[]> {
+export async function loadRecipes(): Promise<LoadedRecipe[]> {
   const loaded: LoadedRecipe[] = [];
   const recipesDir = join(HARNESS_ROOT, 'recipes');
   for (const name of (await listDir(recipesDir)).filter((file) => file.endsWith('.yaml')).sort()) {
@@ -55,9 +59,10 @@ async function loadRecipes(): Promise<LoadedRecipe[]> {
   }
   const fixturesDir = join(HARNESS_ROOT, 'fixtures');
   for (const name of (await listDir(fixturesDir)).filter((dir) => /^F\d+$/.test(dir)).sort()) {
-    const fixtureDir = join(fixturesDir, name);
-    const text = await readFile(join(fixtureDir, 'recipe.yaml'), 'utf8');
-    loaded.push({ recipe: recipeSchema.parse(parse(text)), fixtureDir });
+    const fixtureDir = join(fixturesDir, name, 'app');
+    const text = await readFile(join(fixturesDir, name, 'recipe.yaml'), 'utf8');
+    const answers = fixtureAnswersSchema.parse(JSON.parse(await readFile(join(fixturesDir, name, 'answers.json'), 'utf8')));
+    loaded.push({ recipe: recipeSchema.parse(parse(text)), fixtureDir, claims: answers.claims.map((answer) => answer.claim) });
   }
   return loaded;
 }
@@ -81,32 +86,17 @@ async function loadAnalyses(id: string): Promise<AnalysisResultFile[]> {
  * argument shapes below are this module's assumption.
  */
 async function loadRealDeps(): Promise<Omit<ObserveDeps, 'now' | 'log'>> {
-  const load = (specifier: string): Promise<unknown> => import(specifier);
-  const dockerModule = (await load('../docker/index.js')) as {
-    docker: DockerFn;
-    labelArgs: (id: string) => string[];
-    buildImage: (docker: DockerFn, request: BuildRequest) => Promise<BuiltImage>;
-    createDockerResources: (docker: DockerFn, labelArgs: (id: string) => string[]) => DockerResources;
-  };
-  const { docker, labelArgs, buildImage, createDockerResources } = dockerModule;
-  const resources = createDockerResources(docker, labelArgs);
-  const { createServices } = (await load('../services/index.js')) as {
-    createServices: (options: { docker: DockerFn; resources: DockerResources }) => Services;
-  };
-  const { createRunner, productionEnvironment } = (await load('../runner/index.js')) as {
-    createRunner: (options: { docker: DockerFn; resources: DockerResources }) => Runner;
-    productionEnvironment: ProductionEnvironmentFn;
-  };
+  const runner = createRunner({ docker, labelArgs, probeImage: await ensureProbeImage() });
   return {
-    buildImage: (request) => buildImage(docker, request),
-    services: createServices({ docker, resources }),
-    runner: createRunner({ docker, resources }),
+    buildImage: (request) => buildImage(request),
+    services: createServices({ docker, resources: createDockerResources(docker), labelArgs }),
+    runner,
     env: productionEnvironment,
   };
 }
 
 /** Runs the tasks with at most `limit` at the same time. */
-async function pool<T>(items: readonly T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+export async function pool<T>(items: readonly T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
   const queue = [...items];
   const worker = async (): Promise<void> => {
     for (let item = queue.shift(); item !== undefined; item = queue.shift()) await task(item);
@@ -126,7 +116,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const observationsDir = join(HARNESS_ROOT, 'observations');
   let failures = 0;
 
-  await pool(selected, MAX_PARALLEL, async ({ recipe, fixtureDir }) => {
+  await pool(selected, MAX_PARALLEL, async ({ recipe, fixtureDir, claims }) => {
     try {
       await observe(recipe, deps, {
         force: args.force,
@@ -135,6 +125,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
         analyses: await loadAnalyses(recipe.id),
         harnessVersion: HARNESS_VERSION,
         ...(fixtureDir === undefined ? {} : { fixtureDir }),
+        ...(claims === undefined ? {} : { claims }),
       });
     } catch (error) {
       failures += 1;

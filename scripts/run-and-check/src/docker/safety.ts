@@ -1,6 +1,15 @@
 /** Options whose next argument is a plain value that the checks must not read as a flag. */
 const VALUE_FLAGS = new Set(['--build-arg', '--label', '--tag', '--file', '--filter', '--format', '--name']);
 
+/** `run`/`create`/`exec` options that take a separate value; the first other bare argument is the image or container. */
+const RUN_VALUE_FLAGS = new Set([
+  '--name', '--platform', '--network', '--net', '--network-alias', '--cpus', '--memory', '-m', '--memory-swap',
+  '--pids-limit', '--label', '-l', '--restart', '-e', '--env', '-v', '--volume', '--mount', '--entrypoint',
+  '-u', '--user', '-w', '--workdir', '--security-opt', '--pid', '--cap-add', '--device', '--env-file',
+  '--publish', '-p', '--add-host', '--hostname', '-h', '--stop-timeout', '--tmpfs', '--ulimit', '--shm-size',
+]);
+const RUN_COMMANDS = new Set(['run', 'create', 'exec']);
+
 const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
 const HOST_PATH = /^([A-Za-z]:[\\/]|[/.~\\])/;
 
@@ -27,8 +36,11 @@ function refuse(reason: string): never {
 
 /** Throws when the arguments would weaken the isolation of the harness. */
 export function assertSafeArgs(args: readonly string[]): void {
-  for (let i = 0; i < args.length; i += 1) {
+  const runLike = RUN_COMMANDS.has(args[0] ?? '');
+  for (let i = runLike ? 1 : 0; i < args.length; i += 1) {
     const arg = args[i] as string;
+    // The image (or container) ends docker's own options; what follows is the command inside the container.
+    if (runLike && !arg.startsWith('-')) break;
     if (VALUE_FLAGS.has(arg)) {
       i += 1;
       continue;
@@ -59,6 +71,7 @@ export function assertSafeArgs(args: readonly string[]): void {
       if (isHostPath(source) || !value.includes(':')) refuse(`volume source ${source}`);
     }
     if (flag === '--mount' && mountIsHostPath(next())) refuse('mount of a host path');
+    if (runLike && eq < 0 && RUN_VALUE_FLAGS.has(arg)) i += 1;
   }
 }
 

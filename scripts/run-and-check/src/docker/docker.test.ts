@@ -141,3 +141,21 @@ describe('withBuildLock', () => {
     await expect(withBuildLock(async () => 'ok', { lockPath, pollMs: 10 })).resolves.toBe('ok');
   });
 });
+
+describe('assertSafeArgs scope', () => {
+  it('does not read the command inside the container as docker options', () => {
+    expect(() =>
+      assertSafeArgs(['exec', 'rc-x-mysql', 'mysql', '-uroot', '-pSecret1', '-e', 'select 1']),
+    ).not.toThrow();
+    expect(() =>
+      assertSafeArgs(['run', '--rm', '--network', 'rc-net', '-e', 'A=1', 'img', 'sh', '-c', 'x', '-v', '/']),
+    ).not.toThrow();
+  });
+
+  it('still refuses unsafe options before the image', () => {
+    expect(() => assertSafeArgs(['run', '-e', 'A=1', '-v', '/etc:/x', 'img'])).toThrow();
+    expect(() => assertSafeArgs(['run', '--network', 'host', 'img'])).toThrow();
+    expect(() => assertSafeArgs(['run', '-p', '80:80', 'img'])).toThrow();
+    expect(() => assertSafeArgs(['run', '-e', 'NAME', 'img'])).toThrow();
+  });
+});

@@ -1,6 +1,6 @@
 import { deploymentManifestSchema, type DeploymentManifest, type ManifestEnvBinding } from '@deployz/contracts';
 
-import type { AnalysisResultFile, Recipe } from '../contract.js';
+import type { AnalysisResultFile, Claim, Recipe } from '../contract.js';
 import { collectCandidates } from './candidates.js';
 
 const MINIMAL_MANIFEST: DeploymentManifest = {
@@ -30,10 +30,14 @@ function byName(bindings: readonly ManifestEnvBinding[]): ManifestEnvBinding[] {
  * gets everything. It only builds the environment (`deps.env`); no Analysis
  * is judged by it.
  */
-export function buildObservationManifest(recipe: Recipe, analyses: readonly AnalysisResultFile[]): DeploymentManifest {
+export function buildObservationManifest(
+  recipe: Recipe,
+  analyses: readonly AnalysisResultFile[],
+  claims: readonly Claim[] = [],
+): DeploymentManifest {
   const manifests = analyses.flatMap((file) => (file.manifest === null ? [] : [file.manifest]));
   const base = structuredClone(manifests[0] ?? MINIMAL_MANIFEST);
-  const candidates = collectCandidates(recipe, analyses);
+  const candidates = collectCandidates(recipe, analyses, claims);
   const variables = new Map(manifests.flatMap((m) => m.environment.variables).map((variable) => [variable.key, variable] as const));
   const workers = new Map(manifests.flatMap((m) => m.workers ?? []).map((worker) => [worker.id, worker] as const));
   const analysedPort = manifests.map((m) => m.web.port).find((port) => port !== null && port !== undefined);

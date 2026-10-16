@@ -9,6 +9,8 @@ import { oneShotContainerCommand, workloadContainerCommand } from '@deployz/cont
 import type { Evidence } from '../contract.js';
 import type { ContainerSpec, DockerFn, HttpCheck, ListenSocket, RunningContainer, Runner } from '../ports.js';
 
+import { webHostName } from './environment.js';
+
 const PIDS_LIMIT = '512';
 const WORKER_RESTARTS = 10;
 const EVIDENCE_MAX = 2000;
@@ -84,6 +86,8 @@ function runArguments(deps: RunnerDeps, spec: ContainerSpec): string[] {
     PIDS_LIMIT,
     ...deps.labelArgs(spec.id),
   ];
+  // Every web container answers on the host name of the app's own derived URL.
+  if (spec.role === 'web') args.push('--network-alias', webHostName(services));
   if (spec.role === 'worker') args.push('--restart', `on-failure:${WORKER_RESTARTS}`);
   if ('DATABASE_URL' in spec.env) args.push('-v', `${services.caVolume}:${services.caDir}:ro`);
   for (const [name, value] of Object.entries(spec.env)) args.push('-e', `${name}=${value}`);

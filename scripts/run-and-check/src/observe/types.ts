@@ -1,4 +1,4 @@
-import type { AnalysisResultFile } from '../contract.js';
+import type { AnalysisResultFile, Claim } from '../contract.js';
 import type { BuildRequest, BuiltImage, ProductionEnvironmentFn, Runner, Services } from '../ports.js';
 
 export interface ObserveDeps {
@@ -17,6 +17,8 @@ export interface ObserveOptions {
   observationsDir: string;
   runsDir: string;
   analyses: AnalysisResultFile[];
+  /** Extra claims to probe (the fixtures' `answers.json` claims). */
+  claims?: Claim[];
   harnessVersion: string;
   fixtureDir?: string;
 }

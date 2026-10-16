@@ -36,8 +36,8 @@ export async function observe(recipe: Recipe, deps: ObserveDeps, options: Observ
   const runs: ObservationRun[] = options.force ? [] : ((await readMatching(partial, commit, hash))?.runs ?? []);
   if (runs.length > 0) deps.log(`${recipe.id}: resuming after ${runs.length} stored run(s)`);
 
-  const candidates = collectCandidates(recipe, options.analyses);
-  const manifest = buildObservationManifest(recipe, options.analyses);
+  const candidates = collectCandidates(recipe, options.analyses, options.claims);
+  const manifest = buildObservationManifest(recipe, options.analyses, options.claims);
   const snapshot = (complete: boolean, unstable: Observation['unstable']): Observation => ({
     schemaVersion: 1,
     id: recipe.id,

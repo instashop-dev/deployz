@@ -192,9 +192,8 @@ export function productionEnvironmentDetailed(input: Parameters<ProductionEnviro
     add(entry.Name, () => resolveSecretValueFrom(entry.ValueFrom, context, context.secretValue), true);
   }
 
-  addConfiguration({ env, secretNames, manifest, recipe, services, port: context.ref('paramContainerPort') });
+  const harnessOnly = addConfiguration({ env, secretNames, manifest, recipe, services, port: context.ref('paramContainerPort') });
 
-  const harnessOnly: string[] = [];
   const harness: Record<string, string> = {
     AWS_ACCESS_KEY_ID: services.minio.accessKey,
     AWS_SECRET_ACCESS_KEY: services.minio.secretKey,
@@ -213,7 +212,11 @@ export function productionEnvironmentDetailed(input: Parameters<ProductionEnviro
   return { env, harnessOnly, secretNames: [...secretNames], unresolved };
 }
 
-/** Vendor inputs, derived values and minted secrets, in the relay's precedence order. */
+/**
+ * Vendor inputs, derived values and minted secrets, in the relay's precedence
+ * order. Returns the names whose derived value the harness redirects: a
+ * derived S3 endpoint points to MinIO, because runs have no internet.
+ */
 function addConfiguration(input: {
   env: Record<string, string>;
   secretNames: Set<string>;
@@ -221,9 +224,10 @@ function addConfiguration(input: {
   recipe: Recipe;
   services: ServiceSet;
   port: string;
-}): void {
+}): string[] {
   const { env, secretNames, manifest, recipe, services } = input;
   const configured = new Set<string>();
+  const redirected: string[] = [];
   for (const vendorInput of recipe.vendorInputs) {
     if (vendorInput.source.kind === 'fixed') {
       env[vendorInput.name] = vendorInput.source.value;
@@ -240,7 +244,9 @@ function addConfiguration(input: {
     const value =
       (manifest.storage.required ? derivedS3EnvValue(variable, REGION) : null) ?? derivedUrlEnvValue(variable, deploymentUrl);
     if (value === null) continue;
-    env[variable.key] = value;
+    const s3Endpoint = manifest.storage.required && value === derivedS3EnvValue(variable, REGION) && value.startsWith('https://');
+    env[variable.key] = s3Endpoint ? services.minio.endpoint : value;
+    if (s3Endpoint) redirected.push(variable.key);
     configured.add(variable.key);
   }
   for (const key of mintedEnvKeys(manifest, null)) {
@@ -248,6 +254,7 @@ function addConfiguration(input: {
     env[key] = generated(services, `minted:${key}`, generateSecretValue);
     secretNames.add(key);
   }
+  return redirected;
 }
 
 /** The ports.ts function; `productionEnvironmentDetailed` also returns the `unresolved` names. */

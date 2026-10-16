@@ -98,7 +98,8 @@ export async function runFull(input: FullRunInput): Promise<FullRun> {
       if (run.exitCode !== 0) return finish();
     }
 
-    const webSpec = specFor('web', webHostName(services), manifest.web.command);
+    // Production compiles no web command (compile.ts sets Command only for workers): the image's own command runs.
+    const webSpec = specFor('web', webHostName(services), null);
     const web = await runner.start(webSpec);
     started.push(web);
     const port = Number(webSpec.env['PORT']);

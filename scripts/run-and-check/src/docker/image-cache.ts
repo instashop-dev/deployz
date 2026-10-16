@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip, createGzip } from 'node:zlib';
 
 import type { Architecture } from '../contract.js';
+import { fixtureCommit } from '../fixture-id.js';
 import type { DockerFn } from '../ports.js';
 import { docker, spawnDocker } from './docker.js';
 import { runcheckHome } from './paths.js';
@@ -22,21 +22,9 @@ export function imageRef(id: string, sha: string): string {
   return `deployz-runcheck/${id.toLowerCase()}:${sha}`;
 }
 
-/** First 12 hex characters of the SHA-256 of a folder's file paths and contents. */
+/** The fixture id of an `app/` folder (see fixture-id.ts). */
 export function folderSha(dir: string): string {
-  const hash = createHash('sha256');
-  const walk = (current: string): void => {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else {
-        hash.update(path.relative(dir, full).split(path.sep).join('/'));
-        hash.update(fs.readFileSync(full));
-      }
-    }
-  };
-  walk(dir);
-  return hash.digest('hex').slice(0, 12);
+  return fixtureCommit(dir);
 }
 
 function exited(child: ReturnType<typeof spawnDocker>): Promise<{ code: number; stderr: string }> {

@@ -1,5 +1,3 @@
-import { pathToFileURL } from 'node:url';
-
 import { preflight } from './preflight.js';
 
 export async function main(): Promise<void> {
@@ -8,8 +6,4 @@ export async function main(): Promise<void> {
     console.log(`${check.ok ? 'PASS' : 'FAIL'}  ${check.name.padEnd(10)} ${check.detail}`);
   }
   if (!report.ok) process.exitCode = 1;
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
 }

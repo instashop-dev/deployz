@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import { observationSchema, type Observation, type Recipe } from '../contract.js';
 
@@ -21,20 +21,7 @@ export function recipeHash(recipe: Recipe): string {
   return createHash('sha256').update(JSON.stringify(canonical(recipe))).digest('hex');
 }
 
-/** Hash of a fixture folder, standing in for the commit of a fixture. */
-export async function fixtureCommit(dir: string): Promise<string> {
-  const hash = createHash('sha256');
-  const walk = async (current: string): Promise<void> => {
-    const entries = (await readdir(current, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1));
-    for (const entry of entries) {
-      const path = join(current, entry.name);
-      if (entry.isDirectory()) await walk(path);
-      else hash.update(relative(dir, path).split(sep).join('/')).update(await readFile(path));
-    }
-  };
-  await walk(dir);
-  return `fixture-${hash.digest('hex').slice(0, 12)}`;
-}
+export { fixtureCommit } from '../fixture-id.js';
 
 async function readObservation(path: string): Promise<Observation | null> {
   try {
