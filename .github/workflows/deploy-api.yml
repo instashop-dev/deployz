@@ -371,7 +371,12 @@ jobs:
           set -euo pipefail
           # Every stage other than production. A third stage is one edit here.
           OTHER_STAGES="staging"
-          STAGE_OWNED="API_DOMAIN_NAME WEB_URL MARKETING_URL COOKIE_DOMAIN COOKIE_PREFIX"
+          STAGE_OWNED="API_DOMAIN_NAME WEB_URL MARKETING_URL COOKIE_DOMAIN COOKIE_PREFIX DEPLOYZ_TEMPLATE_BUCKET_PREFIX"
+          # Optional values: checked with the same rule, but only when set. An
+          # Environment that declares no value of its own inherits the
+          # repository one, which belongs to production, and the required-key
+          # list cannot catch that because the inherited value is not empty.
+          STAGE_OWNED_IF_SET="BOOTSTRAP_TEMPLATE_URL"
           problems=()
 
           if [ "${DEPLOYZ_STAGE}" != "${EXPECTED_ENVIRONMENT}" ]; then
@@ -414,6 +419,14 @@ jobs:
                 *) problems+=("$key must contain the stage name \"${DEPLOYZ_STAGE}\".") ;;
               esac
             done
+            for key in $STAGE_OWNED_IF_SET; do
+              if [ -n "${!key:-}" ]; then
+                case "${!key}" in
+                  *"${DEPLOYZ_STAGE}"*) ;;
+                  *) problems+=("$key must contain the stage name \"${DEPLOYZ_STAGE}\"; this value is another stage's, inherited from the repository.") ;;
+                esac
+              fi
+            done
             # Every control plane in the shared Cloudflare zone must mint its
             # default hostnames under its own prefix. A stage that keeps
             # another stage's prefix writes into that stage's DNS namespace.
@@ -431,7 +444,7 @@ jobs:
               problems+=("DEPLOYABLE_AWS_REGIONS must be AWS_REGION only outside production.")
             fi
           else
-            for key in $STAGE_OWNED; do
+            for key in $STAGE_OWNED $STAGE_OWNED_IF_SET; do
               for stage in $OTHER_STAGES; do
                 case "${!key:-}" in
                   *"$stage"*) problems+=("$key must not contain the stage name \"$stage\".") ;;
