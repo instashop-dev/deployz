@@ -7,8 +7,6 @@ source:
 build:
   dockerfile: docker/Dockerfile
   context: .
-  buildArgs:
-    BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
 vendorInputs:
   - name: SECRET_KEY_BASE
     source:
@@ -19,6 +17,6 @@ vendorInputs:
       kind: deploymentUrl
 notes:
   - The root has no Dockerfile. docker/Dockerfile is the production image (RAILS_ENV=production, assets precompiled). docker/dockerfiles/rails.Dockerfile is for development. The file has no CMD, so the start command comes from the Analysis.
-  - The Dockerfile runs git rev-parse HEAD (docker/Dockerfile, pre-builder stage), so the Git URL context must keep the .git folder (BUILDKIT_CONTEXT_KEEP_GIT_DIR=1).
   - SECRET_KEY_BASE is required in production (.env.example). FRONTEND_URL is read for the route host (config/environments/production.rb:105) and is not a derived name, so the vendor gives the app URL (deploymentUrl). Reviewer to check that it is a start condition.
   - "Vendor inputs FRONTEND_URL: taken from docs/testing/repository-deployment/deploy-config.yaml (the values the vendor set on the real-AWS run; ${DEPLOYZ_APP_URL} becomes deploymentUrl)."
+  - "No build argument keeps .git: production builds from a GitHub tarball, which never has .git (packages/cdk/src/pipeline/source-fetch.ts). A Git URL context without .git gives the same build."
