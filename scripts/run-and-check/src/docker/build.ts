@@ -89,6 +89,20 @@ export async function buildImage(req: BuildRequest, deps: BuildDeps = {}): Promi
   const ref = imageRef(req.id, sha);
 
   const base = { image: ref, dockerfile, context };
+  const failedOnCi = req.platform === 'linux/amd64' && !req.noCache ? cache.readFailure(req.id, sha) : null;
+  if (failedOnCi !== null) {
+    return {
+      ...base,
+      arch: failedOnCi.arch,
+      ok: false,
+      exitCode: 1,
+      seconds: 0,
+      imageBytes: null,
+      failure: failedOnCi.failure,
+      fromCache: true,
+      evidence: [{ kind: 'command', source: 'ci-build', text: failedOnCi.lines.join('\n').slice(-2000) }],
+    };
+  }
   if (!req.noCache && cache.has(req.id, sha)) {
     const meta = cache.readMeta(req.id, sha);
     const matches = meta && (meta.arch === arch || (arch === 'amd64-emulated' && meta.arch === 'amd64-ci-build'));

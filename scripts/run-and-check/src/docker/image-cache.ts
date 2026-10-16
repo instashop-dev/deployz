@@ -18,6 +18,15 @@ export interface ImageMeta {
   readonly imageBytes: number | null;
 }
 
+/** A build that failed on the x86_64 CI runner: the build fact, so the harness does not build it again under emulation. */
+export interface FailedBuild {
+  readonly arch: 'amd64-ci-build';
+  readonly failure: 'dockerfile' | 'infrastructure';
+  readonly dockerfile: string;
+  readonly context: string;
+  readonly lines: string[];
+}
+
 export function imageRef(id: string, sha: string): string {
   return `deployz-runcheck/${id.toLowerCase()}:${sha}`;
 }
@@ -41,6 +50,7 @@ function exited(child: ReturnType<typeof spawnDocker>): Promise<{ code: number; 
 export function createImageCache(run: DockerFn = docker, dir: string = path.join(runcheckHome(), 'images')) {
   const tarPath = (id: string, sha: string) => path.join(dir, `${id}-${sha}.tar.gz`);
   const metaPath = (id: string, sha: string) => path.join(dir, `${id}-${sha}.json`);
+  const failurePath = (id: string, sha: string) => path.join(dir, `${id}-${sha}.failed.json`);
 
   async function loadFile(file: string): Promise<void> {
     const child = spawnDocker(['load']);
@@ -61,6 +71,19 @@ export function createImageCache(run: DockerFn = docker, dir: string = path.join
       } catch {
         return null;
       }
+    },
+
+    readFailure(id: string, sha: string): FailedBuild | null {
+      try {
+        return JSON.parse(fs.readFileSync(failurePath(id, sha), 'utf8')) as FailedBuild;
+      } catch {
+        return null;
+      }
+    },
+
+    recordFailure(id: string, sha: string, failed: FailedBuild): void {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(failurePath(id, sha), JSON.stringify(failed, null, 2));
     },
 
     /** `docker save <ref> | gzip` into the cache, written to `.partial` first. */

@@ -4,8 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { classifyBuildFailure, gitContextUrl } from './build.js';
+import { recipeSchema } from '../contract.js';
+import { buildImage, classifyBuildFailure, gitContextUrl } from './build.js';
 import { cleanEnv } from './docker.js';
+import { createImageCache } from './image-cache.js';
 import { withBuildLock } from './lock.js';
 import { assertSafeArgs, labelArgs } from './safety.js';
 
@@ -160,5 +162,34 @@ describe('assertSafeArgs scope', () => {
     expect(() => assertSafeArgs(['run', '--network', 'host', 'img'])).toThrow();
     expect(() => assertSafeArgs(['run', '-p', '80:80', 'img'])).toThrow();
     expect(() => assertSafeArgs(['run', '-e', 'NAME', 'img'])).toThrow();
+  });
+});
+
+describe('buildImage with a failed CI build in the cache', () => {
+  it('returns the CI failure as the build fact and runs no docker command', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rc-cache-'));
+    const calls: string[][] = [];
+    const run = async (args: readonly string[]) => {
+      calls.push([...args]);
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+    };
+    const cache = createImageCache(run, dir);
+    const sha = 'd'.repeat(40);
+    cache.recordFailure('repo-071', sha, {
+      arch: 'amd64-ci-build',
+      failure: 'dockerfile',
+      dockerfile: 'docker/Dockerfile',
+      context: '.',
+      lines: ['ERROR: process "/bin/sh -c git rev-parse HEAD > /app/.git_sha" did not complete successfully: exit code: 128'],
+    });
+    const recipe = recipeSchema.parse({
+      id: 'repo-071',
+      set: 'tuning',
+      source: { kind: 'git', repository: 'chatwoot/chatwoot', commit: sha },
+      build: { dockerfile: 'docker/Dockerfile' },
+    });
+    const built = await buildImage({ id: 'repo-071', recipe, platform: 'linux/amd64', logDir: dir }, { run, cache });
+    expect(built).toMatchObject({ ok: false, arch: 'amd64-ci-build', failure: 'dockerfile', fromCache: true });
+    expect(calls).toEqual([]);
   });
 });
