@@ -10,16 +10,19 @@ export function SizeSelect({
   tiers,
   onValueChange,
   disabled = false,
+  describedBy,
 }: {
   id: string;
   value: InfrastructureSizeTier;
   tiers: readonly InfrastructureSizeTier[];
   onValueChange: (tier: InfrastructureSizeTier) => void;
   disabled?: boolean;
+  /** The id of helper text that describes the select. */
+  describedBy?: string;
 }) {
   return (
     <Select value={value} onValueChange={(next) => onValueChange(next as InfrastructureSizeTier)} disabled={disabled}>
-      <SelectTrigger id={id} className="w-full">
+      <SelectTrigger id={id} className="w-full" aria-describedby={describedBy}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

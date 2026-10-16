@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 import {
   allowedSizeTiers,
@@ -11,36 +12,31 @@ import {
 } from '@deployz/contracts';
 
 import { SizeSelect } from '@/components/size-select';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { errorMessage } from '@/lib/api-client';
 import { fetchApplicationPlan, updateApplicationSizes, type Application } from '@/lib/applications';
-import { estimateKind, type EstimateKind } from '@/lib/configuration-inventory';
+import { estimateKind } from '@/lib/configuration-inventory';
 import { formatMonthlyRange } from '@/lib/footprint';
 import { regionOptionLabel } from '@/lib/regions';
-import { sizeTierCompute, sizeTierLabel } from '@/lib/size-tiers';
-import { cn } from '@/lib/utils';
-
-const ESTIMATE_KIND_COPY: Record<EstimateKind, { label: string; variant: 'secondary' | 'warning' | 'outline' }> = {
-  complete: { label: 'Complete estimate', variant: 'secondary' },
-  'baseline-plus-usage': { label: 'Baseline plus usage', variant: 'secondary' },
-  partial: { label: 'Partial estimate', variant: 'warning' },
-  unavailable: { label: 'Estimate unavailable', variant: 'outline' },
-};
+import { formatCompute, sizeTierCompute, sizeTierLabel } from '@/lib/size-tiers';
 
 // `undefined` while the size's plan is loading, `null` when it could not be loaded.
 type SizePlans = Partial<Record<InfrastructureSizeTier, DeploymentPlan | null>>;
 
-function usageSuffix(kind: EstimateKind): string {
-  return kind === 'baseline-plus-usage' || kind === 'partial' ? ' + usage' : '';
+/** The configuration value a footprint resource carries, as text. */
+function resourceValue(plan: DeploymentPlan | null | undefined, id: string, key: string): string | null {
+  const value = plan?.footprint?.resources.find((resource) => resource.id === id)?.configuration[key];
+  return typeof value === 'string' ? value : null;
 }
 
 // Deployment sizes and the per-deployment AWS estimate. The vendor sets the
 // recommended size and the smallest size customers may use; both apply to
-// links and deployments created later. Every number is that size's plan
-// `costEstimate` — this card only formats it.
+// links and deployments created later. Resources and costs come from each
+// size's plan — this card only formats them.
 export function DeploymentSize({
   application,
   plan,
@@ -54,8 +50,9 @@ export function DeploymentSize({
   unestimatedWorkload: boolean;
   onSaved: () => Promise<void>;
 }) {
-  const defaultId = useId();
+  const recommendedId = useId();
   const minimumId = useId();
+  const minimumHelpId = useId();
   const [plans, setPlans] = useState<SizePlans>({});
   const [defaultSize, setDefaultSize] = useState(application.defaultSizeProfile);
   const [minimumSize, setMinimumSize] = useState(application.minimumSizeProfile);
@@ -106,8 +103,6 @@ export function DeploymentSize({
   const dirty = defaultSize !== application.defaultSizeProfile || minimumSize !== application.minimumSizeProfile;
   const recommendedPlan = plans[defaultSize] ?? (defaultSize === application.defaultSizeProfile ? plan : null);
   const estimate = recommendedPlan?.costEstimate ?? null;
-  const kind = estimateKind(estimate);
-  const range = estimate ? formatMonthlyRange(estimate.monthlyMin, estimate.monthlyMax) : null;
   const region = recommendedPlan?.region ?? null;
   const hasDatabase = plan ? plan.components.some((component) => component.kind === 'database') : application.databaseRequired;
   const hasCache = plan ? plan.components.some((component) => component.kind === 'cache') : application.redisRequired;
@@ -116,76 +111,87 @@ export function DeploymentSize({
     <Card id="deployment-size" className="scroll-mt-20" data-testid="deployment-size">
       <CardHeader>
         <CardTitle>Deployment size</CardTitle>
-        <CardDescription>
-          Customers see the recommended size first and can choose any size at or above the minimum. Changes apply
-          to new install links and new deployments only.
-        </CardDescription>
+        <CardDescription>Changes apply to new install links and new deployments.</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <ul aria-label="Deployment sizes" className="grid gap-2 sm:grid-cols-3">
-          {INFRASTRUCTURE_SIZE_TIERS.map((tier) => {
-            const profile = currentInfrastructureSizeProfile(tier);
-            const sizeEstimate = plans[tier]?.costEstimate ?? null;
-            const sizeRange = sizeEstimate ? formatMonthlyRange(sizeEstimate.monthlyMin, sizeEstimate.monthlyMax) : null;
-            const belowMinimum = !allowedSizeTiers(minimumSize).includes(tier);
-            return (
-              <li
+      <CardContent className="flex flex-col gap-5">
+        <Tabs
+          value={defaultSize}
+          onValueChange={(value) => {
+            setDefaultSize(value as InfrastructureSizeTier);
+            setSaved(false);
+          }}
+        >
+          <Label id={recommendedId}>Recommended size</Label>
+          <TabsList aria-labelledby={recommendedId} className="w-full sm:w-fit">
+            {INFRASTRUCTURE_SIZE_TIERS.map((tier) => (
+              <TabsTrigger
                 key={tier}
-                aria-current={tier === defaultSize || undefined}
-                data-testid={`deployment-size-${tier}`}
-                className={cn(
-                  'flex flex-col gap-0.5 rounded-lg border px-3 py-2',
-                  tier === defaultSize ? 'border-primary' : 'text-muted-foreground',
-                )}
+                value={tier}
+                disabled={saving || !allowedSizeTiers(minimumSize).includes(tier)}
+                data-testid={`deployment-size-${tier}-option`}
               >
-                <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                  {sizeTierLabel(tier)}
-                  {tier === defaultSize ? <Badge variant="secondary">Recommended</Badge> : null}
-                  {tier === minimumSize ? <Badge variant="outline">Minimum</Badge> : null}
-                  {belowMinimum ? <Badge variant="outline">Not offered</Badge> : null}
-                </span>
-                <span className="text-xs">{sizeTierCompute(tier)} per service</span>
-                {hasDatabase ? (
-                  <span className="text-xs">Database {profile.database.instanceClass}</span>
-                ) : null}
-                {hasCache ? <span className="text-xs">Cache {profile.cache.nodeType}</span> : null}
-                <span className="text-xs font-medium" data-testid={`deployment-size-${tier}-cost`}>
-                  {plans[tier] === undefined
-                    ? 'Loading estimate…'
-                    : sizeRange
-                      ? `${sizeRange}${usageSuffix(estimateKind(sizeEstimate))}`
-                      : 'Estimate unavailable'}
-                </span>
-              </li>
+                {sizeTierLabel(tier)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {INFRASTRUCTURE_SIZE_TIERS.map((tier) => {
+            const sizePlan = plans[tier];
+            const profile = currentInfrastructureSizeProfile(tier);
+            const workloads = sizePlan?.footprint?.workloads ?? [];
+            const web = workloads.find((workload) => workload.role === 'web');
+            const workers = workloads.filter((workload) => workload.role === 'worker').length;
+            const compute = web ? formatCompute(web.compute) : sizeTierCompute(tier);
+            const database = resourceValue(sizePlan, 'database', 'instanceType') ?? (hasDatabase ? profile.database.instanceClass : null);
+            const cache = resourceValue(sizePlan, 'cache', 'nodeType') ?? (hasCache ? profile.cache.nodeType : null);
+            const sizeEstimate = sizePlan?.costEstimate ?? null;
+            const range = sizeEstimate ? formatMonthlyRange(sizeEstimate.monthlyMin, sizeEstimate.monthlyMax) : null;
+            const kind = estimateKind(sizeEstimate);
+            const rows: [string, string][] = [
+              ['Compute', `${compute} per service`],
+              ...(workers > 0 ? [['Workers', `${workers} × ${compute}`] as [string, string]] : []),
+              ...(database ? [['Database', database] as [string, string]] : []),
+              ...(cache ? [['Cache', cache] as [string, string]] : []),
+            ];
+            return (
+              <TabsContent key={tier} value={tier} forceMount className="data-[state=inactive]:hidden" data-testid={`deployment-size-${tier}`}>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+                  {rows.map(([term, value]) => (
+                    <div key={term} className="contents">
+                      <dt className="text-muted-foreground">{term}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                  <div className="contents">
+                    <dt className="text-muted-foreground">Estimated AWS cost</dt>
+                    <dd className="font-medium" data-testid={`deployment-size-${tier}-cost`}>
+                      {sizePlan === undefined
+                        ? 'Loading estimate…'
+                        : range
+                          ? `${range}${kind === 'baseline-plus-usage' || kind === 'partial' ? ' + usage' : ''}`
+                          : 'Estimate unavailable'}
+                    </dd>
+                  </div>
+                </dl>
+              </TabsContent>
             );
           })}
-        </ul>
+        </Tabs>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={defaultId}>Recommended size</Label>
-            <SizeSelect
-              id={defaultId}
-              value={defaultSize}
-              tiers={allowedSizeTiers(minimumSize)}
-              onValueChange={(tier) => {
-                setDefaultSize(tier);
-                setSaved(false);
-              }}
-              disabled={saving}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={minimumId}>Minimum supported size</Label>
-            <SizeSelect
-              id={minimumId}
-              value={minimumSize}
-              tiers={INFRASTRUCTURE_SIZE_TIERS}
-              onValueChange={changeMinimum}
-              disabled={saving}
-            />
-          </div>
+        <div className="flex flex-col gap-2 sm:max-w-xs">
+          <Label htmlFor={minimumId}>Minimum allowed size</Label>
+          <SizeSelect
+            id={minimumId}
+            value={minimumSize}
+            tiers={INFRASTRUCTURE_SIZE_TIERS}
+            onValueChange={changeMinimum}
+            disabled={saving}
+            describedBy={minimumHelpId}
+          />
+          <p id={minimumHelpId} className="text-xs text-muted-foreground">
+            Smallest size customers can select.
+          </p>
         </div>
+
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
@@ -209,41 +215,38 @@ export function DeploymentSize({
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-1.5 border-t pt-4" data-testid="deployment-cost">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">
-              Estimated AWS cost per deployment ({sizeTierLabel(defaultSize)})
-            </span>
-            <Badge variant={ESTIMATE_KIND_COPY[kind].variant} data-testid="deployment-cost-kind">
-              {ESTIMATE_KIND_COPY[kind].label}
-            </Badge>
+        <Collapsible className="border-t pt-4" data-testid="deployment-cost">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">Estimates only. AWS bills the customer’s account.</p>
+            <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+              Estimate details
+              <ChevronDown aria-hidden className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
           </div>
-          <p className="text-2xl font-semibold tracking-tight" data-testid="deployment-cost-total">
-            {range ? `${range}${usageSuffix(kind)}` : 'Unavailable'}
-          </p>
-          {kind === 'partial' ? (
-            <p className="text-sm text-muted-foreground">Some resources could not be priced. The real cost is higher.</p>
-          ) : null}
-          {unestimatedWorkload ? (
-            <p className="text-sm text-muted-foreground">The background worker is not estimated.</p>
-          ) : null}
-          <p className="text-xs text-muted-foreground" data-testid="deployment-cost-assumptions">
-            {region ? `Region: ${regionOptionLabel(region)}` : 'Region: US East (N. Virginia) baseline. The customer’s region can change the price.'}{' '}
-            · On-demand prices · 730 hours a month · USD
-          </p>
-          {estimate && estimate.usageDependent.length > 0 ? (
-            <p className="text-xs text-muted-foreground">Not included: {estimate.usageDependent.join(', ')}.</p>
-          ) : null}
-          <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground" data-testid="deployment-cost-charges">
-            <li>AWS charges go to the customer’s AWS account.</li>
-            <li>Deployz fees are not included in this estimate.</li>
-            <li>
-              External services
-              {externalServices.length > 0 ? ` (${externalServices.join(', ')})` : ''} are billed separately and not
-              estimated.
-            </li>
-          </ul>
-        </div>
+          <CollapsibleContent>
+            <ul className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground" data-testid="deployment-cost-details">
+              <li data-testid="deployment-cost-assumptions">
+                {region
+                  ? `Region: ${regionOptionLabel(region)}.`
+                  : 'Region: US East (N. Virginia) baseline. The customer’s region can change the price.'}{' '}
+                On-demand prices, 730 hours a month, USD.
+              </li>
+              {estimate && estimate.usageDependent.length > 0 ? (
+                <li>Not included: {estimate.usageDependent.join(', ')}.</li>
+              ) : null}
+              {estimateKind(estimate) === 'partial' ? (
+                <li>Some resources could not be priced. The real cost is higher.</li>
+              ) : null}
+              {unestimatedWorkload ? <li>The background worker is not estimated.</li> : null}
+              <li>Deployz fees are not included.</li>
+              <li>
+                External services
+                {externalServices.length > 0 ? ` (${externalServices.join(', ')})` : ''} are billed separately and not
+                estimated.
+              </li>
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       </CardContent>
     </Card>
   );

@@ -189,12 +189,15 @@ plain links):
      then the values; a failed value write after saved decisions says so.
      Customer overrides stay a separate section, shown only with
      `?customer=`.
-   - **Deployment size** lists Small / Medium / Large from the published
-     profile registry only; a size without a profile reads "Not available
-     yet". The estimate is the plan's `costEstimate` per customer
-     deployment, labelled Complete / Baseline plus usage / Partial /
-     Unavailable, with region, on-demand, 730 hours, USD, and the AWS,
-     Deployz and external-service charges named separately.
+   - **Deployment size** is one Small / Medium / Large segmented control
+     (shadcn `Tabs`) for the recommended size. The selected size's panel
+     lists only what the application needs: compute (vCPU and memory per
+     service), workers, database instance type, cache node type, and the
+     estimated AWS cost (the size's plan `costEstimate`, "+ usage" when
+     usage is excluded). Sizes below the minimum are disabled. The minimum
+     is one select with "Smallest size customers can select." One Save
+     writes both. One short estimate note; region, on-demand, 730 hours,
+     USD and the excluded charges sit behind "Estimate details".
 
 `lib/application-state.ts` (`deriveApplicationPresentation`) is the single
 source of the page's state: badge, heading, message, actions, the setup

@@ -381,26 +381,6 @@ function standardPlan(): DeploymentPlan {
 }
 
 describe('Deployment size and estimate', () => {
-  it('shows the recommended size with the plan’s estimate and no Small-only messaging', async () => {
-    currentPlan = standardPlan();
-
-    await act(async () => {
-      root.render(<DeploymentConfiguration />);
-    });
-
-    expect(byTestId('deployment-size-small')?.textContent).toContain('Recommended');
-    expect(byTestId('deployment-size-small')?.textContent).toContain('Minimum');
-    expect(document.body.textContent).not.toContain('Not available yet');
-    expect(document.body.textContent).not.toContain('Only the');
-    expect(document.body.textContent).toContain('Changes apply to new install links and new deployments only.');
-
-    expect(byTestId('deployment-cost-kind')?.textContent).toBe('Baseline plus usage');
-    expect(byTestId('deployment-cost-total')?.textContent).toMatch(/^~\$\d+–\d+\/month \+ usage$/);
-    expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('Ireland (eu-west-1)');
-    expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('730 hours a month');
-    expect(byTestId('deployment-cost-charges')?.textContent).toContain('Deployz fees are not included');
-  });
-
   async function press(element: Element | null): Promise<void> {
     await act(async () => {
       for (const type of ['pointerdown', 'mousedown', 'click', 'pointerup']) {
@@ -415,11 +395,33 @@ describe('Deployment size and estimate', () => {
     ) as HTMLElement;
   }
 
-  function optionLabels(): string[] {
-    return Array.from(document.querySelectorAll('[role="option"]')).map((option) => option.textContent ?? '');
-  }
+  const sizeOption = (tier: string) => byTestId(`deployment-size-${tier}-option`);
 
-  it('lists the three sizes with their resources and a cost estimate fetched per size', async () => {
+  it('selects the recommended size in one segmented control with a compact summary and no duplicate controls', async () => {
+    currentPlan = standardPlan();
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    const tablist = document.querySelector('[data-testid="deployment-size"] [role="tablist"]');
+    expect(tablist?.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(document.getElementById(tablist!.getAttribute('aria-labelledby')!)?.textContent).toBe('Recommended size');
+    expect(sizeOption('small')?.getAttribute('aria-selected')).toBe('true');
+    // Only one size select remains: the minimum.
+    expect(Array.from(document.querySelectorAll('[data-testid="deployment-size"] label')).map((label) => label.textContent)).toEqual([
+      'Recommended size',
+      'Minimum allowed size',
+    ]);
+    expect(document.body.textContent).toContain('Smallest size customers can select.');
+    expect(selectTrigger('Minimum allowed size').getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('Not available yet');
+    expect(document.body.textContent).not.toContain('Only the');
+    expect(byTestId('deployment-cost')?.textContent).toContain('Estimates only.');
+    expect(byTestId('deployment-cost-details')).toBeNull();
+  });
+
+  it('shows each size’s resources and estimate from that size’s plan', async () => {
     currentApplication = applicationFixture({ databaseRequired: true, redisRequired: true });
     currentPlan = standardPlan();
     mocks.fetchApplicationPlan.mockResolvedValue(standardPlan());
@@ -431,39 +433,45 @@ describe('Deployment size and estimate', () => {
     expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'small');
     expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'medium');
     expect(mocks.fetchApplicationPlan).toHaveBeenCalledWith('app-1', 'large');
-    expect(byTestId('deployment-size-small')?.textContent).toContain('0.25 vCPU · 512 MiB per service');
-    expect(byTestId('deployment-size-medium')?.textContent).toContain('1 vCPU · 2 GiB per service');
-    expect(byTestId('deployment-size-large')?.textContent).toContain('2 vCPU · 4 GiB per service');
-    expect(byTestId('deployment-size-medium')?.textContent).toContain('Database db.t3.medium');
-    // The resource lines follow the plan, which has a database and no cache.
-    expect(byTestId('deployment-size-large')?.textContent).not.toContain('Cache');
+    // Only the selected size's panel is shown; the others stay hidden.
+    expect(byTestId('deployment-size-small')?.getAttribute('data-state')).toBe('active');
+    expect(byTestId('deployment-size-medium')?.getAttribute('data-state')).toBe('inactive');
+    expect(byTestId('deployment-size-medium')?.className).toContain('data-[state=inactive]:hidden');
+    const small = byTestId('deployment-size-small')?.textContent ?? '';
+    // The mocked plan is the Small footprint for every size: the summary shows the plan's resources.
+    expect(small).toContain('Compute0.25 vCPU · 512 MiB per service');
+    expect(small).toContain('Databasedb.t3.micro');
+    // The plan has a database and no cache.
+    expect(small).not.toContain('Cache');
+    expect(small).not.toContain('Workers');
     for (const tier of ['small', 'medium', 'large']) {
-      expect(byTestId(`deployment-size-${tier}-cost`)?.textContent).toMatch(/^~\$\d+–\d+\/month/);
+      expect(byTestId(`deployment-size-${tier}-cost`)?.textContent).toMatch(/^~\$\d+–\d+\/month \+ usage$/);
     }
   });
 
-  it('leaves out the database and cache lines when the application has neither', async () => {
+  it('leaves out the database and cache rows when the application has neither', async () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
+    expect(byTestId('deployment-size-medium')?.textContent).toContain('Compute1 vCPU · 2 GiB per service');
     expect(byTestId('deployment-size-medium')?.textContent).not.toContain('Database');
     expect(byTestId('deployment-size-medium')?.textContent).not.toContain('Cache');
     expect(byTestId('deployment-size-medium-cost')?.textContent).toBe('Estimate unavailable');
   });
 
-  it('raises the recommended size to the minimum and offers no size below it', async () => {
+  it('raises the recommended size to the minimum and disables sizes below it', async () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
     expect(byTestId('deployment-size-save')?.hasAttribute('disabled')).toBe(true);
 
-    await press(selectTrigger('Minimum supported size'));
+    await press(selectTrigger('Minimum allowed size'));
     await press(Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent?.startsWith('Medium')) ?? null);
 
-    expect(selectTrigger('Recommended size').textContent).toContain('Medium');
-    await press(selectTrigger('Recommended size'));
-    expect(optionLabels().map((label) => label.split(' ')[0])).toEqual(['Medium', 'Large']);
+    expect(sizeOption('medium')?.getAttribute('aria-selected')).toBe('true');
+    expect(sizeOption('small')?.hasAttribute('disabled')).toBe(true);
+    expect(sizeOption('large')?.hasAttribute('disabled')).toBe(false);
   });
 
   it('saves the recommended and minimum sizes with one PATCH body and refreshes the page', async () => {
@@ -473,8 +481,8 @@ describe('Deployment size and estimate', () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
-    await press(selectTrigger('Recommended size'));
-    await press(Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent?.startsWith('Large')) ?? null);
+    await press(sizeOption('large'));
+    expect(sizeOption('large')?.getAttribute('aria-selected')).toBe('true');
     expect(byTestId('deployment-size-save')?.hasAttribute('disabled')).toBe(false);
 
     await click(byTestId('deployment-size-save'));
@@ -495,13 +503,31 @@ describe('Deployment size and estimate', () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
-    await press(selectTrigger('Recommended size'));
-    await press(Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent?.startsWith('Medium')) ?? null);
+    await press(sizeOption('medium'));
     await click(byTestId('deployment-size-save'));
 
     expect(byTestId('deployment-size-error')?.textContent).toBe(
       'The recommended size cannot be smaller than the minimum size.',
     );
+  });
+
+  it('keeps the assumptions and exclusions behind the estimate details disclosure', async () => {
+    currentPlan = standardPlan();
+    mocks.fetchApplicationPlan.mockResolvedValue(standardPlan());
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+    const trigger = Array.from(document.querySelectorAll('[data-testid="deployment-cost"] button')).find(
+      (button) => button.textContent === 'Estimate details',
+    );
+    expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+    await click(trigger ?? null);
+
+    expect(trigger?.getAttribute('aria-expanded')).toBe('true');
+    expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('Ireland (eu-west-1)');
+    expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('730 hours a month');
+    expect(byTestId('deployment-cost-details')?.textContent).toContain('Deployz fees are not included.');
   });
 
   it('says the estimate is unavailable when the plan could not be loaded — never $0', async () => {
@@ -511,8 +537,7 @@ describe('Deployment size and estimate', () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(byTestId('deployment-cost-kind')?.textContent).toBe('Estimate unavailable');
-    expect(byTestId('deployment-cost-total')?.textContent).toBe('Unavailable');
+    expect(byTestId('deployment-size-small-cost')?.textContent).toBe('Estimate unavailable');
     expect(byTestId('inventory-row-web')?.textContent).toContain('Price unavailable');
     expect(document.body.textContent).not.toContain('$0');
   });
