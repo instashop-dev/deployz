@@ -243,6 +243,16 @@ path, and it still skips both `gate` checks. When validating a production
 change, record the SHA and confirm both the CI run and the release run
 finished, rather than assuming one implies the other.
 
+## The run-and-check image build
+
+`.github/workflows/runcheck-build.yml` builds one third-party repository
+image on an x86_64 runner for the Docker run-and-check test. It starts only
+by hand (`workflow_dispatch`) with `repo`, `commit`, `dockerfile`, `context`
+and `build_args`. It validates each input, uses no repository secrets and
+has only `contents: read`. It uploads the image as a `docker save` artifact
+for 7 days. Use it for the heavy repositories and after an emulation failure
+on an ARM machine.
+
 ## Timing expectations
 
 See [`strategy.md`](strategy.md#timing-expectations) for the measured
