@@ -9,6 +9,7 @@ import { oneShotContainerCommand, workloadContainerCommand } from '@deployz/cont
 import type { Evidence } from '../contract.js';
 import type { ContainerSpec, DockerFn, HttpCheck, ListenSocket, RunningContainer, Runner } from '../ports.js';
 
+import { QEMU_CRASH } from '../emulation.js';
 import { webHostName } from './environment.js';
 
 const PIDS_LIMIT = '512';
@@ -208,6 +209,13 @@ export function createRunner(deps: RunnerDeps): Runner {
         }
         if (Date.now() >= deadline) {
           return { healthy: false, seconds: null, checks, exited: false, oomKilled: state.oomKilled };
+        }
+        // A program that QEMU crashed can leave the container running; waiting longer gives nothing.
+        if (container.spec.platform === 'linux/amd64') {
+          const recent = await docker(['logs', '--tail', '20', container.name]);
+          if (QEMU_CRASH.test(`${recent.stdout}\n${recent.stderr}`)) {
+            return { healthy: false, seconds: null, checks, exited: true, oomKilled: false };
+          }
         }
         await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       }
