@@ -14,6 +14,7 @@ import type {
   ServiceSnapshot,
   SizeLimits,
 } from '../ports.js';
+import { QEMU_CRASH } from '../emulation.js';
 import { OBSERVATION_PORT, type Candidates } from './candidates.js';
 import { filterLocalDiskWrites, sqliteFileWritten } from './diff-filter.js';
 import { failed, makeEvidence, notRun, observed, type Fact } from './facts.js';
@@ -214,7 +215,14 @@ const allTables = (snapshot: ServiceSnapshot): string[] => [...snapshot.postgres
 async function healthEvidence(ctx: Ctx, source: string, container: RunningContainer, health: Health): Promise<Evidence[]> {
   const summary = `healthy=${health.healthy} exited=${health.exited} oomKilled=${health.oomKilled} seconds=${health.seconds ?? 'none'}`;
   const logs = await ctx.deps.runner.logs(container, 40).catch((error: unknown) => `logs unavailable: ${message(error)}`);
-  return [ev(ctx, 'http', source, [summary, httpLines(health.checks)].join('\n')), ev(ctx, 'log', source, logs)];
+  const evidence = [ev(ctx, 'http', source, [summary, httpLines(health.checks)].join('\n')), ev(ctx, 'log', source, logs)];
+  // A crash dump puts the QEMU or Go runtime line far above the last 40 lines.
+  if (!health.healthy && container.spec.platform === 'linux/amd64') {
+    const longer = await ctx.deps.runner.logs(container, 400).catch(() => '');
+    const crash = longer.split('\n').find((line) => QEMU_CRASH.test(line));
+    if (crash !== undefined) evidence.push(ev(ctx, 'log', source, `emulation crash: ${crash.trim()}`));
+  }
+  return evidence;
 }
 
 // ── Step 1: build ──────────────────────────────────────────────────────────
