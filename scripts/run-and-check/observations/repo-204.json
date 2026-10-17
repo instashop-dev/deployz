@@ -1,0 +1,547 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-204",
+  "set": "holdout",
+  "repository": "shlinkio/shlink",
+  "commit": "d012afd16a5d9a4d001c921d9bf9f411e9ffdc13",
+  "recipeHash": "0660607a1c236e4155eda9c1524e7fad774ab50d2579c9848327bdbfe9e84050",
+  "imageDigest": null,
+  "runs": [
+    {
+      "startedAt": "2026-10-16T23:52:54.071Z",
+      "harnessVersion": "1",
+      "build": {
+        "status": "observed",
+        "value": {
+          "ok": true,
+          "exitCode": 0,
+          "seconds": 0,
+          "imageBytes": 317507272,
+          "dockerfile": "Dockerfile",
+          "context": ".",
+          "failure": null,
+          "fromCache": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "image-cache",
+            "text": "loaded deployz-runcheck/repo-204:d012afd16a5d9a4d001c921d9bf9f411e9ffdc13 from the image cache"
+          }
+        ]
+      },
+      "webHealthy": {
+        "status": "observed",
+        "value": false,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "web#1",
+            "text": "env names: NODE_ENV, PORT, DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER, NODE_EXTRA_CA_CERTS, PGSSLROOTCERT, STORAGE_BUCKET, S3_BUCKET, AWS_S3_BUCKET, AWS_REGION, REDIS_URL, REDIS_HOST, REDIS_PORT, DB_HOST, DB_PORT, DB_NAME, DB_USER, APP_API_KEY, APP_SIGNING_SECRET, DATABASE_PASSWORD, DATABASE_URL, DB_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_ENDPOINT_URL_S3, AWS_S3_FORCE_PATH_STYLE"
+          },
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "Initializing database if needed... Success!\nUpdating database... Success!\nGenerating proxies... Success!\nClearing entities cache... Success!\n1792194861550463010\tdebug\trpc\tplugin was started\t{\"address\": \"tcp://127.0.0.1:6001\", \"list of the plugins with RPC methods:\": [\"lock\", \"app\", \"informer\", \"jobs\", \"resetter\"]}\n2026-10-16T23:54:21+0000\tDEBUG\tjobs        \tinitializing driver\t{\"pipeline\": \"shlink\", \"driver\": \"memory\"}\n2026-10-16T23:54:21+0000\tDEBUG\tjobs        \tdriver ready\t{\"pipeline\": \"shlink\", \"driver\": \"memory\", \"start\": \"2026-10-16T23:54:21+0000\", \"elapsed\": 1}\n1792194861562844431\tdebug\tmemory\tpipeline was started\t{\"driver\": \"memory\", \"pipeline\": \"shlink\", \"start\": \"2026-10-16 23:54:21.562158569 +0000 UTC\", \"elapsed\": \"646.459µs\"}\nhandle_serve_command: Function call error:\n\tserve error from the plugin *jobs.Plugin stopping execution, error: jobs_plugin_serve: WorkerAllocate:\n\tstatic_pool_allocate_workers: EOF\n"
+          }
+        ]
+      },
+      "listeningPorts": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "container exited"
+      },
+      "httpPaths": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "container exited"
+      },
+      "smoke": {
+        "status": "observed",
+        "value": {
+          "path": "/",
+          "status": null
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "container exited"
+      },
+      "database": {
+        "status": "observed",
+        "value": {
+          "engine": null,
+          "connections": 0,
+          "tablesAfterStart": [],
+          "sqliteFileWritten": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "postgres",
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "mysql",
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          },
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-204: 0 objects"
+          },
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "/etc/shlink/data/database.sqlite"
+          }
+        ]
+      },
+      "startupMigration": {
+        "status": "observed",
+        "value": {
+          "tablesCreatedByStart": false,
+          "secondStartHealthy": null
+        },
+        "arch": "amd64-ci-build",
+        "evidence": []
+      },
+      "migrationCommands": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate migration command"
+      },
+      "redis": {
+        "status": "observed",
+        "value": {
+          "connected": false,
+          "clients": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          }
+        ]
+      },
+      "objectStorage": {
+        "status": "observed",
+        "value": {
+          "objectsWritten": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-204: 0 objects"
+          }
+        ]
+      },
+      "localDiskWrites": {
+        "status": "observed",
+        "value": [
+          "/etc",
+          "/etc/shlink",
+          "/etc/shlink/data",
+          "/etc/shlink/data/database.sqlite",
+          "/etc/shlink/data/locks",
+          "/etc/shlink/data/locks/sf.db-create.rYoFOz0.lock",
+          "/etc/shlink/data/locks/sf.db-migrate.LvsXpxV.lock"
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "/etc\n/etc/shlink\n/etc/shlink/data\n/etc/shlink/data/database.sqlite\n/etc/shlink/data/locks\n/etc/shlink/data/locks/sf.db-create.rYoFOz0.lock\n/etc/shlink/data/locks/sf.db-migrate.LvsXpxV.lock"
+          }
+        ]
+      },
+      "workers": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate worker command"
+      },
+      "requiredVariables": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "web was not healthy"
+      },
+      "twoCopiesHealthy": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "web was not healthy"
+      },
+      "restartHealthy": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "web was not healthy"
+      },
+      "sizes": {
+        "status": "observed",
+        "value": [
+          {
+            "profile": "small-v2",
+            "memoryMiB": 512,
+            "cpus": 1,
+            "healthy": false,
+            "startSeconds": null,
+            "oomKilled": false
+          },
+          {
+            "profile": "medium-v1",
+            "memoryMiB": 2048,
+            "cpus": 1,
+            "healthy": false,
+            "startSeconds": null,
+            "oomKilled": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "small-v2",
+            "text": "healthy=false oomKilled=false exited=true"
+          },
+          {
+            "kind": "http",
+            "source": "medium-v1",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "medium-v1",
+            "text": "Initializing database if needed... Success!\nUpdating database... Success!\nGenerating proxies... Success!\nClearing entities cache... Success!\n1792194977000833574\tdebug\trpc\tplugin was started\t{\"address\": \"tcp://127.0.0.1:6001\", \"list of the plugins with RPC methods:\": [\"informer\", \"lock\", \"jobs\", \"resetter\", \"app\"]}\n2026-10-16T23:56:17+0000\tDEBUG\tjobs        \tinitializing driver\t{\"pipeline\": \"shlink\", \"driver\": \"memory\"}\n2026-10-16T23:56:17+0000\tDEBUG\tjobs        \tdriver ready\t{\"pipeline\": \"shlink\", \"driver\": \"memory\", \"start\": \"2026-10-16T23:56:17+0000\", \"elapsed\": 0}\n1792194977009103354\tdebug\tmemory\tpipeline was started\t{\"driver\": \"memory\", \"pipeline\": \"shlink\", \"start\": \"2026-10-16 23:56:17.008144063 +0000 UTC\", \"elapsed\": \"875.682µs\"}\nhandle_serve_command: Function call error:\n\tserve error from the plugin *jobs.Plugin stopping execution, error: jobs_plugin_serve: WorkerAllocate:\n\tstatic_pool_allocate_workers: EOF\n"
+          }
+        ]
+      },
+      "candidates": {
+        "injectedPort": 18080,
+        "healthPaths": [
+          "/",
+          "/health",
+          "/healthz",
+          "/up",
+          "/api/health",
+          "/status",
+          "/ping",
+          "/_health",
+          "/actuator/health"
+        ],
+        "migrationCommands": [],
+        "workerCommands": [],
+        "variables": [],
+        "from": [
+          "analysis:rules@b028a8bc",
+          "fixed-list"
+        ]
+      },
+      "infrastructureFailures": [],
+      "timings": {
+        "build": 31.055,
+        "setA": 121.128,
+        "sizes": 121.403
+      }
+    },
+    {
+      "startedAt": "2026-10-16T23:57:27.660Z",
+      "harnessVersion": "1",
+      "build": {
+        "status": "observed",
+        "value": {
+          "ok": true,
+          "exitCode": 0,
+          "seconds": 0,
+          "imageBytes": 317507272,
+          "dockerfile": "Dockerfile",
+          "context": ".",
+          "failure": null,
+          "fromCache": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "image-cache",
+            "text": "loaded deployz-runcheck/repo-204:d012afd16a5d9a4d001c921d9bf9f411e9ffdc13 from the image cache"
+          }
+        ]
+      },
+      "webHealthy": {
+        "status": "observed",
+        "value": false,
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "web#1",
+            "text": "env names: NODE_ENV, PORT, DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER, NODE_EXTRA_CA_CERTS, PGSSLROOTCERT, STORAGE_BUCKET, S3_BUCKET, AWS_S3_BUCKET, AWS_REGION, REDIS_URL, REDIS_HOST, REDIS_PORT, DB_HOST, DB_PORT, DB_NAME, DB_USER, APP_API_KEY, APP_SIGNING_SECRET, DATABASE_PASSWORD, DATABASE_URL, DB_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_ENDPOINT_URL_S3, AWS_S3_FORCE_PATH_STYLE"
+          },
+          {
+            "kind": "http",
+            "source": "web#1",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "web#1",
+            "text": "Initializing database if needed... Success!\nUpdating database... Success!\nGenerating proxies... Success!\nClearing entities cache... Success!\n1792195117950420588\tdebug\trpc\tplugin was started\t{\"address\": \"tcp://127.0.0.1:6001\", \"list of the plugins with RPC methods:\": [\"lock\", \"app\", \"resetter\", \"jobs\", \"informer\"]}\n2026-10-16T23:58:37+0000\tDEBUG\tjobs        \tinitializing driver\t{\"pipeline\": \"shlink\", \"driver\": \"memory\"}\n2026-10-16T23:58:37+0000\tDEBUG\tjobs        \tdriver ready\t{\"pipeline\": \"shlink\", \"driver\": \"memory\", \"start\": \"2026-10-16T23:58:37+0000\", \"elapsed\": 0}\n1792195117960902867\tdebug\tmemory\tpipeline was started\t{\"driver\": \"memory\", \"pipeline\": \"shlink\", \"start\": \"2026-10-16 23:58:37.960203702 +0000 UTC\", \"elapsed\": \"671.663µs\"}\nhandle_serve_command: Function call error:\n\tserve error from the plugin *jobs.Plugin stopping execution, error: jobs_plugin_serve: WorkerAllocate:\n\tstatic_pool_allocate_workers: EOF\n"
+          }
+        ]
+      },
+      "listeningPorts": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "container exited"
+      },
+      "httpPaths": {
+        "status": "observed",
+        "value": [],
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "container exited"
+      },
+      "smoke": {
+        "status": "observed",
+        "value": {
+          "path": "/",
+          "status": null
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "container exited"
+      },
+      "database": {
+        "status": "observed",
+        "value": {
+          "engine": null,
+          "connections": 0,
+          "tablesAfterStart": [],
+          "sqliteFileWritten": true
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "postgres",
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "mysql",
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+          },
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          },
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-204: 0 objects"
+          },
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "/etc/shlink/data/database.sqlite"
+          }
+        ]
+      },
+      "startupMigration": {
+        "status": "observed",
+        "value": {
+          "tablesCreatedByStart": false,
+          "secondStartHealthy": null
+        },
+        "arch": "amd64-ci-build",
+        "evidence": []
+      },
+      "migrationCommands": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate migration command"
+      },
+      "redis": {
+        "status": "observed",
+        "value": {
+          "connected": false,
+          "clients": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "valkey",
+            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+          }
+        ]
+      },
+      "objectStorage": {
+        "status": "observed",
+        "value": {
+          "objectsWritten": 0
+        },
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "minio",
+            "text": "mc ls --recursive rc-repo-204: 0 objects"
+          }
+        ]
+      },
+      "localDiskWrites": {
+        "status": "observed",
+        "value": [
+          "/etc",
+          "/etc/shlink",
+          "/etc/shlink/data",
+          "/etc/shlink/data/database.sqlite",
+          "/etc/shlink/data/locks",
+          "/etc/shlink/data/locks/sf.db-create.rYoFOz0.lock",
+          "/etc/shlink/data/locks/sf.db-migrate.LvsXpxV.lock"
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "diff",
+            "source": "web#1",
+            "text": "/etc\n/etc/shlink\n/etc/shlink/data\n/etc/shlink/data/database.sqlite\n/etc/shlink/data/locks\n/etc/shlink/data/locks/sf.db-create.rYoFOz0.lock\n/etc/shlink/data/locks/sf.db-migrate.LvsXpxV.lock"
+          }
+        ]
+      },
+      "workers": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "no candidate worker command"
+      },
+      "requiredVariables": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "web was not healthy"
+      },
+      "twoCopiesHealthy": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "web was not healthy"
+      },
+      "restartHealthy": {
+        "status": "not_run",
+        "value": null,
+        "arch": "amd64-ci-build",
+        "evidence": [],
+        "note": "web was not healthy"
+      },
+      "sizes": {
+        "status": "observed",
+        "value": [
+          {
+            "profile": "small-v2",
+            "memoryMiB": 512,
+            "cpus": 1,
+            "healthy": false,
+            "startSeconds": null,
+            "oomKilled": false
+          },
+          {
+            "profile": "medium-v1",
+            "memoryMiB": 2048,
+            "cpus": 1,
+            "healthy": false,
+            "startSeconds": null,
+            "oomKilled": false
+          }
+        ],
+        "arch": "amd64-ci-build",
+        "evidence": [
+          {
+            "kind": "command",
+            "source": "small-v2",
+            "text": "healthy=false oomKilled=false exited=true"
+          },
+          {
+            "kind": "http",
+            "source": "medium-v1",
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "medium-v1",
+            "text": "Initializing database if needed... Success!\nUpdating database... Success!\nGenerating proxies... Success!\nClearing entities cache... Success!\n1792195237422349909\tdebug\trpc\tplugin was started\t{\"address\": \"tcp://127.0.0.1:6001\", \"list of the plugins with RPC methods:\": [\"app\", \"lock\", \"resetter\", \"informer\", \"jobs\"]}\n2026-10-17T00:00:37+0000\tDEBUG\tjobs        \tinitializing driver\t{\"pipeline\": \"shlink\", \"driver\": \"memory\"}\n2026-10-17T00:00:37+0000\tDEBUG\tjobs        \tdriver ready\t{\"pipeline\": \"shlink\", \"driver\": \"memory\", \"start\": \"2026-10-17T00:00:37+0000\", \"elapsed\": 0}\n1792195237431466051\tdebug\tmemory\tpipeline was started\t{\"driver\": \"memory\", \"pipeline\": \"shlink\", \"start\": \"2026-10-17 00:00:37.430609872 +0000 UTC\", \"elapsed\": \"732.368µs\"}\nhandle_serve_command: Function call error:\n\tserve error from the plugin *jobs.Plugin stopping execution, error: jobs_plugin_serve: WorkerAllocate:\n\tstatic_pool_allocate_workers: EOF\n"
+          }
+        ]
+      },
+      "candidates": {
+        "injectedPort": 18080,
+        "healthPaths": [
+          "/",
+          "/health",
+          "/healthz",
+          "/up",
+          "/api/health",
+          "/status",
+          "/ping",
+          "/_health",
+          "/actuator/health"
+        ],
+        "migrationCommands": [],
+        "workerCommands": [],
+        "variables": [],
+        "from": [
+          "analysis:rules@b028a8bc",
+          "fixed-list"
+        ]
+      },
+      "infrastructureFailures": [],
+      "timings": {
+        "build": 26.138,
+        "setA": 116.314,
+        "sizes": 117.459
+      }
+    }
+  ],
+  "unstable": [],
+  "complete": true
+}
