@@ -33,8 +33,8 @@ the git history of this file (first commit). It is not kept here.
   is not a lifecycle step. The Test card says that it builds the first
   release from `branch@sha`. Releases stays a first-class tab for later
   releases.
-- Remove the unlinked `/dashboard/onboarding` route. Home's first-use card and
-  the application lifecycle are the only setup guidance.
+- Remove the unlinked `/dashboard/onboarding` route. Home's onboarding
+  checklist and the application lifecycle are the only setup guidance.
 - **Shareable release.** New customers install only the application's
   shareable release. A release becomes shareable only after a test
   deployment of that exact release succeeds. A newer READY release never
