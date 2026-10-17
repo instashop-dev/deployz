@@ -229,6 +229,7 @@ export function createRunner(deps: RunnerDeps): Runner {
         '/proc/net/tcp',
         '/proc/net/tcp6',
       ]);
+      if (result.exitCode !== 0) throw new Error(`socket probe of ${container.name} failed: ${tail(result.stderr)}`);
       return parseListenSockets(result.stdout);
     },
 

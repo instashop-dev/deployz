@@ -320,7 +320,9 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
 
     const listeningPorts: Fact<Of<'listeningPorts'>> = alive
       ? await check(ctx, async () => {
-          const sockets: ListenSocket[] = await runner.listenSockets(web1);
+          let sockets: ListenSocket[] = await runner.listenSockets(web1);
+          // A healthy app listens somewhere: an empty read is read once more.
+          if (sockets.length === 0 && held.health?.healthy === true) sockets = await runner.listenSockets(web1);
           const ports: Of<'listeningPorts'> = [];
           for (const socket of sockets) {
             const [probe] = await runner.httpProbe(web1, socket.port, ['/']);
