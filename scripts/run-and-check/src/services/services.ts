@@ -75,8 +75,11 @@ export function createServices(deps: {
   docker: DockerFn;
   resources: DockerResources;
   labelArgs: (id: string) => string[];
+  /** An image with openssl (the probe image), so a service set start needs no package download. */
+  helperImage?: string;
 }): Services {
   const { docker, resources, labelArgs } = deps;
+  const helperImage = deps.helperImage ?? CERT_HELPER_IMAGE;
   const states = new Map<string, SetState>();
 
   async function call(
@@ -153,7 +156,7 @@ export function createServices(deps: {
     const host = names.postgres;
     const script = [
       'set -e',
-      'apk add --no-cache openssl >/dev/null',
+      'command -v openssl >/dev/null || apk add --no-cache openssl >/dev/null',
       'cd /tmp',
       'openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 30 -subj "/CN=Deployz run-and-check CA" 2>/dev/null',
       `openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=${host}" 2>/dev/null`,
@@ -169,7 +172,7 @@ export function createServices(deps: {
       'create certificates',
       [
         'run', '--rm', ...labelArgs(id), '--cpus', '1', '--memory', '256m', '--pids-limit', '128',
-        '-v', `${names.caVolume}:/ca`, '-v', `${names.certVolume}:/pg`, CERT_HELPER_IMAGE, 'sh', '-c', script,
+        '-v', `${names.caVolume}:/ca`, '-v', `${names.certVolume}:/pg`, helperImage, 'sh', '-c', script,
       ],
       [],
       { timeoutMs: IMAGE_PULL_TIMEOUT_MS },

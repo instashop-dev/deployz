@@ -5,11 +5,11 @@ import { docker as defaultDocker } from './docker.js';
 import { withBuildLock } from './lock.js';
 import { labelArgs } from './safety.js';
 
-export const PROBE_IMAGE = 'deployz-runcheck/probe:1';
+export const PROBE_IMAGE = 'deployz-runcheck/probe:2';
 
 const PROBE_CONTEXT = fileURLToPath(new URL('../../probe', import.meta.url));
 
-/** Builds the native probe image (curl on alpine) when it is missing; a labelled prune removes it. */
+/** Builds the native probe image (curl and openssl on alpine) when it is missing; a labelled prune removes it. */
 export async function ensureProbeImage(run: DockerFn = defaultDocker): Promise<string> {
   if ((await run(['image', 'inspect', PROBE_IMAGE])).exitCode === 0) return PROBE_IMAGE;
   await withBuildLock(async () => {

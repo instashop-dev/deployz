@@ -26,8 +26,9 @@ export async function main(argv: readonly string[]): Promise<void> {
     (analysis) => analysis.manifest !== null,
   );
   const recipes = new Map((await loadRecipes()).map((loaded) => [loaded.recipe.id, loaded]));
-  const runner = createRunner({ docker, labelArgs, probeImage: await ensureProbeImage() });
-  const services = createServices({ docker, resources: createDockerResources(docker), labelArgs });
+  const probeImage = await ensureProbeImage();
+  const runner = createRunner({ docker, labelArgs, probeImage });
+  const services = createServices({ docker, resources: createDockerResources(docker), labelArgs, helperImage: probeImage });
   let failures = 0;
 
   await pool(analyses, MAX_PARALLEL, async (analysis) => {

@@ -86,10 +86,11 @@ async function loadAnalyses(id: string): Promise<AnalysisResultFile[]> {
  * argument shapes below are this module's assumption.
  */
 async function loadRealDeps(): Promise<Omit<ObserveDeps, 'now' | 'log'>> {
-  const runner = createRunner({ docker, labelArgs, probeImage: await ensureProbeImage() });
+  const probeImage = await ensureProbeImage();
+  const runner = createRunner({ docker, labelArgs, probeImage });
   return {
     buildImage: (request) => buildImage(request),
-    services: createServices({ docker, resources: createDockerResources(docker), labelArgs }),
+    services: createServices({ docker, resources: createDockerResources(docker), labelArgs, helperImage: probeImage }),
     runner,
     env: productionEnvironment,
   };
