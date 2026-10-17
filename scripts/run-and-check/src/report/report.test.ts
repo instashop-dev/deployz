@@ -391,3 +391,26 @@ describe('fullRunHealth', () => {
     expect(fullRunHealth(null)).toBeNull();
   });
 });
+
+describe('Wave 5 report rules', () => {
+  const failedBuild = {
+    build: { ok: false, exitCode: 1, seconds: 1, imageBytes: null, dockerfile: 'Dockerfile', context: '.', failure: 'dockerfile' as const, fromCache: true },
+  };
+
+  it('makes a READY repository whose image does not build a hidden problem', () => {
+    const result = report(ready(), failedBuild);
+    expect(result.hiddenProblem).toBe(true);
+    expect(result.healthyWithAnalysedSettings).toBe(false);
+    expect(verdictOf(result, 'readiness')).toMatchObject({ verdict: 'CONTRADICTED', observed: 'not buildable' });
+  });
+
+  it('confirms NOT_COMPATIBLE when the image does not build', () => {
+    const analysis = makeAnalysis(makeManifest(), { state: 'NOT_COMPATIBLE', findings: [] });
+    expect(verdictOf(report(analysis, failedBuild), 'readiness')?.verdict).toBe('CONFIRMED');
+  });
+
+  it('confirms redis.required=false when the app used Valkey only because it was there and the full run is healthy', () => {
+    const result = report(ready(), { redis: { connected: true, clients: 2 } }, fullRun({ webHealthy: true }));
+    expect(verdictOf(result, 'redis.required')).toMatchObject({ verdict: 'CONFIRMED', reason: 'the full run without Valkey is healthy' });
+  });
+});

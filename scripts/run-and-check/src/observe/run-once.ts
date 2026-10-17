@@ -343,6 +343,11 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
             lines.push(...checks);
             value.push(...checks.map((c) => ({ port: c.port, path: c.path, status: c.status })));
           }
+          // The app can stop after its first healthy answers (RSSHub): keep the answers the health wait saw.
+          if (value.length === 0 && held.health !== null) {
+            value.push(...held.health.checks.filter((c) => c.status !== null).map((c) => ({ port: c.port, path: c.path, status: c.status })));
+            lines.push(...held.health.checks.filter((c) => c.status !== null));
+          }
           return { value, evidence: [ev(ctx, 'http', 'web#1', httpLines(lines) || 'no reachable port')] };
         })
       : exited();
@@ -367,12 +372,10 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
     const snapshot = once(() => services.inspect(scope.set));
     const diff = once(() => runner.diff(web1));
 
-    const database = await check(ctx, async () => {
-      const snap = await snapshot();
+    const databaseFact = (snap: ServiceSnapshot, lines: string[]) => {
       const { postgres, mysql } = snap;
       const engine: 'postgres' | 'mysql' | null = postgres.connections === 0 && mysql.connections === 0 ? null : postgres.connections >= mysql.connections ? 'postgres' : 'mysql';
       const chosen = engine === null ? null : snap[engine];
-      const lines = await diff();
       const sqlite = lines.filter((line) => sqliteFileWritten([line]));
       return {
         value: {
@@ -383,7 +386,8 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
         },
         evidence: [...cleanAll(ctx, snap.evidence), ...(sqlite.length > 0 ? [ev(ctx, 'diff', 'web#1', sqlite.join('\n'))] : [])],
       };
-    });
+    };
+    let database = await check(ctx, async () => databaseFact(await snapshot(), await diff()));
     const redis = await check(ctx, async () => {
       const snap = await snapshot();
       return {
@@ -432,6 +436,12 @@ async function observeSetA(ctx: Ctx): Promise<SetAResult> {
             }
             return { value, evidence };
           });
+
+    // A worker can be the only process that uses the database (the phase-5 canary): inspect again after its window.
+    if (workers.status === 'observed' && database.status === 'observed' && database.value?.engine === null) {
+      const after = await check(ctx, async () => databaseFact(await services.inspect(scope.set), await diff()));
+      if (after.status === 'observed' && after.value?.engine !== null) database = after;
+    }
 
     const restartHealthy: Fact<boolean> =
       held.health?.healthy !== true
@@ -511,7 +521,12 @@ async function observeTwoCopies(ctx: Ctx): Promise<Fact<boolean>> {
 
 // ── Step 4: required variables ─────────────────────────────────────────────
 
-async function observeVariables(ctx: Ctx, healthyWith: boolean): Promise<Fact<Of<'requiredVariables'>>> {
+/**
+ * Starts the web without each candidate variable. A start counts as healthy without the variable only when it is
+ * healthy and still uses the SQL engine that the normal start used: an app that falls back to SQLite without its
+ * database switch (kutt without DB_CLIENT) does not run as Deployz deploys it.
+ */
+async function observeVariables(ctx: Ctx, healthyWith: boolean, engineWith: 'postgres' | 'mysql' | null): Promise<Fact<Of<'requiredVariables'>>> {
   const total = ctx.candidates.variables.length;
   if (total === 0) return notRun(ctx.arch, 'no candidate variable');
   const names = ctx.candidates.variables.slice(0, MAX_VARIABLES);
@@ -526,10 +541,13 @@ async function observeVariables(ctx: Ctx, healthyWith: boolean): Promise<Fact<Of
         delete env[name];
         const container = await startContainer(ctx, scope, 'web', 'web1', null, env);
         const health = await waitForWeb(ctx, container, VARIABLE_MS);
-        return {
-          entry: { name, healthyWithout: health.healthy, healthyWith },
-          evidence: await healthEvidence(ctx, `web without ${name}`, container, health),
-        };
+        const evidence = await healthEvidence(ctx, `web without ${name}`, container, health);
+        let sameDatabase = true;
+        if (health.healthy && engineWith !== null) {
+          sameDatabase = (await ctx.deps.services.inspect(scope.set))[engineWith].connections > 0;
+          if (!sameDatabase) evidence.push(ev(ctx, 'command', `web without ${name}`, `healthy, but no ${engineWith} connection`));
+        }
+        return { entry: { name, healthyWithout: health.healthy && sameDatabase, healthyWith }, evidence };
       }),
     );
     if (result === null) problems.push(name);
@@ -655,7 +673,7 @@ export async function runOnce(input: RunInput): Promise<ObservationRun> {
 
   const migrationCommands = await observeMigrations(ctx);
   const twoCopiesHealthy = healthy ? await observeTwoCopies(ctx) : unhealthy<boolean>();
-  const requiredVariables = healthy ? await observeVariables(ctx, healthy) : unhealthy<Of<'requiredVariables'>>();
+  const requiredVariables = healthy ? await observeVariables(ctx, healthy, facts.database.value?.engine ?? null) : unhealthy<Of<'requiredVariables'>>();
   const sizes = await observeSizes(ctx, a?.health ?? null);
 
   return {

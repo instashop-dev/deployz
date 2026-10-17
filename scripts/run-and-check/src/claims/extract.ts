@@ -43,6 +43,18 @@ export function vendorRequiredVariables(manifest: DeploymentManifest): string[] 
     .map((variable) => variable.key);
 }
 
+/** The `from` of a Dockerfile claim when the gate itself says the image cannot build. */
+export const PREDICTED_UNBUILDABLE = 'application.dockerfilePath (gate: unbuildable)';
+
+/** The gate predicts a failed build: a container error, or an unsupported reason that names .git or the Dockerfile. */
+function predictsUnbuildable(gate: NonNullable<AnalysisResultFile['gate']>): boolean {
+  return gate.findings.some(
+    (finding) =>
+      finding.severity === 'error' &&
+      (finding.category === 'container' || (finding.id === 'unsupported' && /\.git\b|Dockerfile/.test(finding.message))),
+  );
+}
+
 function databaseEngine(manifest: DeploymentManifest): 'postgres' | 'mysql' | 'none' {
   if (!manifest.database.postgres) return 'none';
   return manifest.database.engine ?? 'postgres';
@@ -55,7 +67,12 @@ export function extractClaims(file: AnalysisResultFile): Claim[] {
   const claims: Claim[] = [
     { type: 'readiness', subject: null, value: gate.state, from: 'gate.state' },
     // The build context rides in `subject`: one claim states the Dockerfile and the context together.
-    { type: 'dockerfile', subject: manifest.build.context, value: manifest.application.dockerfilePath, from: 'application.dockerfilePath' },
+    {
+      type: 'dockerfile',
+      subject: manifest.build.context,
+      value: manifest.application.dockerfilePath,
+      from: predictsUnbuildable(gate) ? PREDICTED_UNBUILDABLE : 'application.dockerfilePath',
+    },
     { type: 'web.port', subject: null, value: manifest.web.port, from: 'web.port' },
     {
       type: 'health.path',

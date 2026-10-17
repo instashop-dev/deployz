@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Claim, ClaimVerdict, ObservationFactName } from '../contract.js';
 import { checkClaims } from './check.js';
+import { PREDICTED_UNBUILDABLE } from './extract.js';
 import { makeObservation, makeRun, type RunOptions } from './test-support.js';
 
 type Values = Parameters<typeof makeRun>[0];
@@ -494,5 +495,17 @@ describe('verdict evidence', () => {
 
   it('gives no observed value for a CONFIRMED verdict', () => {
     expect(check({ type: 'web.port', value: 8080 })).not.toHaveProperty('observed');
+  });
+});
+
+describe('dockerfile with a predicted build failure', () => {
+  const PREDICTED = { type: 'dockerfile' as const, subject: '.', value: 'Dockerfile', from: PREDICTED_UNBUILDABLE };
+
+  it('confirms the prediction when the build fails', () => {
+    expect(check(PREDICTED, { build: build({ ok: false, exitCode: 1, failure: 'dockerfile' }) }).verdict).toBe('CONFIRMED');
+  });
+
+  it('contradicts the prediction when the image builds', () => {
+    expect(check(PREDICTED, { build: build({}) }).verdict).toBe('CONTRADICTED');
   });
 });

@@ -35,7 +35,14 @@ export function fullRunHealth(fullRun: FullRun | null): boolean | null {
  * it is not. NEEDS_CONFIGURATION stays open: the full run already supplies
  * the recipe inputs, so it cannot show whether configuration was needed.
  */
-function decideReadiness(verdict: ClaimVerdict, state: Readiness, fullRun: FullRun | null): ClaimVerdict {
+function decideReadiness(verdict: ClaimVerdict, state: Readiness, fullRun: FullRun | null, unbuildable: boolean): ClaimVerdict {
+  if (fullRun === null && unbuildable) {
+    // No image means no deployment: only NOT_COMPATIBLE is right.
+    const facts = { ...verdict, facts: ['build' as const], unstable: false };
+    return state === 'NOT_COMPATIBLE'
+      ? { ...facts, verdict: 'CONFIRMED', reason: 'the image does not build' }
+      : { ...facts, verdict: 'CONTRADICTED', observed: 'not buildable', reason: 'the image does not build' };
+  }
   if (fullRun === null) return verdict;
   const healthy = fullRunHealth(fullRun);
   const facts = { ...verdict, facts: [], arch: fullRun.arch, unstable: false };
@@ -127,9 +134,18 @@ export function repositoryReport(
   fullRun: FullRun | null,
 ): RepositoryReport {
   const readiness = analysis.gate?.state ?? null;
-  const decided = verdicts.map((entry) =>
-    entry.claim.type === 'readiness' && readiness !== null ? decideReadiness(entry, readiness, fullRun) : entry,
-  );
+  const build = observation.runs[0]!.build;
+  const unbuildable = build.value?.ok === false && build.value.failure === 'dockerfile' && build.arch !== 'arm64-native';
+  const fullHealth = fullRunHealth(fullRun);
+  const decided = verdicts.map((entry) => {
+    if (entry.claim.type === 'readiness' && readiness !== null) return decideReadiness(entry, readiness, fullRun, unbuildable);
+    // The observation gives every app Valkey, so an app that uses it only when present looks like it needs it.
+    // The full run has no Valkey when the claim is false: a healthy full run confirms the claim.
+    if (entry.claim.type === 'redis.required' && entry.claim.value === false && entry.verdict === 'CONTRADICTED' && fullHealth === true) {
+      return { ...entry, verdict: 'CONFIRMED' as const, reason: 'the full run without Valkey is healthy', observed: undefined };
+    }
+    return entry;
+  });
   const failures = [...observation.runs.flatMap((run) => run.infrastructureFailures), ...(fullRun?.infrastructureFailures ?? [])];
 
   return {
@@ -141,8 +157,8 @@ export function repositoryReport(
     arch: observation.runs[0]!.build.arch,
     readiness,
     verdicts: decided,
-    healthyWithAnalysedSettings: fullRunHealth(fullRun),
-    hiddenProblem: readiness === 'READY' && fullRunHealth(fullRun) === false,
+    healthyWithAnalysedSettings: fullRun === null && unbuildable ? false : fullHealth,
+    hiddenProblem: readiness === 'READY' && (fullHealth === false || (fullRun === null && unbuildable)),
     falseProblems: falseProblems(analysis, decided, observation, fullRun),
     vendorQuestions: analysis.vendorQuestions,
     unstableFacts: observation.unstable,

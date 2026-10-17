@@ -14,6 +14,7 @@ import type {
   ObservationRun,
   Verdict,
 } from '../contract.js';
+import { PREDICTED_UNBUILDABLE } from './extract.js';
 
 type Observed = string | number | boolean | null;
 
@@ -73,10 +74,15 @@ export const checkDockerfile: Rule = (claim, run) => {
     normalisePath(String(claim.value)) === normalisePath(build.dockerfile) &&
     normalisePath(claim.subject ?? '.') === normalisePath(build.context);
 
+  const predictedFailure = claim.from === PREDICTED_UNBUILDABLE;
   if (build.ok) {
+    if (predictedFailure) return contradicted('builds', 'the Analysis said the image cannot build, but it builds', facts);
     if (sameDockerfile) return confirmed('the image built with the claimed Dockerfile and context', facts);
     if (claim.value === null) return contradicted(build.dockerfile, 'the Analysis found no Dockerfile, but the repository builds one', facts);
     return notCheckable('the observation built another Dockerfile or context', facts);
+  }
+  if (predictedFailure && build.failure === 'dockerfile') {
+    return confirmed('the Analysis said the image cannot build, and the build fails', facts);
   }
   if (!sameDockerfile) return notCheckable('the observation built another Dockerfile or context', facts);
   switch (build.failure) {

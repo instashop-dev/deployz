@@ -66,6 +66,7 @@ export function collectCandidates(recipe: Recipe, analyses: readonly AnalysisRes
     migrationCommands: commands([...manifests.map((m) => m.migration.command), ...claimValues(claims, 'migration.command')]),
     workerCommands,
     workerIds,
+    // A Dockerfile build argument (livebook VARIANT) is not a run-time variable, so a start without it proves nothing.
     variables: unique([
       ...recipe.vendorInputs.map((input) => input.name),
       ...manifests.flatMap((m) =>
@@ -74,7 +75,7 @@ export function collectCandidates(recipe: Recipe, analyses: readonly AnalysisRes
           .map((variable) => variable.key),
       ),
       ...claims.filter((claim) => claim.type === 'env.required' && claim.subject !== null).map((claim) => claim.subject as string),
-    ]),
+    ]).filter((name) => !(name in (recipe.build?.buildArgs ?? {}))),
     from: [
       ...(recipe.vendorInputs.length > 0 ? ['recipe'] : []),
       ...unique(analysed),
