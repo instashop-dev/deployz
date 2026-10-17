@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-17T01:09:27.707Z",
+      "startedAt": "2026-10-17T13:02:59.786Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -140,7 +140,7 @@
             "command": "node config/migrate-terms-timestamp.js",
             "exitCode": 1,
             "createdTables": false,
-            "seconds": 4.003
+            "seconds": 13.676
           }
         ],
         "arch": "arm64-native",
@@ -184,22 +184,14 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/app",
-          "/app/.env.temp",
-          "/app/logs",
-          "/app/logs/.17d4e6c8483cfbbea95e279384eb8e769625b85c-audit.json",
-          "/app/logs/.3c8f00094946c5ee5458bfe4c1e9be87e296065b-audit.json",
-          "/home",
-          "/home/node",
-          "/home/node/.npm",
-          "/home/node/.npm/_logs"
+          "/app/.env.temp"
         ],
         "arch": "arm64-native",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/app\n/app/.env.temp\n/app/logs\n/app/logs/.17d4e6c8483cfbbea95e279384eb8e769625b85c-audit.json\n/app/logs/.3c8f00094946c5ee5458bfe4c1e9be87e296065b-audit.json\n/home\n/home/node\n/home/node/.npm\n/home/node/.npm/_logs"
+            "text": "/app/.env.temp"
           }
         ]
       },
@@ -316,14 +308,14 @@
         "emulation: qemu: uncaught target signal 11 (Segmentation fault) - core dumped"
       ],
       "timings": {
-        "build": 708.139,
-        "setA": 87.066,
-        "migrations": 38.358,
-        "sizes": 52.813
+        "build": 167.509,
+        "setA": 153.08,
+        "migrations": 58.866,
+        "sizes": 73.548
       }
     },
     {
-      "startedAt": "2026-10-17T01:24:14.094Z",
+      "startedAt": "2026-10-17T13:10:32.799Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -455,7 +447,7 @@
             "command": "node config/migrate-terms-timestamp.js",
             "exitCode": 1,
             "createdTables": false,
-            "seconds": 3.398
+            "seconds": 4.816
           }
         ],
         "arch": "arm64-native",
@@ -499,22 +491,14 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/app",
-          "/app/.env.temp",
-          "/app/logs",
-          "/app/logs/.17d4e6c8483cfbbea95e279384eb8e769625b85c-audit.json",
-          "/app/logs/.3c8f00094946c5ee5458bfe4c1e9be87e296065b-audit.json",
-          "/home",
-          "/home/node",
-          "/home/node/.npm",
-          "/home/node/.npm/_logs"
+          "/app/.env.temp"
         ],
         "arch": "arm64-native",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/app\n/app/.env.temp\n/app/logs\n/app/logs/.17d4e6c8483cfbbea95e279384eb8e769625b85c-audit.json\n/app/logs/.3c8f00094946c5ee5458bfe4c1e9be87e296065b-audit.json\n/home\n/home/node\n/home/node/.npm\n/home/node/.npm/_logs"
+            "text": "/app/.env.temp"
           }
         ]
       },
@@ -629,10 +613,10 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 77.132,
-        "setA": 79.432,
-        "migrations": 39.97,
-        "sizes": 51.09
+        "build": 147.267,
+        "setA": 145.472,
+        "migrations": 75.374,
+        "sizes": 79.906
       }
     }
   ],

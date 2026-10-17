@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T15:05:18.671Z",
+      "startedAt": "2026-10-17T05:36:33.424Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -44,12 +44,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=13.395\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=29.199\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET / HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /health HTTP/1.1\" 200 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /up HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /status HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:06:27] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET / HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /health HTTP/1.1\" 200 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /up HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /status HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:38:26] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           }
         ]
       },
@@ -62,7 +62,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 39129,
+            "port": 36205,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -72,7 +72,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n39129 loopback reachable=false"
+            "text": "18080 all reachable=true\n36205 loopback reachable=false"
           }
         ]
       },
@@ -228,22 +228,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/usr",
-          "/usr/local",
-          "/usr/local/lib",
-          "/usr/local/lib/python3.12",
-          "/usr/local/lib/python3.12/asyncio",
-          "/usr/local/lib/python3.12/concurrent",
-          "/usr/local/lib/python3.12/concurrent/futures",
-          "/usr/local/lib/python3.12/http"
-        ],
+        "value": [],
         "arch": "amd64-emulated",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/usr\n/usr/local\n/usr/local/lib\n/usr/local/lib/python3.12\n/usr/local/lib/python3.12/asyncio\n/usr/local/lib/python3.12/concurrent\n/usr/local/lib/python3.12/concurrent/futures\n/usr/local/lib/python3.12/http"
+            "text": "no local writes"
           }
         ]
       },
@@ -282,22 +273,22 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=13.087\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=35.572\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET / HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /health HTTP/1.1\" 200 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /up HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /status HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:13:19] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.8 - - [17/Oct/2026 05:45:56] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:45:57] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=14.002\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=35.871\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:13:19] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.9 - - [17/Oct/2026 05:45:58] \"GET / HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /health HTTP/1.1\" 200 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /up HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /status HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:45:59] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           }
         ]
       },
@@ -309,12 +300,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=12.629\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=31.142\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:12:00] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:44:19] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           }
         ]
       },
@@ -326,7 +317,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 13.395,
+            "startSeconds": 29.199,
             "oomKilled": false
           }
         ],
@@ -365,13 +356,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 7.566,
-        "setA": 409.777,
-        "twoCopies": 77.747
+        "build": 9.453,
+        "setA": 472.097,
+        "twoCopies": 100.432
       }
     },
     {
-      "startedAt": "2026-10-16T15:13:33.770Z",
+      "startedAt": "2026-10-17T05:46:15.409Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -407,12 +398,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=11.236\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=16.92\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET / HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /health HTTP/1.1\" 200 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /up HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /status HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.7 - - [16/Oct/2026 15:14:38] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET / HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /health HTTP/1.1\" 200 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /up HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /status HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.7 - - [17/Oct/2026 05:47:29] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           }
         ]
       },
@@ -425,7 +416,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 40139,
+            "port": 33067,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -435,7 +426,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n40139 loopback reachable=false"
+            "text": "18080 all reachable=true\n33067 loopback reachable=false"
           }
         ]
       },
@@ -591,22 +582,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/usr",
-          "/usr/local",
-          "/usr/local/lib",
-          "/usr/local/lib/python3.12",
-          "/usr/local/lib/python3.12/asyncio",
-          "/usr/local/lib/python3.12/concurrent",
-          "/usr/local/lib/python3.12/concurrent/futures",
-          "/usr/local/lib/python3.12/http"
-        ],
+        "value": [],
         "arch": "amd64-emulated",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/usr\n/usr/local\n/usr/local/lib\n/usr/local/lib/python3.12\n/usr/local/lib/python3.12/asyncio\n/usr/local/lib/python3.12/concurrent\n/usr/local/lib/python3.12/concurrent/futures\n/usr/local/lib/python3.12/http"
+            "text": "no local writes"
           }
         ]
       },
@@ -645,22 +627,22 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=18.106\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=36.796\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET / HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /health HTTP/1.1\" 200 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /up HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /status HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.9 - - [16/Oct/2026 15:21:37] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET / HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /health HTTP/1.1\" 200 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /up HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /status HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.9 - - [17/Oct/2026 05:54:36] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=17.737\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=35.124\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:21:37] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:54:35] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           }
         ]
       },
@@ -672,12 +654,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=19.487\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=29.592\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [16/Oct/2026 15:20:17] \"GET /actuator/health HTTP/1.1\" 404 -\n"
+            "text": "10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET / HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /health HTTP/1.1\" 200 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /healthz HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /up HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /api/health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /status HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /ping HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /_health HTTP/1.1\" 404 -\n10.200.2.8 - - [17/Oct/2026 05:53:00] \"GET /actuator/health HTTP/1.1\" 404 -\n"
           }
         ]
       },
@@ -689,7 +671,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 11.236,
+            "startSeconds": 16.92,
             "oomKilled": false
           }
         ],
@@ -728,9 +710,9 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 10.176,
-        "setA": 401.059,
-        "twoCopies": 80.167
+        "build": 2.319,
+        "setA": 424.544,
+        "twoCopies": 92.301
       }
     }
   ],

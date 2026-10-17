@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T23:19:51.078Z",
+      "startedAt": "2026-10-17T10:03:03.855Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -156,39 +156,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/opt",
-          "/opt/CTFd",
-          "/opt/CTFd/CTFd",
-          "/opt/CTFd/CTFd/cache",
-          "/opt/CTFd/CTFd/constants",
-          "/opt/CTFd/CTFd/exceptions",
-          "/opt/CTFd/CTFd/models",
-          "/opt/CTFd/CTFd/plugins",
-          "/opt/CTFd/CTFd/utils",
-          "/opt/CTFd/CTFd/utils/config",
-          "/opt/CTFd/CTFd/utils/crypto",
-          "/opt/CTFd/CTFd/utils/dates",
-          "/opt/CTFd/CTFd/utils/decorators",
-          "/opt/CTFd/CTFd/utils/encoding",
-          "/opt/CTFd/CTFd/utils/events",
-          "/opt/CTFd/CTFd/utils/formatters",
-          "/opt/CTFd/CTFd/utils/humanize",
-          "/opt/CTFd/CTFd/utils/initialization",
-          "/opt/CTFd/CTFd/utils/migrations",
-          "/opt/CTFd/CTFd/utils/modes",
-          "/opt/CTFd/CTFd/utils/plugins",
-          "/opt/CTFd/CTFd/utils/security",
-          "/opt/CTFd/CTFd/utils/sessions",
-          "/opt/CTFd/CTFd/utils/updates",
-          "/opt/CTFd/CTFd/utils/user"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/opt\n/opt/CTFd\n/opt/CTFd/CTFd\n/opt/CTFd/CTFd/cache\n/opt/CTFd/CTFd/constants\n/opt/CTFd/CTFd/exceptions\n/opt/CTFd/CTFd/models\n/opt/CTFd/CTFd/plugins\n/opt/CTFd/CTFd/utils\n/opt/CTFd/CTFd/utils/config\n/opt/CTFd/CTFd/utils/crypto\n/opt/CTFd/CTFd/utils/dates\n/opt/CTFd/CTFd/utils/decorators\n/opt/CTFd/CTFd/utils/encoding\n/opt/CTFd/CTFd/utils/events\n/opt/CTFd/CTFd/utils/formatters\n/opt/CTFd/CTFd/utils/humanize\n/opt/CTFd/CTFd/utils/initialization\n/opt/CTFd/CTFd/utils/migrations\n/opt/CTFd/CTFd/utils/modes\n/opt/CTFd/CTFd/utils/plugins\n/opt/CTFd/CTFd/utils/security\n/opt/CTFd/CTFd/utils/sessions\n/opt/CTFd/CTFd/utils/updates\n/opt/CTFd/CTFd/utils/user"
+            "text": "no local writes"
           }
         ]
       },
@@ -285,13 +259,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 62.433,
-        "setA": 74.738,
-        "sizes": 77.192
+        "build": 67.673,
+        "setA": 157.107,
+        "sizes": 251.14
       }
     },
     {
-      "startedAt": "2026-10-16T23:23:25.455Z",
+      "startedAt": "2026-10-17T10:10:59.781Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -439,39 +413,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/opt",
-          "/opt/CTFd",
-          "/opt/CTFd/CTFd",
-          "/opt/CTFd/CTFd/cache",
-          "/opt/CTFd/CTFd/constants",
-          "/opt/CTFd/CTFd/exceptions",
-          "/opt/CTFd/CTFd/models",
-          "/opt/CTFd/CTFd/plugins",
-          "/opt/CTFd/CTFd/utils",
-          "/opt/CTFd/CTFd/utils/config",
-          "/opt/CTFd/CTFd/utils/crypto",
-          "/opt/CTFd/CTFd/utils/dates",
-          "/opt/CTFd/CTFd/utils/decorators",
-          "/opt/CTFd/CTFd/utils/encoding",
-          "/opt/CTFd/CTFd/utils/events",
-          "/opt/CTFd/CTFd/utils/formatters",
-          "/opt/CTFd/CTFd/utils/humanize",
-          "/opt/CTFd/CTFd/utils/initialization",
-          "/opt/CTFd/CTFd/utils/migrations",
-          "/opt/CTFd/CTFd/utils/modes",
-          "/opt/CTFd/CTFd/utils/plugins",
-          "/opt/CTFd/CTFd/utils/security",
-          "/opt/CTFd/CTFd/utils/sessions",
-          "/opt/CTFd/CTFd/utils/updates",
-          "/opt/CTFd/CTFd/utils/user"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/opt\n/opt/CTFd\n/opt/CTFd/CTFd\n/opt/CTFd/CTFd/cache\n/opt/CTFd/CTFd/constants\n/opt/CTFd/CTFd/exceptions\n/opt/CTFd/CTFd/models\n/opt/CTFd/CTFd/plugins\n/opt/CTFd/CTFd/utils\n/opt/CTFd/CTFd/utils/config\n/opt/CTFd/CTFd/utils/crypto\n/opt/CTFd/CTFd/utils/dates\n/opt/CTFd/CTFd/utils/decorators\n/opt/CTFd/CTFd/utils/encoding\n/opt/CTFd/CTFd/utils/events\n/opt/CTFd/CTFd/utils/formatters\n/opt/CTFd/CTFd/utils/humanize\n/opt/CTFd/CTFd/utils/initialization\n/opt/CTFd/CTFd/utils/migrations\n/opt/CTFd/CTFd/utils/modes\n/opt/CTFd/CTFd/utils/plugins\n/opt/CTFd/CTFd/utils/security\n/opt/CTFd/CTFd/utils/sessions\n/opt/CTFd/CTFd/utils/updates\n/opt/CTFd/CTFd/utils/user"
+            "text": "no local writes"
           }
         ]
       },
@@ -568,9 +516,9 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 45.713,
-        "setA": 84.599,
-        "sizes": 89.486
+        "build": 121.156,
+        "setA": 144.689,
+        "sizes": 114.729
       }
     }
   ],

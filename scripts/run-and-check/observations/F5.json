@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T16:25:43.836Z",
+      "startedAt": "2026-10-17T05:57:24.984Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -62,7 +62,7 @@
             "reachableFromProbe": false
           },
           {
-            "port": 38115,
+            "port": 45531,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -72,7 +72,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 loopback reachable=false\n38115 loopback reachable=false"
+            "text": "18080 loopback reachable=false\n45531 loopback reachable=false"
           }
         ]
       },
@@ -264,15 +264,15 @@
         ]
       },
       "infrastructureFailures": [
-        "emulation: emulation crash: PC=0x43102e m=1 sigcode=1 addr=0xfffffbbf549a2e10"
+        "emulation: emulation crash: PC=0x43102e m=1 sigcode=1 addr=0xfffffaad45670e50"
       ],
       "timings": {
-        "build": 9.533,
-        "setA": 958.742
+        "build": 0.904,
+        "setA": 962.411
       }
     },
     {
-      "startedAt": "2026-10-16T16:41:52.124Z",
+      "startedAt": "2026-10-17T06:13:28.301Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -326,7 +326,7 @@
             "reachableFromProbe": false
           },
           {
-            "port": 46765,
+            "port": 41373,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -336,7 +336,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 loopback reachable=false\n46765 loopback reachable=false"
+            "text": "18080 loopback reachable=false\n41373 loopback reachable=false"
           }
         ]
       },
@@ -529,8 +529,8 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 1.068,
-        "setA": 948.154
+        "build": 0.863,
+        "setA": 999.027
       }
     }
   ],

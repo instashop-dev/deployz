@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T20:43:26.444Z",
+      "startedAt": "2026-10-17T13:18:00.854Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -44,7 +44,7 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=11.303\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=33.534\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -62,7 +62,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 37765,
+            "port": 33145,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -72,7 +72,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n37765 loopback reachable=false"
+            "text": "18080 all reachable=true\n33145 loopback reachable=false"
           }
         ]
       },
@@ -152,9 +152,12 @@
       "database": {
         "status": "observed",
         "value": {
-          "engine": null,
-          "connections": 0,
-          "tablesAfterStart": [],
+          "engine": "postgres",
+          "connections": 1,
+          "tablesAfterStart": [
+            "messages",
+            "ticks"
+          ],
           "sqliteFileWritten": false
         },
         "arch": "amd64-ci-build",
@@ -162,17 +165,17 @@
           {
             "kind": "command",
             "source": "postgres",
-            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 0 application connections; tables in deployz: (none)"
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 1 application connections; tables in deployz: messages, ticks"
           },
           {
             "kind": "command",
             "source": "mysql",
-            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 12, baseline 9, harness sessions 3: 0 application connections; tables in deployz: (none)"
           },
           {
             "kind": "command",
             "source": "valkey",
-            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+            "text": "INFO stats total_connections_received = 5, baseline 2, harness sessions 3: 0 application connections; DBSIZE = 0"
           },
           {
             "kind": "command",
@@ -273,7 +276,7 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=24.436\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=18.78\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -283,7 +286,7 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=23.8\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=18.181\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -300,7 +303,7 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=34.441\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=27.118\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -317,7 +320,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 11.303,
+            "startSeconds": 33.534,
             "oomKilled": false
           }
         ],
@@ -355,13 +358,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 26.287,
-        "setA": 408.845,
-        "twoCopies": 76.076
+        "build": 43.528,
+        "setA": 427.754,
+        "twoCopies": 87.08
       }
     },
     {
-      "startedAt": "2026-10-16T20:51:57.657Z",
+      "startedAt": "2026-10-17T13:27:19.221Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -397,7 +400,7 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=14.58\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=17.709\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -415,7 +418,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 46157,
+            "port": 46231,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -425,7 +428,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n46157 loopback reachable=false"
+            "text": "18080 all reachable=true\n46231 loopback reachable=false"
           }
         ]
       },
@@ -505,9 +508,12 @@
       "database": {
         "status": "observed",
         "value": {
-          "engine": null,
-          "connections": 0,
-          "tablesAfterStart": [],
+          "engine": "postgres",
+          "connections": 1,
+          "tablesAfterStart": [
+            "messages",
+            "ticks"
+          ],
           "sqliteFileWritten": false
         },
         "arch": "amd64-ci-build",
@@ -515,17 +521,17 @@
           {
             "kind": "command",
             "source": "postgres",
-            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 0 application connections; tables in deployz: (none)"
+            "text": "PostgreSQL log lines \"connection authorized: user=deployz_app\", harness sessions excluded, baseline 3: 1 application connections; tables in deployz: messages, ticks"
           },
           {
             "kind": "command",
             "source": "mysql",
-            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 10, baseline 9, harness sessions 1: 0 application connections; tables in deployz: (none)"
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 12, baseline 9, harness sessions 3: 0 application connections; tables in deployz: (none)"
           },
           {
             "kind": "command",
             "source": "valkey",
-            "text": "INFO stats total_connections_received = 3, baseline 2, harness sessions 1: 0 application connections; DBSIZE = 0"
+            "text": "INFO stats total_connections_received = 5, baseline 2, harness sessions 3: 0 application connections; DBSIZE = 0"
           },
           {
             "kind": "command",
@@ -626,7 +632,7 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=18.011\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=25.668\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -636,7 +642,7 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=16.751\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=25.721\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -653,7 +659,7 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=11.237\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=21.756\n18080/ 404\n18080/health 200\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -670,7 +676,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 14.58,
+            "startSeconds": 17.709,
             "oomKilled": false
           }
         ],
@@ -708,9 +714,9 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 30.177,
-        "setA": 399.167,
-        "twoCopies": 69.283
+        "build": 41.156,
+        "setA": 410.943,
+        "twoCopies": 85.717
       }
     }
   ],

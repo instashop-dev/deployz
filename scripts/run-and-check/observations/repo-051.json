@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T23:27:05.287Z",
+      "startedAt": "2026-10-17T11:04:26.648Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -44,12 +44,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=63.121\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=204.476\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "55 #1]  INFO -- : [631d6d86-27cd-4acf-8650-c038fdbafeec] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":65.12,\"view\":28.67,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:29:45.947214 #1]  INFO -- : [8fae7210-cbd4-44ab-a061-983f12cc263c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":39.57,\"view\":10.1,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:29:46.102485 #1]  INFO -- : [c39a76e5-f1a0-4339-a056-f2e87fc6954b] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":20.7,\"view\":1.27,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:29:46.202959 #1]  INFO -- : [686175eb-74e5-4e5c-88cd-67f90c837b5d] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":62.82,\"view\":1.41,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:29:46.280634 #1]  INFO -- : [bbba824b-4958-42c2-a16d-61f7ec58b59f] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":32.15,\"view\":1.94,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:29:46.425247 #1]  INFO -- : [7a652db4-e4b7-4fc3-ae3a-03dda132e9d7] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":61.04,\"view\":2.07,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "8 #1]  INFO -- : [0140f253-bfa7-47b2-b9d3-7480a5aab47c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":14.28,\"view\":1.47,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:10:08.143484 #1]  INFO -- : [c61584f0-c14b-4557-bbb6-561bd402b2cb] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":101.28,\"view\":15.7,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:10:08.341432 #1]  INFO -- : [b40291c7-6cb6-4298-9746-a554846818b5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":26.53,\"view\":3.46,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:10:08.448008 #1]  INFO -- : [06eaa944-4dcf-47ea-bc62-9f5bd931cdbe] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":49.49,\"view\":1.29,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:10:08.555495 #1]  INFO -- : [6cd75332-5dc8-4fd8-be82-4e472d06354c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":30.28,\"view\":1.06,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:10:08.665634 #1]  INFO -- : [ad40a844-9263-487e-a72c-e439beed5aa9] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":21.48,\"view\":1.18,\"db\":0.0,\"host\":\"repo-051-r1-a-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -62,7 +62,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 33409,
+            "port": 46153,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -72,7 +72,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n33409 loopback reachable=false"
+            "text": "18080 all reachable=true\n46153 loopback reachable=false"
           }
         ]
       },
@@ -218,7 +218,7 @@
           {
             "kind": "command",
             "source": "valkey",
-            "text": "INFO stats total_connections_received = 14, baseline 2, harness sessions 1: 11 application connections; DBSIZE = 3"
+            "text": "INFO stats total_connections_received = 15, baseline 2, harness sessions 1: 12 application connections; DBSIZE = 3"
           },
           {
             "kind": "command",
@@ -247,14 +247,14 @@
         "status": "observed",
         "value": {
           "connected": true,
-          "clients": 11
+          "clients": 12
         },
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "command",
             "source": "valkey",
-            "text": "INFO stats total_connections_received = 14, baseline 2, harness sessions 1: 11 application connections; DBSIZE = 3"
+            "text": "INFO stats total_connections_received = 15, baseline 2, harness sessions 1: 12 application connections; DBSIZE = 3"
           }
         ]
       },
@@ -275,253 +275,6 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/app",
-          "/app/tmp",
-          "/app/tmp/cache",
-          "/app/tmp/cache/bootsnap",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/00",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/00/718d7690177ee8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/01",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/01/8e4f0a09e1c427",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/01/b9692669968a91",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/02",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/02/71eb9ef570469a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/03",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/03/2ed2384d2b6c31",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/06",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/06/c06fdb28af8762",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/07",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/07/c7ace093835cd7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/07/cc300c1b9b3e9c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/08",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/08/2053ef8f8c20a7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/0f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/0f/8475fd7518543b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15/00d49cd997944c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15/2134ae41ca4b75",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15/a51a40a90f15dd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/16",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/16/dc8004114504ec",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/17",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/17/072652cb7c15c9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/18",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/18/2a68697034e2d8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1d/4b0b2668d013a7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1e/5be8bcc78146e9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/22",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/22/6e19bf28c77603",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/23",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/23/6d19ab563a1277",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/24",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/24/2d3b56b63ef0d7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/25",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/25/563aa802ed30d4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/28",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/28/73ccafe910ea51",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2c/5245173370288f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2e/8d30cb8c91aa21",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2f/8f0038a9f586bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3a/b341af3316b424",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3b/224fa58e378536",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3d/caedd64b7d2ebe",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3e/6b6cf1986b1371",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3f/eb1af4ad42b3d1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/40",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/40/21f04970037fec",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/40/4bd2d82ba447bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/41",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/41/1eeacc9a1c71c5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/44",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/44/5085ce56099191",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4c/5b4d29963c8152",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4d/b9c828844f79db",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4e/a3b66f59651c1d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/52",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/52/76d7d1922990c3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/55",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/55/4ba08171bc459d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/55/f74dd19ec21794",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5b/bf54942a4e181c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5c/037da1a5a31c98",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5c/2625a12b05f7a6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5d/a158aa02ee8d77",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/60",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/60/ce348cec5fdd31",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/62",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/62/5ec017df702aa0",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/63",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/63/76f69e99467d6b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/63/8647fca0beba69",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/64",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/64/1053595ac6b3bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/64/b5cd4295c267e8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/66",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/66/8484e59bdd6cc5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/67",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/67/f6e720af5f727b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6c/45dfc960a6d962",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6e/415d30d068874a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/70",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/70/3bb74a4d4db171",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/70/63a6a1ffbc4810",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/72",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/72/099e9797d0cc94",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/73",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/73/2e1862efca95cd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/76",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/76/a232d2e09ff810",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/77",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/77/e7de45d1fe9401",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/79",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/79/a23cfd2a6a3050",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/81",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/81/680628c7a8ec18",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/82",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/82/7fa9b88d096797",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/82/d04fd9fdc8aa07",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/83",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/83/fb5be49609efa9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/84",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/84/6edb4968ff14be",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/85",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/85/1cb2ca919fc8bb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/85/cf35ae243f15c3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/86",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/86/7b000053dd34b3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8b/94b839044a49f8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8e/9c56747e683d20",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/97",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/97/882a53bca4bf9a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/98",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/98/8e1c271cbe69a7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/98/c9377fc359bfb8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/99",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/99/643c71f43d35d1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9a/304ed5e3b1200e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9c/444422a939c29f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a1/60429bcdd14175",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a2",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a2/9f03999a4caefc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a3/6c30117f8c5745",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a3/f4cc65949f2cba",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a4/ed5ce827c044ca",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a8/3c38db5b0bee45",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a9/4d2c6982e9dc75",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a9/cb6dd117633eff",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/aa",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/aa/0c7242f07aa2af",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ab",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ab/cde2af2a5d47c4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ac",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ac/0d8c382c50a316",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b1/c4a79452fa06f4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b4/d72b86449bb0c8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b5/36dd972ea77430",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b6/856446ea12a25f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b8/79e36ee53df764",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b9/2ad3e4ee04078d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bb/ec8108e81a32f7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bd/14339b9f364170",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bf",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bf/69f520d304c162",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bf/dd73fdf74f3cec",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c4/b37b568dd4c2bf",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c5/5410c4ca4c4ffb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c6/41bae03c9ef7ad",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c7/ec9be8f9b40502",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c8/773a1e49dc90dc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ca",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ca/6567f7d9cf70ac",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/cd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/cd/9b0559125dfb64",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ce",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ce/b4f1e96bf290ac",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d6/722af06ef144f2",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d7/1f8c8ff71d0775",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d7/233ad25bc54d5b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/da",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/da/4f800d33a5eb07",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/da/b875fe1098f26f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/dc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/dc/59cc0cb956db80",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e0",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e0/b28e9144c802d0",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e1/7f3df1fc3fad70",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ea",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ea/8d5e6faedfc7f6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/eb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/eb/a1fa47e99f03c6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ee",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ee/ed1da97c0f696d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f4/2badc9d0c86e72",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f5/4251b9878a2377",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f8/a75596922fa027",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fa",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fa/83b424a261c45a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fa/8921a47dcfb53c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fc/e5b2cb693aab26",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fd/1677b3aac6c1e8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fe",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fe/40c38d7e7bcbde",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ff",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ff/dcb04fb1c5ea9a",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/c0",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/c0/d39333b7e7fc95",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/ca",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/ca/584ffb0c2646b1",
-          "/app/tmp/cache/bootsnap/load-path-cache",
-          "/data",
           "/data/docuseal"
         ],
         "arch": "amd64-ci-build",
@@ -529,7 +282,7 @@
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "a\n/app/tmp/cache/bootsnap/compile-cache-iseq/da/4f800d33a5eb07\n/app/tmp/cache/bootsnap/compile-cache-iseq/da/b875fe1098f26f\n/app/tmp/cache/bootsnap/compile-cache-iseq/dc\n/app/tmp/cache/bootsnap/compile-cache-iseq/dc/59cc0cb956db80\n/app/tmp/cache/bootsnap/compile-cache-iseq/e0\n/app/tmp/cache/bootsnap/compile-cache-iseq/e0/b28e9144c802d0\n/app/tmp/cache/bootsnap/compile-cache-iseq/e1\n/app/tmp/cache/bootsnap/compile-cache-iseq/e1/7f3df1fc3fad70\n/app/tmp/cache/bootsnap/compile-cache-iseq/ea\n/app/tmp/cache/bootsnap/compile-cache-iseq/ea/8d5e6faedfc7f6\n/app/tmp/cache/bootsnap/compile-cache-iseq/eb\n/app/tmp/cache/bootsnap/compile-cache-iseq/eb/a1fa47e99f03c6\n/app/tmp/cache/bootsnap/compile-cache-iseq/ee\n/app/tmp/cache/bootsnap/compile-cache-iseq/ee/ed1da97c0f696d\n/app/tmp/cache/bootsnap/compile-cache-iseq/f4\n/app/tmp/cache/bootsnap/compile-cache-iseq/f4/2badc9d0c86e72\n/app/tmp/cache/bootsnap/compile-cache-iseq/f5\n/app/tmp/cache/bootsnap/compile-cache-iseq/f5/4251b9878a2377\n/app/tmp/cache/bootsnap/compile-cache-iseq/f8\n/app/tmp/cache/bootsnap/compile-cache-iseq/f8/a75596922fa027\n/app/tmp/cache/bootsnap/compile-cache-iseq/fa\n/app/tmp/cache/bootsnap/compile-cache-iseq/fa/83b424a261c45a\n/app/tmp/cache/bootsnap/compile-cache-iseq/fa/8921a47dcfb53c\n/app/tmp/cache/bootsnap/compile-cache-iseq/fc\n/app/tmp/cache/bootsnap/compile-cache-iseq/fc/e5b2cb693aab26\n/app/tmp/cache/bootsnap/compile-cache-iseq/fd\n/app/tmp/cache/bootsnap/compile-cache-iseq/fd/1677b3aac6c1e8\n/app/tmp/cache/bootsnap/compile-cache-iseq/fe\n/app/tmp/cache/bootsnap/compile-cache-iseq/fe/40c38d7e7bcbde\n/app/tmp/cache/bootsnap/compile-cache-iseq/ff\n/app/tmp/cache/bootsnap/compile-cache-iseq/ff/dcb04fb1c5ea9a\n/app/tmp/cache/bootsnap/compile-cache-yaml\n/app/tmp/cache/bootsnap/compile-cache-yaml/c0\n/app/tmp/cache/bootsnap/compile-cache-yaml/c0/d39333b7e7fc95\n/app/tmp/cache/bootsnap/compile-cache-yaml/ca\n/app/tmp/cache/bootsnap/compile-cache-yaml/ca/584ffb0c2646b1\n/app/tmp/cache/bootsnap/load-path-cache\n/data\n/data/docuseal"
+            "text": "/data/docuseal"
           }
         ]
       },
@@ -569,42 +322,42 @@
           {
             "kind": "http",
             "source": "web without SECRET_KEY_BASE",
-            "text": "healthy=true exited=false oomKilled=false seconds=60.155\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=135.117\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without SECRET_KEY_BASE",
-            "text": "  INFO -- : [46506262-a857-4a41-bd8a-a285783e5876] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":15.14,\"view\":3.12,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:34:31.006482 #1]  INFO -- : [8dfc9bfe-ca33-4039-9b9e-2cbf04ba3935] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":64.94,\"view\":5.73,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:34:31.129670 #1]  INFO -- : [f7657276-c430-4b0c-b63b-e27c9e55cb35] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":49.03,\"view\":2.08,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:34:31.177901 #1]  INFO -- : [dc90d6a0-7cf8-4e7a-8755-0af733d3a548] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":11.73,\"view\":1.39,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:34:31.264942 #1]  INFO -- : [4d1b13a5-e675-4ad9-878b-9481bf253566] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":25.88,\"view\":1.13,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:34:31.373685 #1]  INFO -- : [157d6943-4e7c-4ced-b110-aabbb9e225d6] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":28.74,\"view\":1.12,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "  INFO -- : [d4a8f5e0-e043-49d0-aad9-a028959161c1] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":28.68,\"view\":2.96,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:18:54.242712 #1]  INFO -- : [0d38b1f6-83c7-4ca1-9272-236713cae8e2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":36.86,\"view\":5.43,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:18:54.472125 #1]  INFO -- : [aed0452c-9920-4549-9727-8175ed4d2962] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":125.84,\"view\":1.68,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:18:54.536333 #1]  INFO -- : [aa5fdf60-eada-46a7-b913-38df2f24ed90] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":17.58,\"view\":4.06,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:18:54.692372 #1]  INFO -- : [27d644ba-5be3-4804-b08b-888e22cc7b24] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":67.2,\"view\":1.18,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:18:54.895033 #1]  INFO -- : [9ddf0c98-1e25-48b3-949f-65b515b71a36] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":29.83,\"view\":1.35,\"db\":0.0,\"host\":\"repo-051-r1-v1-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           },
           {
             "kind": "http",
             "source": "web without AWS_ACCESS_KEY_ID",
-            "text": "healthy=true exited=false oomKilled=false seconds=63.815\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=104.649\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without AWS_ACCESS_KEY_ID",
-            "text": "1]  INFO -- : [ee713cc8-df98-4355-8a04-17b27c28d5e4] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":9.64,\"view\":1.91,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:36:01.738253 #1]  INFO -- : [aa7926de-f0d8-4727-9c84-fe66d947883d] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":17.09,\"view\":3.4,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:36:01.882175 #1]  INFO -- : [e8490ff2-0d69-4741-8656-8d8d95291926] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":57.71,\"view\":1.66,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:36:01.936901 #1]  INFO -- : [8020de4d-a4dc-497a-868a-366301d45b6a] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":15.05,\"view\":2.19,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:36:02.023700 #1]  INFO -- : [a04ba42a-ec8c-4c6d-957a-124be29a9624] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":35.97,\"view\":1.51,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:36:02.156755 #1]  INFO -- : [1844c9dc-a5e8-4ed0-907d-0f2b20210bf4] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":24.39,\"view\":2.58,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "]  INFO -- : [e9686d7c-2b0a-4b7e-98a1-a9ab822b51b5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":22.36,\"view\":0.85,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:21:48.591598 #1]  INFO -- : [cfa7682c-a9a5-4a4e-89b8-0063ffe4865f] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":14.02,\"view\":1.93,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:21:48.668924 #1]  INFO -- : [b53162f1-0007-4d38-82cf-35cc6ccff09a] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":18.75,\"view\":0.73,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:21:48.689781 #1]  INFO -- : [04bcf24d-eee5-460d-a1dd-b16c26e744df] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":3.12,\"view\":0.36,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:21:48.729860 #1]  INFO -- : [6f96b834-9abe-4d75-8cd4-a9c3aad0f031] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":12.48,\"view\":0.39,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:21:48.765797 #1]  INFO -- : [78496f2e-235f-4fac-8b09-3f2c4b01cfa6] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":12.61,\"view\":0.65,\"db\":0.0,\"host\":\"repo-051-r1-v2-web1\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           },
           {
             "kind": "http",
             "source": "web without AWS_SECRET_ACCESS_KEY",
-            "text": "healthy=true exited=false oomKilled=false seconds=76.094\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=93.453\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without AWS_SECRET_ACCESS_KEY",
-            "text": "2 #1]  INFO -- : [dc689b18-545b-4d99-87de-c0bfb854024f] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":3.74,\"view\":0.43,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:38:13.365126 #1]  INFO -- : [cb2fc373-45d1-4bae-83cd-b2224afbd067] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":16.15,\"view\":1.74,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:38:13.407950 #1]  INFO -- : [00d2f1b9-ae45-42d9-9c09-16ae9b5e4c7b] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":11.82,\"view\":0.42,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:38:13.425480 #1]  INFO -- : [62d6d5a5-b7a7-46e0-b72e-278d786723fc] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":2.78,\"view\":0.38,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:38:13.442654 #1]  INFO -- : [66c1d699-9249-4b3c-8c97-36c1ddd4293a] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":5.44,\"view\":0.29,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:38:13.470027 #1]  INFO -- : [b97471c2-cf16-45c9-9be3-6de8c6a6e0a5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.84,\"view\":0.4,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "5 #1]  INFO -- : [b8c026ec-452d-4298-9ef3-3a57157b5eb6] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":2.49,\"view\":0.35,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:24:37.517743 #1]  INFO -- : [111eb752-031d-4f48-ac13-f4ea644562a9] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":8.77,\"view\":1.88,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:24:37.573356 #1]  INFO -- : [794ef9cf-6d46-45ef-bea2-57faf802ebf6] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":12.05,\"view\":0.43,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:24:37.605280 #1]  INFO -- : [18ef2037-1ff0-4eab-b7a4-003b8aa2e774] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":3.24,\"view\":0.42,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:24:37.668895 #1]  INFO -- : [26f63dc9-861a-4202-b0d7-91506e93f395] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":8.21,\"view\":0.38,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:24:37.693287 #1]  INFO -- : [c8f785df-e1ad-4a7a-b7c9-0842033615c7] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.28,\"view\":0.65,\"db\":0.0,\"host\":\"repo-051-r1-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           },
           {
             "kind": "http",
             "source": "web without AZURE_STORAGE_ACCESS_KEY",
-            "text": "healthy=true exited=false oomKilled=false seconds=55.702\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=94.056\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without AZURE_STORAGE_ACCESS_KEY",
-            "text": "  INFO -- : [6845b23f-f770-43d3-a8ec-22a5942fc773] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":32.49,\"view\":1.23,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:40:08.462427 #1]  INFO -- : [7573a830-698f-45b8-8626-a85530a9c2fd] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":33.82,\"view\":6.04,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:40:08.703460 #1]  INFO -- : [bfd3e14c-df1b-4f45-9675-b6936ae99237] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":53.84,\"view\":2.19,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:40:08.740862 #1]  INFO -- : [1efeafb9-a466-4c73-8513-35fc445f40fd] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":10.57,\"view\":1.11,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:40:08.813520 #1]  INFO -- : [1bb15ba6-fa63-41b0-9da0-4cf021545d70] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":24.56,\"view\":1.05,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:40:08.898140 #1]  INFO -- : [436f0d79-683a-4c60-9b01-86f797671e21] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":21.74,\"view\":0.96,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "5 #1]  INFO -- : [7db007f4-13d3-410a-8656-bc72eec3af45] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":5.51,\"view\":0.61,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:27:29.896100 #1]  INFO -- : [6812381a-e8cd-4551-a2b9-5e74a60c1290] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":12.43,\"view\":1.76,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:27:29.960986 #1]  INFO -- : [165f5f69-6fdd-4345-8b9c-9b3ff3c065ae] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":13.77,\"view\":0.49,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:27:29.979643 #1]  INFO -- : [86c2d882-e3a5-43a2-8408-2aaab6739e0c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":3.02,\"view\":0.38,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:27:30.007813 #1]  INFO -- : [a1f223eb-9094-4036-a7a7-d391db206651] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":8.3,\"view\":0.43,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:27:30.054973 #1]  INFO -- : [fea1085a-aabe-43a8-94d2-8985f14d1517] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":12.1,\"view\":0.47,\"db\":0.0,\"host\":\"repo-051-r1-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -626,12 +379,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=64.354\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=147.804\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": ".732385 #1]  INFO -- : [bdc3fcef-1433-4b6f-bb5b-86f71c2d2cd5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":2.77,\"view\":0.38,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:32:37.783583 #1]  INFO -- : [998ba3e3-4652-4966-a3ae-a1817e94604b] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.04,\"view\":1.32,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:32:37.834148 #1]  INFO -- : [a59f91b1-2941-4598-8f86-5e2150cbca84] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":16.91,\"view\":0.4,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:32:37.870525 #1]  INFO -- : [3e02a547-20d9-40ec-a904-1746ce5442b9] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":12.71,\"view\":3.39,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:32:37.902667 #1]  INFO -- : [bba8cf47-b18f-4fe6-98c1-cdb144a4286c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.03,\"view\":0.34,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:32:37.950645 #1]  INFO -- : [43c2b27d-7402-442c-8023-d3af27952154] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.22,\"view\":0.46,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "2767 #1]  INFO -- : [4eed78a1-072d-40e9-b18a-844b3612f5d0] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":17.67,\"view\":7.78,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.2.6\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:15:38.736256 #1]  INFO -- : [3956ed1b-4826-476d-a478-146eb6211a85] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":14.51,\"view\":4.47,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.2.6\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:15:38.777515 #1]  INFO -- : [0684da39-94fe-4d6e-9271-cf8087aed2b2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":14.55,\"view\":0.59,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.2.6\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:15:38.804523 #1]  INFO -- : [106123ee-a743-49dd-bb33-2b570bf9dee9] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":5.32,\"view\":0.62,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.2.6\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:15:38.829736 #1]  INFO -- : [1d710a7f-dd6e-4397-bf2a-86b848901016] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":8.53,\"view\":0.39,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.2.6\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:15:38.872444 #1]  INFO -- : [1f596ee8-4bc7-4ffd-8653-840559fc68f5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":10.65,\"view\":1.45,\"db\":0.0,\"host\":\"repo-051-r1-c-web2\",\"fwd\":\"10.200.2.6\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -643,12 +396,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=37.894\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=90.822\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "31013 #1]  INFO -- : [788bb5ad-6e3f-4794-b15c-efb3e3c089e2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.77,\"view\":1.03,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:30:43.900691 #1]  INFO -- : [5db41ae3-2f03-424d-8f98-6e992b783841] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":55.62,\"view\":15.99,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:30:44.034232 #1]  INFO -- : [f0442ccb-8463-4010-a330-9175e1d12cd2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":18.49,\"view\":1.54,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:30:44.147413 #1]  INFO -- : [ec9ae922-8678-4bfd-8d11-f8ae7d9ae7e2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":46.82,\"view\":2.22,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:30:44.298559 #1]  INFO -- : [d61910f4-d2d0-4009-af07-3642b9cdc7bb] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":64.2,\"view\":1.0,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:30:44.530669 #1]  INFO -- : [2c33411a-7ff0-4f0a-861f-1bc10c664661] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":35.32,\"view\":1.4,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "1432 #1]  INFO -- : [d8f71b7a-f396-46c3-bdd9-0cbe1a264535] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":3.79,\"view\":0.57,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:12:00.420163 #1]  INFO -- : [eeda296d-0f10-470a-9845-51b38e38dd63] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":28.07,\"view\":3.73,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:12:00.504295 #1]  INFO -- : [058d1747-8f2f-4a23-bd84-3acb4a062b41] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":10.65,\"view\":0.79,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:12:00.622593 #1]  INFO -- : [30d84cfd-940a-411c-a677-4a7ee78d4035] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":20.75,\"view\":0.57,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:12:00.695883 #1]  INFO -- : [01b03b33-deec-4d31-aac8-a25a318bc1de] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":33.72,\"view\":0.5,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:12:00.783425 #1]  INFO -- : [350c094c-02ea-4050-afde-a03483e44fe7] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":11.89,\"view\":0.56,\"db\":0.0,\"host\":\"repo-051-r1-a-web2\",\"fwd\":\"10.200.2.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -660,7 +413,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 63.121,
+            "startSeconds": 204.476,
             "oomKilled": false
           }
         ],
@@ -702,14 +455,14 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 52.38,
-        "setA": 181.014,
-        "twoCopies": 105.214,
-        "requiredVariables": 456.324
+        "build": 68.142,
+        "setA": 404.484,
+        "twoCopies": 213.266,
+        "requiredVariables": 712.262
       }
     },
     {
-      "startedAt": "2026-10-16T23:40:20.226Z",
+      "startedAt": "2026-10-17T11:27:44.812Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -745,12 +498,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=62.73\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=111.208\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": ".754583 #1]  INFO -- : [2c213ab9-9ef2-4e8e-9310-4c60c06831ad] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.73,\"view\":0.36,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:42:39.822552 #1]  INFO -- : [0e3161a0-7ef2-4cd6-ba52-51d8fd7c2580] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":12.58,\"view\":1.55,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:42:39.861038 #1]  INFO -- : [fc6ee5f1-9c67-4654-a636-8310b317a7d0] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":10.23,\"view\":0.37,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:42:39.892526 #1]  INFO -- : [35df0723-8327-400d-ba6e-a2905316b410] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":2.25,\"view\":0.3,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:42:39.910129 #1]  INFO -- : [38576b20-cbbf-455b-bb28-d7854f1300d2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":5.06,\"view\":0.25,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:42:39.927533 #1]  INFO -- : [8f5122a5-b229-48a6-b30a-bd166f8a96a0] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":3.99,\"view\":0.24,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "8794 #1]  INFO -- : [01a9b437-1307-4cdf-b0b3-297ea71fbe68] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":37.22,\"view\":1.85,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:31:46.198276 #1]  INFO -- : [f7e152e3-26fd-4012-8259-60e68e0d90ac] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":29.69,\"view\":6.5,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:31:46.327057 #1]  INFO -- : [dce5d0a5-1b20-48be-a7e2-6e039fca0a85] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":41.35,\"view\":1.15,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:31:46.369658 #1]  INFO -- : [cf86cef5-f151-402b-8b50-2764b69765c9] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":11.91,\"view\":1.35,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:31:46.445288 #1]  INFO -- : [03738dfc-6074-46a1-89a2-84cccce5a3c8] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":28.19,\"view\":1.1,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:31:46.554102 #1]  INFO -- : [6219b0eb-9aaf-491d-a255-d04681bc57c5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":22.88,\"view\":1.63,\"db\":0.0,\"host\":\"repo-051-r2-a-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -763,7 +516,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 34885,
+            "port": 41907,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -773,7 +526,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n34885 loopback reachable=false"
+            "text": "18080 all reachable=true\n41907 loopback reachable=false"
           }
         ]
       },
@@ -919,7 +672,7 @@
           {
             "kind": "command",
             "source": "valkey",
-            "text": "INFO stats total_connections_received = 14, baseline 2, harness sessions 1: 11 application connections; DBSIZE = 2"
+            "text": "INFO stats total_connections_received = 14, baseline 2, harness sessions 1: 11 application connections; DBSIZE = 3"
           },
           {
             "kind": "command",
@@ -955,7 +708,7 @@
           {
             "kind": "command",
             "source": "valkey",
-            "text": "INFO stats total_connections_received = 14, baseline 2, harness sessions 1: 11 application connections; DBSIZE = 2"
+            "text": "INFO stats total_connections_received = 14, baseline 2, harness sessions 1: 11 application connections; DBSIZE = 3"
           }
         ]
       },
@@ -976,253 +729,6 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/app",
-          "/app/tmp",
-          "/app/tmp/cache",
-          "/app/tmp/cache/bootsnap",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/00",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/00/718d7690177ee8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/01",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/01/8e4f0a09e1c427",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/01/b9692669968a91",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/02",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/02/71eb9ef570469a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/03",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/03/2ed2384d2b6c31",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/06",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/06/c06fdb28af8762",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/07",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/07/c7ace093835cd7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/07/cc300c1b9b3e9c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/08",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/08/2053ef8f8c20a7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/0f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/0f/8475fd7518543b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15/00d49cd997944c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15/2134ae41ca4b75",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/15/a51a40a90f15dd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/16",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/16/dc8004114504ec",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/17",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/17/072652cb7c15c9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/18",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/18/2a68697034e2d8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1d/4b0b2668d013a7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/1e/5be8bcc78146e9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/22",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/22/6e19bf28c77603",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/23",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/23/6d19ab563a1277",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/24",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/24/2d3b56b63ef0d7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/25",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/25/563aa802ed30d4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/28",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/28/73ccafe910ea51",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2c/5245173370288f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2e/8d30cb8c91aa21",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/2f/8f0038a9f586bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3a/b341af3316b424",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3b/224fa58e378536",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3d/caedd64b7d2ebe",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3e/6b6cf1986b1371",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/3f/eb1af4ad42b3d1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/40",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/40/21f04970037fec",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/40/4bd2d82ba447bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/41",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/41/1eeacc9a1c71c5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/44",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/44/5085ce56099191",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4c/5b4d29963c8152",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4d/b9c828844f79db",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/4e/a3b66f59651c1d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/52",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/52/76d7d1922990c3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/55",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/55/4ba08171bc459d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/55/f74dd19ec21794",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5b/bf54942a4e181c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5c/037da1a5a31c98",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5c/2625a12b05f7a6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/5d/a158aa02ee8d77",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/60",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/60/ce348cec5fdd31",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/62",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/62/5ec017df702aa0",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/63",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/63/76f69e99467d6b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/63/8647fca0beba69",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/64",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/64/1053595ac6b3bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/64/b5cd4295c267e8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/66",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/66/8484e59bdd6cc5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/67",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/67/f6e720af5f727b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6c/45dfc960a6d962",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/6e/415d30d068874a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/70",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/70/3bb74a4d4db171",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/70/63a6a1ffbc4810",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/72",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/72/099e9797d0cc94",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/73",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/73/2e1862efca95cd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/76",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/76/a232d2e09ff810",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/77",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/77/e7de45d1fe9401",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/79",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/79/a23cfd2a6a3050",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/81",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/81/680628c7a8ec18",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/82",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/82/7fa9b88d096797",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/82/d04fd9fdc8aa07",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/83",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/83/fb5be49609efa9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/84",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/84/6edb4968ff14be",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/85",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/85/1cb2ca919fc8bb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/85/cf35ae243f15c3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/86",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/86/7b000053dd34b3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8b/94b839044a49f8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/8e/9c56747e683d20",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/97",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/97/882a53bca4bf9a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/98",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/98/8e1c271cbe69a7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/98/c9377fc359bfb8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/99",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/99/643c71f43d35d1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9a/304ed5e3b1200e",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/9c/444422a939c29f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a1/60429bcdd14175",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a2",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a2/9f03999a4caefc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a3",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a3/6c30117f8c5745",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a3/f4cc65949f2cba",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a4/ed5ce827c044ca",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a8/3c38db5b0bee45",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a9/4d2c6982e9dc75",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/a9/cb6dd117633eff",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/aa",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/aa/0c7242f07aa2af",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ab",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ab/cde2af2a5d47c4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ac",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ac/0d8c382c50a316",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b1/c4a79452fa06f4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b4/d72b86449bb0c8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b5/36dd972ea77430",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b6/856446ea12a25f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b8/79e36ee53df764",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b9",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/b9/2ad3e4ee04078d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bb/ec8108e81a32f7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bd/14339b9f364170",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bf",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bf/69f520d304c162",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/bf/dd73fdf74f3cec",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c4/b37b568dd4c2bf",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c5/5410c4ca4c4ffb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c6/41bae03c9ef7ad",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c7/ec9be8f9b40502",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/c8/773a1e49dc90dc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ca",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ca/6567f7d9cf70ac",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/cd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/cd/9b0559125dfb64",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ce",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ce/b4f1e96bf290ac",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d6/722af06ef144f2",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d7",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d7/1f8c8ff71d0775",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/d7/233ad25bc54d5b",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/da",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/da/4f800d33a5eb07",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/da/b875fe1098f26f",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/dc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/dc/59cc0cb956db80",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e0",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e0/b28e9144c802d0",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e1",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/e1/7f3df1fc3fad70",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ea",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ea/8d5e6faedfc7f6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/eb",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/eb/a1fa47e99f03c6",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ee",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ee/ed1da97c0f696d",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f4",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f4/2badc9d0c86e72",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f5",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f5/4251b9878a2377",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/f8/a75596922fa027",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fa",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fa/83b424a261c45a",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fa/8921a47dcfb53c",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fc",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fc/e5b2cb693aab26",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fd",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fd/1677b3aac6c1e8",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fe",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/fe/40c38d7e7bcbde",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ff",
-          "/app/tmp/cache/bootsnap/compile-cache-iseq/ff/dcb04fb1c5ea9a",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/c0",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/c0/d39333b7e7fc95",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/ca",
-          "/app/tmp/cache/bootsnap/compile-cache-yaml/ca/584ffb0c2646b1",
-          "/app/tmp/cache/bootsnap/load-path-cache",
-          "/data",
           "/data/docuseal"
         ],
         "arch": "amd64-ci-build",
@@ -1230,7 +736,7 @@
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "a\n/app/tmp/cache/bootsnap/compile-cache-iseq/da/4f800d33a5eb07\n/app/tmp/cache/bootsnap/compile-cache-iseq/da/b875fe1098f26f\n/app/tmp/cache/bootsnap/compile-cache-iseq/dc\n/app/tmp/cache/bootsnap/compile-cache-iseq/dc/59cc0cb956db80\n/app/tmp/cache/bootsnap/compile-cache-iseq/e0\n/app/tmp/cache/bootsnap/compile-cache-iseq/e0/b28e9144c802d0\n/app/tmp/cache/bootsnap/compile-cache-iseq/e1\n/app/tmp/cache/bootsnap/compile-cache-iseq/e1/7f3df1fc3fad70\n/app/tmp/cache/bootsnap/compile-cache-iseq/ea\n/app/tmp/cache/bootsnap/compile-cache-iseq/ea/8d5e6faedfc7f6\n/app/tmp/cache/bootsnap/compile-cache-iseq/eb\n/app/tmp/cache/bootsnap/compile-cache-iseq/eb/a1fa47e99f03c6\n/app/tmp/cache/bootsnap/compile-cache-iseq/ee\n/app/tmp/cache/bootsnap/compile-cache-iseq/ee/ed1da97c0f696d\n/app/tmp/cache/bootsnap/compile-cache-iseq/f4\n/app/tmp/cache/bootsnap/compile-cache-iseq/f4/2badc9d0c86e72\n/app/tmp/cache/bootsnap/compile-cache-iseq/f5\n/app/tmp/cache/bootsnap/compile-cache-iseq/f5/4251b9878a2377\n/app/tmp/cache/bootsnap/compile-cache-iseq/f8\n/app/tmp/cache/bootsnap/compile-cache-iseq/f8/a75596922fa027\n/app/tmp/cache/bootsnap/compile-cache-iseq/fa\n/app/tmp/cache/bootsnap/compile-cache-iseq/fa/83b424a261c45a\n/app/tmp/cache/bootsnap/compile-cache-iseq/fa/8921a47dcfb53c\n/app/tmp/cache/bootsnap/compile-cache-iseq/fc\n/app/tmp/cache/bootsnap/compile-cache-iseq/fc/e5b2cb693aab26\n/app/tmp/cache/bootsnap/compile-cache-iseq/fd\n/app/tmp/cache/bootsnap/compile-cache-iseq/fd/1677b3aac6c1e8\n/app/tmp/cache/bootsnap/compile-cache-iseq/fe\n/app/tmp/cache/bootsnap/compile-cache-iseq/fe/40c38d7e7bcbde\n/app/tmp/cache/bootsnap/compile-cache-iseq/ff\n/app/tmp/cache/bootsnap/compile-cache-iseq/ff/dcb04fb1c5ea9a\n/app/tmp/cache/bootsnap/compile-cache-yaml\n/app/tmp/cache/bootsnap/compile-cache-yaml/c0\n/app/tmp/cache/bootsnap/compile-cache-yaml/c0/d39333b7e7fc95\n/app/tmp/cache/bootsnap/compile-cache-yaml/ca\n/app/tmp/cache/bootsnap/compile-cache-yaml/ca/584ffb0c2646b1\n/app/tmp/cache/bootsnap/load-path-cache\n/data\n/data/docuseal"
+            "text": "/data/docuseal"
           }
         ]
       },
@@ -1270,42 +776,42 @@
           {
             "kind": "http",
             "source": "web without SECRET_KEY_BASE",
-            "text": "healthy=true exited=false oomKilled=false seconds=66.601\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=120.102\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without SECRET_KEY_BASE",
-            "text": " INFO -- : [fc57080e-f7e1-44f1-9d07-1244ba108618] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":16.06,\"view\":2.78,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:47:47.382693 #1]  INFO -- : [26b343c3-7468-4e15-bd62-a555fb980332] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":85.23,\"view\":13.43,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:47:47.499943 #1]  INFO -- : [c18dd7bf-0e1a-44f5-8bdb-b8d3231ca543] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":46.78,\"view\":1.15,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:47:47.587428 #1]  INFO -- : [144c4e7a-8678-4f0a-93c3-68baaf8a53c4] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":31.26,\"view\":1.18,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:47:47.704786 #1]  INFO -- : [d34f5fd3-06eb-4bb9-ad09-4bb2c0b4e1c2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":30.85,\"view\":1.17,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:47:47.873981 #1]  INFO -- : [fa227d61-63f4-4030-9d77-06483d0ee176] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":36.73,\"view\":1.86,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "  INFO -- : [66967f4e-3757-4f3e-ae0f-a84d86459452] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":30.24,\"view\":1.27,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:40:41.745208 #1]  INFO -- : [f1600e20-c95c-4a1b-bc1b-91fc291da3a6] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":290,\"duration\":136.45,\"view\":7.47,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:40:41.880474 #1]  INFO -- : [853ad6fc-70a7-4f9b-8981-2b8b38797f9c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":23.06,\"view\":3.42,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:40:42.013027 #1]  INFO -- : [2a2b7849-ab76-473a-b454-10bfb2c912f5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":37.57,\"view\":1.23,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:40:42.080930 #1]  INFO -- : [6b57a74c-2e40-476d-b6ee-ccdca06a160e] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":21.4,\"view\":1.01,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:40:42.228781 #1]  INFO -- : [053de9fa-4203-4712-863a-9e258a8927a3] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":33.09,\"view\":1.16,\"db\":0.0,\"host\":\"repo-051-r2-v1-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           },
           {
             "kind": "http",
             "source": "web without AWS_ACCESS_KEY_ID",
-            "text": "healthy=true exited=false oomKilled=false seconds=53.01\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=95.015\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without AWS_ACCESS_KEY_ID",
-            "text": "INFO -- : [df2ff78a-bf31-48d3-8b22-21db787301fc] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":62.44,\"view\":2.23,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:49:19.206422 #1]  INFO -- : [ff7386e0-4652-4688-8f36-be96af0a0cae] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":73.18,\"view\":10.98,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:49:19.411131 #1]  INFO -- : [5d19a024-7b4f-41ab-805c-635f943f0fdf] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":73.01,\"view\":3.34,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:49:19.651098 #1]  INFO -- : [54cee47f-036e-4572-b07d-6debda02324d] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":19.43,\"view\":1.76,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:49:20.031632 #1]  INFO -- : [621060dd-8813-4957-a09e-686d96034647] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":101.14,\"view\":2.15,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:49:20.139492 #1]  INFO -- : [3dfc668a-4a3d-48fd-a1e6-fa4fd2b841f2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":27.01,\"view\":1.13,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": " #1]  INFO -- : [081b9d5e-5f0c-4ea8-809e-62429270ca23] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":48.6,\"view\":2.75,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:43:36.153441 #1]  INFO -- : [42da83b7-2a3b-4353-83b8-6bf31a768c3f] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":34.35,\"view\":9.06,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:43:36.265599 #1]  INFO -- : [fb0c7873-e68c-415b-93a6-9dcacc15c965] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":42.16,\"view\":1.31,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:43:36.313682 #1]  INFO -- : [91b558d7-59a7-4833-8719-0729f347d7fd] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":9.88,\"view\":1.09,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:43:36.377851 #1]  INFO -- : [3b93f6c4-7224-4631-a0e9-ab007a11c6cf] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":21.4,\"view\":1.07,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:43:36.479361 #1]  INFO -- : [3e5b86e2-254d-4848-bc67-63e2a731205c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":19.8,\"view\":1.16,\"db\":0.0,\"host\":\"repo-051-r2-v2-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           },
           {
             "kind": "http",
             "source": "web without AWS_SECRET_ACCESS_KEY",
-            "text": "healthy=true exited=false oomKilled=false seconds=62.262\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=143.037\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without AWS_SECRET_ACCESS_KEY",
-            "text": "90 #1]  INFO -- : [e81d2f52-4ed8-4269-8a12-ae8b653115f9] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.77,\"view\":0.33,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:51:08.918668 #1]  INFO -- : [2efa2e94-84b5-4d92-89df-00c9f07e2f2a] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":10.9,\"view\":1.25,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:51:08.957973 #1]  INFO -- : [d41171ed-6c94-4b3f-91aa-14543eb9a28e] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":8.61,\"view\":0.3,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:51:08.989911 #1]  INFO -- : [f75d9d5e-e012-47cb-9afa-8d7a06b7c9ec] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":16.26,\"view\":0.25,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:51:09.007040 #1]  INFO -- : [c161b40f-782f-47b6-9723-0b377c78a917] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":5.13,\"view\":0.27,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:51:09.025052 #1]  INFO -- : [176337bc-e8f2-481a-a3bf-156dba9c0cca] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":4.11,\"view\":0.23,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "NFO -- : [344d85d5-490d-49d1-8f4f-0e4440937b19] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":236,\"duration\":128.24,\"view\":2.62,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:46:55.848080 #1]  INFO -- : [c8378ea2-acde-495b-a335-a6b8043e7ad1] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":161.89,\"view\":34.16,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:46:56.130917 #1]  INFO -- : [c88764bb-5940-43ee-9912-1f589c210ef2] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":87.82,\"view\":1.62,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:46:56.242307 #1]  INFO -- : [8b580574-6cde-4250-9c2a-2836c5c25cf1] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":18.51,\"view\":1.42,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:46:56.539598 #1]  INFO -- : [4c3dc462-0ce8-452e-b6db-249a14df62be] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":55.54,\"view\":1.85,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:46:56.871219 #1]  INFO -- : [6866cbd6-1518-4394-a31a-6aa99fc20383] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":67.73,\"view\":1.77,\"db\":0.0,\"host\":\"repo-051-r2-v3-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           },
           {
             "kind": "http",
             "source": "web without AZURE_STORAGE_ACCESS_KEY",
-            "text": "healthy=true exited=false oomKilled=false seconds=65.011\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=146.856\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without AZURE_STORAGE_ACCESS_KEY",
-            "text": "35 #1]  INFO -- : [e611f7d4-8eb6-4584-b2a5-81ab9f57f7d0] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":2.53,\"view\":0.35,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:53:14.421358 #1]  INFO -- : [caeea747-9323-449a-ab15-84463a7be1f8] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":15.7,\"view\":8.79,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:53:14.491545 #1]  INFO -- : [48a4e24a-6d39-4006-a2f1-a7d596bc77e9] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":29.04,\"view\":0.5,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:53:14.514159 #1]  INFO -- : [75b99487-b881-4859-a86a-1de6aa3910cf] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.16,\"view\":1.66,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:53:14.541548 #1]  INFO -- : [8e5d2267-6861-43f7-9eb4-71481df01766] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.77,\"view\":0.31,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:53:14.577762 #1]  INFO -- : [94dc335d-d499-4402-877a-3d7d3f0d5bda] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":9.49,\"view\":0.78,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "#1]  INFO -- : [1c7ab3d4-92e8-4ad9-8828-ced89aa99b22] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":29.92,\"view\":0.59,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:50:53.920925 #1]  INFO -- : [31a68939-c7de-4aaf-b892-6aa431bdcc22] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":10.2,\"view\":2.25,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:50:54.010389 #1]  INFO -- : [9816a496-780d-4ffb-a766-cfa3627766fb] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":41.46,\"view\":0.51,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:50:54.027093 #1]  INFO -- : [61882f39-cf0b-4e0e-8b1e-2f2ac500595c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":3.13,\"view\":0.48,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:50:54.058988 #1]  INFO -- : [f0e8e64b-22e7-4c31-a7c4-7deec30fc1ae] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":13.65,\"view\":0.41,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:50:54.105592 #1]  INFO -- : [14b7ea59-ebc0-4966-a430-4d6038bf3a01] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":9.76,\"view\":0.58,\"db\":0.0,\"host\":\"repo-051-r2-v4-web1\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -1327,12 +833,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=64.586\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=130.72\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": ".544841 #1]  INFO -- : [42fc07ef-f194-487c-afca-ff7301c39233] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":11.46,\"view\":0.31,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:45:44.598808 #1]  INFO -- : [92dff69a-959c-4838-9a55-f2696efca6d5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":14.67,\"view\":1.33,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:45:44.629270 #1]  INFO -- : [ad6ba889-4e32-4244-8939-8fc32bcdba99] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":8.83,\"view\":0.35,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:45:44.674049 #1]  INFO -- : [0708c5df-f52d-438c-9e66-6c264d4b4e22] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.52,\"view\":5.57,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:45:44.712496 #1]  INFO -- : [1737a08c-1755-4b6d-a78e-8625fa40d8ec] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.85,\"view\":0.3,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:45:44.756598 #1]  INFO -- : [2b38ed66-af91-49e0-8acd-0067f6049b09] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":10.4,\"view\":0.42,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "04349 #1]  INFO -- : [249a1302-acaa-48be-b4f4-527018b6f9d5] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":39.25,\"view\":1.23,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:37:08.024422 #1]  INFO -- : [4fcfebf1-4507-4607-9c59-f31f253d1671] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":32.36,\"view\":7.66,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:37:08.183000 #1]  INFO -- : [ddbd187a-5558-4bd7-a37b-ad3d5b2532fd] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":75.66,\"view\":1.84,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:37:08.231284 #1]  INFO -- : [d24ce504-e2ab-4279-8ae1-8a00fe7bf1c8] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":9.01,\"view\":1.16,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:37:08.304811 #1]  INFO -- : [d32ca89e-9f9c-42bf-a0e9-9b1058a99540] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":30.39,\"view\":1.9,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:37:08.454978 #1]  INFO -- : [b0b21c4f-a0e3-49a9-9f96-bfd787a296c8] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":42.39,\"view\":2.0,\"db\":0.0,\"host\":\"repo-051-r2-c-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -1344,12 +850,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=63.722\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=82.091\n18080/ 302\n18080/up 200\n18080/health 404\n18080/healthz 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/up none\n3000/health none\n3000/healthz none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/up none\n8080/health none\n8080/healthz none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/up none\n80/health none\n80/healthz none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": ".091305 #1]  INFO -- : [8a1a1871-8644-4579-99eb-4e37bf16c49e] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":2.21,\"view\":0.31,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:43:50.139900 #1]  INFO -- : [5714ddbb-4b6a-4e37-a0c6-9c396d254fda] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":8.75,\"view\":1.91,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:43:50.177137 #1]  INFO -- : [c0752678-4a12-435d-b5ce-e611e6191ce0] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":15.19,\"view\":0.31,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:43:50.198380 #1]  INFO -- : [6fa8d0bd-56ca-4d9b-8244-8934fae52cca] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":2.23,\"view\":0.26,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:43:50.227448 #1]  INFO -- : [f4802fd4-1998-4cd3-9452-a12800ec325c] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.95,\"view\":0.25,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-16T23:43:50.259128 #1]  INFO -- : [c3f6e72d-e0c4-4032-9e57-52db5f798117] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":5.84,\"view\":0.27,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
+            "text": "937570 #1]  INFO -- : [0cc217b2-d96f-441c-b315-92567bcba4cb] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.98,\"view\":0.47,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:33:42.986302 #1]  INFO -- : [755a47b1-3348-48b2-abec-a5a071ad6c3e] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":15.88,\"view\":7.47,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:33:43.038361 #1]  INFO -- : [9f9f5266-7af0-4c9d-8876-4ab328ee920e] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":19.03,\"view\":0.41,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:33:43.060588 #1]  INFO -- : [7342fb3f-ee53-4026-a381-9d192f13a475] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.83,\"view\":0.53,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:33:43.086169 #1]  INFO -- : [74a6d026-8191-45d6-a43d-3c50a2cd8842] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":7.29,\"view\":0.32,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\nI, [2026-10-17T11:33:43.121951 #1]  INFO -- : [88c8e2e7-48b5-44af-87a4-15dabbeb917e] {\"method\":\"GET\",\"format\":\"*/*\",\"controller\":\"ErrorsController\",\"action\":\"show\",\"status\":404,\"allocations\":203,\"duration\":6.21,\"view\":0.34,\"db\":0.0,\"host\":\"repo-051-r2-a-web2\",\"fwd\":\"10.200.1.7\",\"params\":{},\"uid\":null,\"aid\":null,\"rid\":null,\"raid\":null}\n"
           }
         ]
       },
@@ -1361,7 +867,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 62.73,
+            "startSeconds": 111.208,
             "oomKilled": false
           }
         ],
@@ -1403,10 +909,10 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 52.431,
-        "setA": 168.866,
-        "twoCopies": 109.569,
-        "requiredVariables": 449.12800000000004
+        "build": 87.177,
+        "setA": 277.69,
+        "twoCopies": 217.855,
+        "requiredVariables": 814.084
       }
     }
   ],

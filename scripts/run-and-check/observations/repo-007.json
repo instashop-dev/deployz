@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T17:50:55.870Z",
+      "startedAt": "2026-10-17T08:10:34.852Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -162,25 +162,14 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/ghostfolio",
-          "/ghostfolio/apps",
-          "/ghostfolio/apps/api",
-          "/ghostfolio/apps/api/node_modules",
-          "/home",
-          "/home/node",
-          "/home/node/.config",
-          "/home/node/.config/prisma-nodejs",
-          "/home/node/.config/prisma-nodejs/commands.json",
-          "/home/node/.npm",
-          "/home/node/.npm/_logs",
-          "/home/node/.npm/_update-notifier-last-checked"
+          "/home/node/.config/prisma-nodejs/commands.json"
         ],
         "arch": "amd64-emulated",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/ghostfolio\n/ghostfolio/apps\n/ghostfolio/apps/api\n/ghostfolio/apps/api/node_modules\n/home\n/home/node\n/home/node/.config\n/home/node/.config/prisma-nodejs\n/home/node/.config/prisma-nodejs/commands.json\n/home/node/.npm\n/home/node/.npm/_logs\n/home/node/.npm/_update-notifier-last-checked"
+            "text": "/home/node/.config/prisma-nodejs/commands.json"
           }
         ]
       },
@@ -286,13 +275,13 @@
         "needs internet at run time: Error: request to https://binaries.prisma.sh/all_commits/0edf323efd1d98336f3f0a68684b56f689b900d3/debian-openssl-3.0.x/schema-engine.gz.sha256 failed, reason: getaddrinfo EAI_AGAIN binaries.prisma.sh"
       ],
       "timings": {
-        "build": 28.217,
-        "setA": 165.281,
-        "sizes": 126.238
+        "build": 43.897,
+        "setA": 200.542,
+        "sizes": 161.371
       }
     },
     {
-      "startedAt": "2026-10-16T17:56:15.616Z",
+      "startedAt": "2026-10-17T08:17:20.674Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -446,25 +435,14 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/ghostfolio",
-          "/ghostfolio/apps",
-          "/ghostfolio/apps/api",
-          "/ghostfolio/apps/api/node_modules",
-          "/home",
-          "/home/node",
-          "/home/node/.config",
-          "/home/node/.config/prisma-nodejs",
-          "/home/node/.config/prisma-nodejs/commands.json",
-          "/home/node/.npm",
-          "/home/node/.npm/_logs",
-          "/home/node/.npm/_update-notifier-last-checked"
+          "/home/node/.config/prisma-nodejs/commands.json"
         ],
         "arch": "amd64-emulated",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/ghostfolio\n/ghostfolio/apps\n/ghostfolio/apps/api\n/ghostfolio/apps/api/node_modules\n/home\n/home/node\n/home/node/.config\n/home/node/.config/prisma-nodejs\n/home/node/.config/prisma-nodejs/commands.json\n/home/node/.npm\n/home/node/.npm/_logs\n/home/node/.npm/_update-notifier-last-checked"
+            "text": "/home/node/.config/prisma-nodejs/commands.json"
           }
         ]
       },
@@ -570,9 +548,9 @@
         "needs internet at run time: Error: request to https://binaries.prisma.sh/all_commits/0edf323efd1d98336f3f0a68684b56f689b900d3/debian-openssl-3.0.x/schema-engine.gz.sha256 failed, reason: getaddrinfo EAI_AGAIN binaries.prisma.sh"
       ],
       "timings": {
-        "build": 54.037,
-        "setA": 124.794,
-        "sizes": 127.588
+        "build": 33.597,
+        "setA": 226.737,
+        "sizes": 273.214
       }
     }
   ],

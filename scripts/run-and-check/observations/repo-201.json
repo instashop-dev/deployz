@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-17T04:55:50.966Z",
+      "startedAt": "2026-10-17T12:40:04.048Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -33,7 +33,7 @@
       },
       "webHealthy": {
         "status": "observed",
-        "value": true,
+        "value": false,
         "arch": "amd64-ci-build",
         "evidence": [
           {
@@ -44,33 +44,28 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=48.986\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=false exited=true oomKilled=true seconds=none\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 1s\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 236ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 227ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 176ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 286ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /status \u001b[33m404\u001b[0m 109ms\n\u001b[32minfo\u001b[39m: <-- GET /ping\n\u001b[31merror\u001b[39m: Error in /ping: NotFoundError: The route does not exist or has been deleted.\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
+            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
           }
         ]
       },
       "listeningPorts": {
-        "status": "error",
-        "value": null,
+        "status": "observed",
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [],
-        "note": "socket probe of repo-201-r1-a-web1 failed: docker: Error response from daemon: cannot join network namespace of a non running container: container repo-201-r1-a-web1 is exited\n\nRun 'docker run --help' for more information\n"
+        "note": "container exited"
       },
       "httpPaths": {
         "status": "observed",
         "value": [],
         "arch": "amd64-ci-build",
-        "evidence": [
-          {
-            "kind": "http",
-            "source": "web#1",
-            "text": "no reachable port"
-          }
-        ]
+        "evidence": [],
+        "note": "container exited"
       },
       "smoke": {
         "status": "observed",
@@ -79,13 +74,8 @@
           "status": null
         },
         "arch": "amd64-ci-build",
-        "evidence": [
-          {
-            "kind": "http",
-            "source": "web#1",
-            "text": "GET 18080/ none"
-          }
-        ]
+        "evidence": [],
+        "note": "container exited"
       },
       "database": {
         "status": "observed",
@@ -123,7 +113,7 @@
         "status": "observed",
         "value": {
           "tablesCreatedByStart": false,
-          "secondStartHealthy": true
+          "secondStartHealthy": null
         },
         "arch": "amd64-ci-build",
         "evidence": []
@@ -166,20 +156,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/app",
-          "/app/logs",
-          "/root",
-          "/root/.npm",
-          "/root/.npm/_logs",
-          "/root/.npm/_update-notifier-last-checked"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/app\n/app/logs\n/root\n/root/.npm\n/root/.npm/_logs\n/root/.npm/_update-notifier-last-checked"
+            "text": "no local writes"
           }
         ]
       },
@@ -195,51 +178,21 @@
         "value": null,
         "arch": "amd64-ci-build",
         "evidence": [],
-        "note": "no candidate variable"
+        "note": "web was not healthy"
       },
       "twoCopiesHealthy": {
-        "status": "observed",
-        "value": true,
+        "status": "not_run",
+        "value": null,
         "arch": "amd64-ci-build",
-        "evidence": [
-          {
-            "kind": "http",
-            "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=98.225\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
-          },
-          {
-            "kind": "log",
-            "source": "web#1",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.7:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 299ms\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 45ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 42ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 51ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 77ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /status \u001b[33m404\u001b[0m 26ms\n\u001b[32minfo\u001b[39m: <-- GET /ping\n\u001b[31merror\u001b[39m: Error in /ping: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /ping \u001b[33m404\u001b[0m 42ms\n\u001b[32minfo\u001b[39m: <-- GET /_health\n\u001b[31merror\u001b[39m: Error in /_health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /_health \u001b[33m404\u001b[0m 16ms\n\u001b[32minfo\u001b[39m: <-- GET /actuator/health\n\u001b[31merror\u001b[39m: Error in /actuator/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /actuator/health \u001b[33m404\u001b[0m 42ms\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
-          },
-          {
-            "kind": "http",
-            "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=97.752\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
-          },
-          {
-            "kind": "log",
-            "source": "web#2",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 275ms\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 41ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 39ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 46ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 29ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /status \u001b[33m404\u001b[0m 22ms\n\u001b[32minfo\u001b[39m: <-- GET /ping\n\u001b[31merror\u001b[39m: Error in /ping: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /ping \u001b[33m404\u001b[0m 16ms\n\u001b[32minfo\u001b[39m: <-- GET /_health\n\u001b[31merror\u001b[39m: Error in /_health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /_health \u001b[33m404\u001b[0m 19ms\n\u001b[32minfo\u001b[39m: <-- GET /actuator/health\n\u001b[31merror\u001b[39m: Error in /actuator/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /actuator/health \u001b[33m404\u001b[0m 23ms\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
-          }
-        ]
+        "evidence": [],
+        "note": "web was not healthy"
       },
       "restartHealthy": {
-        "status": "observed",
-        "value": true,
+        "status": "not_run",
+        "value": null,
         "arch": "amd64-ci-build",
-        "evidence": [
-          {
-            "kind": "http",
-            "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=60.83\n18080/ 200\n18080/healthz 200\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
-          },
-          {
-            "kind": "log",
-            "source": "web#2",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 1s\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 237ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 180ms\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
-          }
-        ]
+        "evidence": [],
+        "note": "web was not healthy"
       },
       "sizes": {
         "status": "observed",
@@ -248,8 +201,16 @@
             "profile": "small-v2",
             "memoryMiB": 512,
             "cpus": 1,
+            "healthy": false,
+            "startSeconds": null,
+            "oomKilled": true
+          },
+          {
+            "profile": "medium-v1",
+            "memoryMiB": 2048,
+            "cpus": 1,
             "healthy": true,
-            "startSeconds": 48.986,
+            "startSeconds": 60.032,
             "oomKilled": false
           }
         ],
@@ -258,7 +219,17 @@
           {
             "kind": "command",
             "source": "small-v2",
-            "text": "healthy=true oomKilled=false exited=false"
+            "text": "healthy=false oomKilled=true exited=true"
+          },
+          {
+            "kind": "http",
+            "source": "medium-v1",
+            "text": "healthy=true exited=false oomKilled=false seconds=60.032\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+          },
+          {
+            "kind": "log",
+            "source": "medium-v1",
+            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 1s\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 225ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 177ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 179ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 204ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /status \u001b[33m404\u001b[0m 111ms\n\u001b[32minfo\u001b[39m: <-- GET /ping\n\u001b[31merror\u001b[39m: Error in /ping: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /ping \u001b[33m404\u001b[0m 81ms\n\u001b[32minfo\u001b[39m: <-- GET /_health\n\u001b[31merror\u001b[39m: Error in /_health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /_health \u001b[33m404\u001b[0m 89ms\n\u001b[32minfo\u001b[39m: <-- GET /actuator/health\n\u001b[31merror\u001b[39m: Error in /actuator/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /actuator/health \u001b[33m404\u001b[0m 113ms\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
           }
         ]
       },
@@ -285,13 +256,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 40.73,
-        "setA": 189.26,
-        "twoCopies": 141.889
+        "build": 42.337,
+        "setA": 181.047,
+        "sizes": 126.21
       }
     },
     {
-      "startedAt": "2026-10-17T05:02:02.857Z",
+      "startedAt": "2026-10-17T12:45:53.653Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -327,12 +298,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=72.985\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=53.425\n18080/ 200\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 315ms\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 51ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 34ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 45ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 26ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /status \u001b[33m404\u001b[0m 19ms\n\u001b[32minfo\u001b[39m: <-- GET /ping\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
+            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 1s\n\u001b[32minfo\u001b[39m: <-- GET /healthz\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
           }
         ]
       },
@@ -345,13 +316,19 @@
       },
       "httpPaths": {
         "status": "observed",
-        "value": [],
+        "value": [
+          {
+            "port": 18080,
+            "path": "/",
+            "status": 200
+          }
+        ],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "http",
             "source": "web#1",
-            "text": "no reachable port"
+            "text": "18080/ 200"
           }
         ]
       },
@@ -449,20 +426,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/app",
-          "/app/logs",
-          "/root",
-          "/root/.npm",
-          "/root/.npm/_logs",
-          "/root/.npm/_update-notifier-last-checked"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/app\n/app/logs\n/root\n/root/.npm\n/root/.npm/_logs\n/root/.npm/_update-notifier-last-checked"
+            "text": "no local writes"
           }
         ]
       },
@@ -488,22 +458,22 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=118.523\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=129.492\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 1s\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 253ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 305ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 155ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 355ms\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
+            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.7:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 258ms\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 54ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 36ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 27ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 63ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=116.251\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=120.819\n18080/ 200\n18080/healthz 200\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.7:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 1s\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 348ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 177ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 185ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 172ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
+            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 532ms\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 99ms\n\u001b[32minfo\u001b[39m: <-- GET /health\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
           }
         ]
       },
@@ -515,12 +485,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=73.061\n18080/ 200\n18080/healthz 200\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=70.506\n18080/ 200\n18080/healthz 200\n18080/health 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health none\n1200/ none\n1200/healthz none\n1200/health none\n1200/up none\n1200/api/health none\n1200/status none\n1200/ping none\n1200/_health none\n1200/actuator/health none\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 136ms\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 53ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 30ms\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
+            "text": "\n> rsshub@1.0.0 start\n> cross-env NODE_ENV=production NODE_OPTIONS='--max-http-header-size=32768' node dist/index.mjs\n\n\u001b[32minfo\u001b[39m: 🎉 RSSHub is running on port 18080! Cheers!\n\u001b[32minfo\u001b[39m: 🔗 Local: 👉 http://localhost:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://10.200.1.6:18080\n\u001b[32minfo\u001b[39m: 🔗 Network: 👉 http://[::]:18080\n\u001b[32minfo\u001b[39m: <-- GET /\n\u001b[32minfo\u001b[39m: --> GET / \u001b[32m200\u001b[0m 1s\n\u001b[32minfo\u001b[39m: <-- GET /healthz\n\u001b[32minfo\u001b[39m: --> GET /healthz \u001b[32m200\u001b[0m 241ms\n\u001b[32minfo\u001b[39m: <-- GET /health\n\u001b[31merror\u001b[39m: Error in /health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /health \u001b[33m404\u001b[0m 187ms\n\u001b[32minfo\u001b[39m: <-- GET /up\n\u001b[31merror\u001b[39m: Error in /up: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /up \u001b[33m404\u001b[0m 189ms\n\u001b[32minfo\u001b[39m: <-- GET /api/health\n\u001b[31merror\u001b[39m: Error in /api/health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /api/health \u001b[33m404\u001b[0m 181ms\n\u001b[32minfo\u001b[39m: <-- GET /status\n\u001b[31merror\u001b[39m: Error in /status: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /status \u001b[33m404\u001b[0m 126ms\n\u001b[32minfo\u001b[39m: <-- GET /ping\n\u001b[31merror\u001b[39m: Error in /ping: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /ping \u001b[33m404\u001b[0m 71ms\n\u001b[32minfo\u001b[39m: <-- GET /_health\n\u001b[31merror\u001b[39m: Error in /_health: NotFoundError: The route does not exist or has been deleted.\n\u001b[32minfo\u001b[39m: --> GET /_health \u001b[33m404\u001b[0m 86ms\n\u001b[32minfo\u001b[39m: <-- GET /actuator/health\nnpm warn Unknown project config \"package-manager-strict\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nfatal: not a git repository (or any of the parent directories): .git\n"
           }
         ]
       },
@@ -532,7 +502,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 72.985,
+            "startSeconds": 53.425,
             "oomKilled": false
           }
         ],
@@ -568,12 +538,20 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 60.741,
-        "setA": 185.812,
-        "twoCopies": 182.355
+        "build": 39.442,
+        "setA": 200.127,
+        "twoCopies": 171.294
       }
     }
   ],
-  "unstable": [],
+  "unstable": [
+    "webHealthy",
+    "listeningPorts",
+    "httpPaths",
+    "startupMigration",
+    "twoCopiesHealthy",
+    "restartHealthy",
+    "sizes"
+  ],
   "complete": true
 }

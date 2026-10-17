@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T20:02:52.161Z",
+      "startedAt": "2026-10-17T09:37:42.024Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -279,13 +279,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 133.728,
-        "setA": 472.771,
-        "sizes": 84.338
+        "build": 173.667,
+        "setA": 473.349,
+        "sizes": 125.592
       }
     },
     {
-      "startedAt": "2026-10-16T20:14:23.004Z",
+      "startedAt": "2026-10-17T09:50:34.645Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -556,9 +556,9 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 145.159,
-        "setA": 435.738,
-        "sizes": 90.403
+        "build": 143.146,
+        "setA": 452.994,
+        "sizes": 153.055
       }
     }
   ],

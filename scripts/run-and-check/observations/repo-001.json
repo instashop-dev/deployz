@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T18:16:42.837Z",
+      "startedAt": "2026-10-17T06:47:13.835Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -44,12 +44,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=158.402\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=287.494\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 12ms\n"
+            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 75ms\n"
           }
         ]
       },
@@ -62,7 +62,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 43413,
+            "port": 38017,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -72,7 +72,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n43413 loopback reachable=false"
+            "text": "18080 all reachable=true\n38017 loopback reachable=false"
           }
         ]
       },
@@ -259,18 +259,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/app",
-          "/app/node_modules",
-          "/home",
-          "/home/nextjs"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/app\n/app/node_modules\n/home\n/home/nextjs"
+            "text": "no local writes"
           }
         ]
       },
@@ -296,22 +291,22 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=150.106\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=379.356\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "✓ DATABASE_URL is defined.\n✓ REDIS_URL is defined.\n✓ Database connection successful.\n✓ Database version check successful.\nDatasource \"db\": PostgreSQL database \"deployz\", schema \"public\" at \"rc-repo-001-r1-c-postgres:5432\"\n\n24 migrations found in prisma/migrations\n\n\nNo pending migrations to apply.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 13ms\n(node:12) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\n"
+            "text": "✓ DATABASE_URL is defined.\n✓ REDIS_URL is defined.\n✓ Database connection successful.\n✓ Database version check successful.\nDatasource \"db\": PostgreSQL database \"deployz\", schema \"public\" at \"rc-repo-001-r1-c-postgres:5432\"\n\n24 migrations found in prisma/migrations\n\n\nNo pending migrations to apply.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 191ms\n(node:11) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=150.404\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=379.528\n18080/ none\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 15ms\n"
+            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 155ms\n"
           }
         ]
       },
@@ -323,12 +318,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=164.597\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=253.135\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "✓ DATABASE_URL is defined.\n✓ REDIS_URL is defined.\n✓ Database connection successful.\n✓ Database version check successful.\nDatasource \"db\": PostgreSQL database \"deployz\", schema \"public\" at \"rc-repo-001-r1-a-postgres:5432\"\n\n24 migrations found in prisma/migrations\n\n\nNo pending migrations to apply.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 24ms\n(node:11) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\n"
+            "text": "✓ DATABASE_URL is defined.\n✓ REDIS_URL is defined.\n✓ Database connection successful.\n✓ Database version check successful.\nDatasource \"db\": PostgreSQL database \"deployz\", schema \"public\" at \"rc-repo-001-r1-a-postgres:5432\"\n\n24 migrations found in prisma/migrations\n\n\nNo pending migrations to apply.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 102ms\n(node:12) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\n"
           }
         ]
       },
@@ -340,7 +335,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 158.402,
+            "startSeconds": 287.494,
             "oomKilled": false
           }
         ],
@@ -377,13 +372,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 88.99,
-        "setA": 414.344,
-        "twoCopies": 199.352
+        "build": 173.929,
+        "setA": 631.655,
+        "twoCopies": 468.982
       }
     },
     {
-      "startedAt": "2026-10-16T18:28:25.535Z",
+      "startedAt": "2026-10-17T07:08:28.421Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -419,12 +414,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=152.092\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=272.376\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 12ms\n"
+            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 80ms\n"
           }
         ]
       },
@@ -437,7 +432,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 37179,
+            "port": 42655,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -447,7 +442,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "18080 all reachable=true\n37179 loopback reachable=false"
+            "text": "18080 all reachable=true\n42655 loopback reachable=false"
           }
         ]
       },
@@ -634,18 +629,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/app",
-          "/app/node_modules",
-          "/home",
-          "/home/nextjs"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/app\n/app/node_modules\n/home\n/home/nextjs"
+            "text": "no local writes"
           }
         ]
       },
@@ -665,28 +655,28 @@
       },
       "twoCopiesHealthy": {
         "status": "observed",
-        "value": true,
+        "value": false,
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=185.215\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=false exited=true oomKilled=false seconds=none\n18080/ none\n18080/api/heartbeat none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 83ms\n"
+            "text": "✓ Database version check successful.\n✗ Command failed: prisma migrate deploy\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\nError: P1002\n\nThe database server was reached but timed out.\n\nPlease try again.\n\nPlease make sure your database server is running at the configured address.\n\nContext: Timed out trying to acquire a postgres advisory lock (SELECT pg_advisory_lock(72707369)). Timeout: 10000ms. See https://pris.ly/d/migrate-advisory-locking for details.\n\n\n\n(node:12) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\nError: P1002\n\nThe database server was reached but timed out.\n\nPlease try again.\n\nPlease make sure your database server is running at the configured address.\n\nContext: Timed out trying to acquire a postgres advisory lock (SELECT pg_advisory_lock(72707369)). Timeout: 10000ms. See https://pris.ly/d/migrate-advisory-locking for details.\n\n\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=185.569\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=354.385\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "✓ DATABASE_URL is defined.\n✓ REDIS_URL is defined.\n✓ Database connection successful.\n✓ Database version check successful.\nDatasource \"db\": PostgreSQL database \"deployz\", schema \"public\" at \"rc-repo-001-r2-c-postgres:5432\"\n\n24 migrations found in prisma/migrations\n\n\nNo pending migrations to apply.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 137ms\n(node:12) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\n"
+            "text": "    └─ migration.sql\n  └─ 10_add_distinct_id/\n    └─ migration.sql\n  └─ 11_add_segment/\n    └─ migration.sql\n  └─ 12_update_report_parameter/\n    └─ migration.sql\n  └─ 13_add_revenue/\n    └─ migration.sql\n  └─ 14_add_link_and_pixel/\n    └─ migration.sql\n  └─ 15_add_share/\n    └─ migration.sql\n  └─ 16_boards/\n    └─ migration.sql\n  └─ 17_remove_duplicate_key/\n    └─ migration.sql\n  └─ 18_add_performance/\n    └─ migration.sql\n  └─ 19_add_session_replay/\n    └─ migration.sql\n  └─ 20_add_heatmap/\n    └─ migration.sql\n  └─ 21_add_session_link/\n    └─ migration.sql\n  └─ 22_add_2fa/\n    └─ migration.sql\n  └─ 23_update_session_data/\n    └─ migration.sql\n  └─ 24_lowercase_username/\n    └─ migration.sql\n\nAll migrations have been successfully applied.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 35ms\n"
           }
         ]
       },
@@ -698,12 +688,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=151.029\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=273.41\n18080/ 200\n18080/api/heartbeat 200\n18080/health 404\n18080/healthz 404\n18080/up 404\n18080/api/health 404\n18080/status 404\n18080/ping 404\n18080/_health 404\n18080/actuator/health 404\n3000/ none\n3000/api/heartbeat none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n8080/ none\n8080/api/heartbeat none\n8080/health none\n8080/healthz none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n80/ none\n80/api/heartbeat none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "✓ DATABASE_URL is defined.\n✓ REDIS_URL is defined.\n✓ Database connection successful.\n✓ Database version check successful.\nDatasource \"db\": PostgreSQL database \"deployz\", schema \"public\" at \"rc-repo-001-r2-a-postgres:5432\"\n\n24 migrations found in prisma/migrations\n\n\nNo pending migrations to apply.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 13ms\n(node:11) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\n"
+            "text": "✓ DATABASE_URL is defined.\n✓ REDIS_URL is defined.\n✓ Database connection successful.\n✓ Database version check successful.\nDatasource \"db\": PostgreSQL database \"deployz\", schema \"public\" at \"rc-repo-001-r2-a-postgres:5432\"\n\n24 migrations found in prisma/migrations\n\n\nNo pending migrations to apply.\n\n✓ Database is up to date.\n▲ Next.js 16.3.0\n- Local:         http://localhost:18080\n- Network:       http://0.0.0.0:18080\n✓ Ready in 0ms\n✓ Running next.config took 35ms\n(node:11) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.\nIn the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.\n\nTo prepare for this change:\n- If you want the current behavior, explicitly use 'sslmode=verify-full'\n- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'\n\nSee https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.\n(Use `node --trace-warnings ...` to show where the warning was created)\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\n"
           }
         ]
       },
@@ -715,7 +705,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 152.092,
+            "startSeconds": 272.376,
             "oomKilled": false
           }
         ],
@@ -752,12 +742,14 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 113.031,
-        "setA": 360.232,
-        "twoCopies": 250.894
+        "build": 217.327,
+        "setA": 651.991,
+        "twoCopies": 415.379
       }
     }
   ],
-  "unstable": [],
+  "unstable": [
+    "twoCopiesHealthy"
+  ],
   "complete": true
 }

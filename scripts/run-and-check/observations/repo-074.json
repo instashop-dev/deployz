@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T22:08:49.157Z",
+      "startedAt": "2026-10-17T14:01:34.808Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -49,7 +49,7 @@
           {
             "kind": "log",
             "source": "web#1",
-            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-16 22:09:51.382][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
+            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-17 14:02:50.847][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
           }
         ]
       },
@@ -229,7 +229,7 @@
           {
             "kind": "log",
             "source": "medium-v1",
-            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-16 22:10:43.894][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
+            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-17 14:04:00.382][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
           }
         ]
       },
@@ -256,13 +256,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 31.848,
-        "setA": 42.526,
-        "sizes": 52.684
+        "build": 30.052,
+        "setA": 59.398,
+        "sizes": 101.666
       }
     },
     {
-      "startedAt": "2026-10-16T22:10:56.224Z",
+      "startedAt": "2026-10-17T14:04:45.952Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -303,7 +303,7 @@
           {
             "kind": "log",
             "source": "web#1",
-            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-16 22:11:55.817][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
+            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-17 14:05:52.740][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
           }
         ]
       },
@@ -483,7 +483,7 @@
           {
             "kind": "log",
             "source": "medium-v1",
-            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-16 22:12:45.884][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
+            "text": "/--------------------------------------------------------------------\\\n|                        Starting Vaultwarden                        |\n|--------------------------------------------------------------------|\n| This is an *unofficial* Bitwarden implementation, DO NOT use the   |\n| official channels to report bugs/features, regardless of client.   |\n| Send usage/configuration questions or feature requests to:         |\n|   https://github.com/dani-garcia/vaultwarden/discussions or        |\n|   https://vaultwarden.discourse.group/                             |\n| Report suspected bugs/issues in the software itself at:            |\n|   https://github.com/dani-garcia/vaultwarden/issues/new            |\n\\--------------------------------------------------------------------/\n\n[2026-10-17 14:06:34.403][vaultwarden][ERROR] No persistent volume!\n########################################################################################\n# It looks like you did not configure a persistent volume!                             #\n# This will result in permanent data loss when the container is removed or updated!    #\n# If you really want to use volatile storage set `I_REALLY_WANT_VOLATILE_STORAGE=true` #\n########################################################################################\n\n"
           }
         ]
       },
@@ -510,9 +510,9 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 26.609,
-        "setA": 44.829,
-        "sizes": 52.078
+        "build": 27.408,
+        "setA": 60.2,
+        "sizes": 39.047
       }
     }
   ],

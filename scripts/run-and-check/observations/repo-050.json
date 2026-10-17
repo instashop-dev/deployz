@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T23:24:07.592Z",
+      "startedAt": "2026-10-17T10:41:00.789Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -44,12 +44,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=25.155\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=59.596\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "2026-10-16 23:26:26.766 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
+            "text": "[Livebook] Application running at http://localhost:8080/\n2026-10-17 10:44:55.433 [warning] version check failed, failed to make a request, reason: non-existing domain}\n"
           }
         ]
       },
@@ -77,7 +77,7 @@
             "reachableFromProbe": false
           },
           {
-            "port": 46255,
+            "port": 38469,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -87,7 +87,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "4369 all reachable=false\n8080 all reachable=true\n8081 all reachable=true\n13825 all reachable=false\n46255 loopback reachable=false"
+            "text": "4369 all reachable=false\n8080 all reachable=true\n8081 all reachable=true\n13825 all reachable=false\n38469 loopback reachable=false"
           }
         ]
       },
@@ -299,11 +299,6 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/home",
-          "/home/livebook",
-          "/home/livebook/.local",
-          "/home/livebook/.local/share",
-          "/home/livebook/.local/share/livebook",
           "/home/livebook/.local/share/livebook/livebook_config.v1.ets"
         ],
         "arch": "amd64-ci-build",
@@ -311,7 +306,7 @@
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/home\n/home/livebook\n/home/livebook/.local\n/home/livebook/.local/share\n/home/livebook/.local/share/livebook\n/home/livebook/.local/share/livebook/livebook_config.v1.ets"
+            "text": "/home/livebook/.local/share/livebook/livebook_config.v1.ets"
           }
         ]
       },
@@ -334,11 +329,6 @@
             "name": "LIVEBOOK_SECRET_KEY_BASE",
             "healthyWithout": true,
             "healthyWith": true
-          },
-          {
-            "name": "VARIANT",
-            "healthyWithout": true,
-            "healthyWith": true
           }
         ],
         "arch": "amd64-ci-build",
@@ -346,32 +336,22 @@
           {
             "kind": "http",
             "source": "web without LIVEBOOK_PASSWORD",
-            "text": "healthy=true exited=false oomKilled=false seconds=14.553\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=46.642\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without LIVEBOOK_PASSWORD",
-            "text": "2026-10-16 23:29:38.249 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/?token=vfrljgag45kmzfqb7xupg7zg7djna6jk\n"
+            "text": "2026-10-17 10:50:28.529 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/?token=ft4afryhaaper24ximvuyhbtrx7hfzw3\n"
           },
           {
             "kind": "http",
             "source": "web without LIVEBOOK_SECRET_KEY_BASE",
-            "text": "healthy=true exited=false oomKilled=false seconds=21.653\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=55.441\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without LIVEBOOK_SECRET_KEY_BASE",
-            "text": "2026-10-16 23:30:41.613 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
-          },
-          {
-            "kind": "http",
-            "source": "web without VARIANT",
-            "text": "healthy=true exited=false oomKilled=false seconds=39.766\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
-          },
-          {
-            "kind": "log",
-            "source": "web without VARIANT",
-            "text": "2026-10-16 23:32:03.930 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
+            "text": "2026-10-17 10:52:40.342 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           }
         ]
       },
@@ -383,22 +363,22 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=14.959\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=73.593\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "[Livebook] Application running at http://localhost:8080/\n2026-10-16 23:28:29.412 [warning] version check failed, failed to make a request, reason: non-existing domain}\n"
+            "text": "2026-10-17 10:48:33.293 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=14.927\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=73.511\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "2026-10-16 23:28:29.211 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
+            "text": "2026-10-17 10:48:33.862 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           }
         ]
       },
@@ -410,12 +390,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=14.025\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=54.833\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "2026-10-16 23:27:19.479 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
+            "text": "2026-10-17 10:46:21.344 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           }
         ]
       },
@@ -427,7 +407,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 25.155,
+            "startSeconds": 59.596,
             "oomKilled": false
           }
         ],
@@ -458,8 +438,7 @@
         "workerCommands": [],
         "variables": [
           "LIVEBOOK_PASSWORD",
-          "LIVEBOOK_SECRET_KEY_BASE",
-          "VARIANT"
+          "LIVEBOOK_SECRET_KEY_BASE"
         ],
         "from": [
           "recipe",
@@ -469,14 +448,14 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 69.59,
-        "setA": 130.848,
-        "twoCopies": 76.873,
-        "requiredVariables": 222.219
+        "build": 117.872,
+        "setA": 222.664,
+        "twoCopies": 140.473,
+        "requiredVariables": 232.689
       }
     },
     {
-      "startedAt": "2026-10-16T23:32:27.150Z",
+      "startedAt": "2026-10-17T10:52:54.499Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -512,12 +491,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=29.239\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=54.353\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "2026-10-16 23:34:42.211 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
+            "text": "2026-10-17 10:56:20.967 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           }
         ]
       },
@@ -545,7 +524,7 @@
             "reachableFromProbe": false
           },
           {
-            "port": 41515,
+            "port": 43361,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -555,7 +534,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "4369 all reachable=false\n8080 all reachable=true\n8081 all reachable=true\n13825 all reachable=false\n41515 loopback reachable=false"
+            "text": "4369 all reachable=false\n8080 all reachable=true\n8081 all reachable=true\n13825 all reachable=false\n43361 loopback reachable=false"
           }
         ]
       },
@@ -767,11 +746,6 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/home",
-          "/home/livebook",
-          "/home/livebook/.local",
-          "/home/livebook/.local/share",
-          "/home/livebook/.local/share/livebook",
           "/home/livebook/.local/share/livebook/livebook_config.v1.ets"
         ],
         "arch": "amd64-ci-build",
@@ -779,7 +753,7 @@
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/home\n/home/livebook\n/home/livebook/.local\n/home/livebook/.local/share\n/home/livebook/.local/share/livebook\n/home/livebook/.local/share/livebook/livebook_config.v1.ets"
+            "text": "/home/livebook/.local/share/livebook/livebook_config.v1.ets"
           }
         ]
       },
@@ -802,11 +776,6 @@
             "name": "LIVEBOOK_SECRET_KEY_BASE",
             "healthyWithout": true,
             "healthyWith": true
-          },
-          {
-            "name": "VARIANT",
-            "healthyWithout": true,
-            "healthyWith": true
           }
         ],
         "arch": "amd64-ci-build",
@@ -814,32 +783,22 @@
           {
             "kind": "http",
             "source": "web without LIVEBOOK_PASSWORD",
-            "text": "healthy=true exited=false oomKilled=false seconds=26.522\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=41.904\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without LIVEBOOK_PASSWORD",
-            "text": "2026-10-16 23:38:19.465 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/?token=72gjcf4h5jyxuesolpzquzcnatg55vgb\n"
+            "text": "2026-10-17 11:02:11.559 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/?token=bqp7wtl3e6ejhexuoncjufotb2cqg7y4\n"
           },
           {
             "kind": "http",
             "source": "web without LIVEBOOK_SECRET_KEY_BASE",
-            "text": "healthy=true exited=false oomKilled=false seconds=22.624\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=60.227\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web without LIVEBOOK_SECRET_KEY_BASE",
-            "text": "2026-10-16 23:39:35.838 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
-          },
-          {
-            "kind": "http",
-            "source": "web without VARIANT",
-            "text": "healthy=true exited=false oomKilled=false seconds=41.196\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
-          },
-          {
-            "kind": "log",
-            "source": "web without VARIANT",
-            "text": "2026-10-16 23:40:51.047 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
+            "text": "2026-10-17 11:04:08.262 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           }
         ]
       },
@@ -851,22 +810,22 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=34.994\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=76.687\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "[Livebook] Application running at http://localhost:8080/\n2026-10-16 23:36:55.931 [warning] version check failed, failed to make a request, reason: non-existing domain}\n"
+            "text": "2026-10-17 10:59:43.028 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=35.139\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=76.484\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "[Livebook] Application running at http://localhost:8080/\n2026-10-16 23:36:56.142 [warning] version check failed, failed to make a request, reason: non-existing domain}\n"
+            "text": "2026-10-17 10:59:43.990 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
           }
         ]
       },
@@ -878,12 +837,12 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=34.44\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=40.722\n18080/ none\n18080/public/health none\n18080/health none\n18080/healthz none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n4000/ none\n4000/public/health none\n4000/health none\n4000/healthz none\n4000/up none\n4000/api/health none\n4000/status none\n4000/ping none\n4000/_health none\n4000/actuator/health none\n8080/ 302\n8080/public/health 200\n8080/health 404\n8080/healthz 404\n8080/up 404\n8080/api/health 404\n8080/status 404\n8080/ping 404\n8080/_health 404\n8080/actuator/health 404\n3000/ none\n3000/public/health none\n3000/health none\n3000/healthz none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/public/health none\n80/health none\n80/healthz none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "2026-10-16 23:35:43.212 [warning] version check failed, failed to make a request, reason: non-existing domain}\n[Livebook] Application running at http://localhost:8080/\n"
+            "text": "[Livebook] Application running at http://localhost:8080/\n2026-10-17 10:57:40.190 [warning] version check failed, failed to make a request, reason: non-existing domain}\n"
           }
         ]
       },
@@ -895,7 +854,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 29.239,
+            "startSeconds": 54.353,
             "oomKilled": false
           }
         ],
@@ -926,8 +885,7 @@
         "workerCommands": [],
         "variables": [
           "LIVEBOOK_PASSWORD",
-          "LIVEBOOK_SECRET_KEY_BASE",
-          "VARIANT"
+          "LIVEBOOK_SECRET_KEY_BASE"
         ],
         "from": [
           "recipe",
@@ -937,10 +895,10 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 73.469,
-        "setA": 130.406,
-        "twoCopies": 87.592,
-        "requiredVariables": 240.739
+        "build": 117.106,
+        "setA": 187.168,
+        "twoCopies": 128.959,
+        "requiredVariables": 258.902
       }
     }
   ],

@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T22:13:02.458Z",
+      "startedAt": "2026-10-17T14:07:01.880Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -49,7 +49,7 @@
           {
             "kind": "log",
             "source": "web#1",
-            "text": "ainThread]\nINFO:     Waiting for child process [99]\nINFO:     Child process [99] died\n2026-10-16 22:25:18,985 WARNING saleor.core.jwt_manager RSA_PRIVATE_KEY is missing. Using temporary key for local development with DEBUG mode. [PID:109:MainThread]\nINFO:     Waiting for child process [109]\nINFO:     Child process [109] died\n2026-10-16 22:25:25,871 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:119:MainThread]\n2026-10-16 22:26:23,972 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:124:MainThread]\nINFO:     Waiting for child process [119]\nINFO:     Child process [119] died\n2026-10-16 22:27:26,361 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:140:MainThread]\nINFO:     Waiting for child process [124]\nINFO:     Child process [124] died\n2026-10-16 22:28:28,152 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:150:MainThread]\nINFO:     Waiting for child process [140]\nINFO:     Child process [140] died\n2026-10-16 22:29:28,288 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:160:MainThread]\nINFO:     Waiting for child process [150]\nINFO:     Child process [150] died\n"
+            "text": "INFO:     Child process [126] died\nINFO:     Waiting for child process [129]\nINFO:     Child process [129] died\nINFO:     Waiting for child process [132]\nINFO:     Child process [132] died\nINFO:     Waiting for child process [135]\nINFO:     Child process [135] died\nINFO:     Waiting for child process [138]\nINFO:     Child process [138] died\nINFO:     Waiting for child process [141]\nINFO:     Child process [141] died\nINFO:     Waiting for child process [144]\nINFO:     Child process [144] died\nINFO:     Waiting for child process [147]\nINFO:     Child process [147] died\n2026-10-17 14:20:45,726 WARNING saleor.core.jwt_manager RSA_PRIVATE_KEY is missing. Using temporary key for local development with DEBUG mode. [PID:106:MainThread]\nINFO:     Waiting for child process [106]\nINFO:     Child process [106] died\nINFO:     Waiting for child process [154]\nINFO:     Child process [154] died\nINFO:     Waiting for child process [157]\nINFO:     Child process [157] died\nINFO:     Waiting for child process [160]\nINFO:     Child process [160] died\nINFO:     Waiting for child process [163]\nINFO:     Child process [163] died\nINFO:     Waiting for child process [166]\nINFO:     Child process [166] died\nINFO:     Waiting for child process [169]\nINFO:     Child process [169] died\n2026-10-17 14:21:36,999 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:150:MainThread]\n2026-10-17 14:22:54,891 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:172:MainThread]\nINFO:     Waiting for child process [150]\nINFO:     Child process [150] died\n"
           }
         ]
       },
@@ -57,7 +57,7 @@
         "status": "observed",
         "value": [
           {
-            "port": 32869,
+            "port": 39805,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -67,7 +67,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "32869 loopback reachable=false"
+            "text": "39805 loopback reachable=false"
           }
         ]
       },
@@ -177,90 +177,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/app",
-          "/app/saleor",
-          "/app/saleor/app",
-          "/app/saleor/asgi",
-          "/app/saleor/core",
-          "/app/saleor/core/db",
-          "/app/saleor/core/notification",
-          "/app/saleor/core/utils",
-          "/app/saleor/csv",
-          "/app/saleor/csv/utils",
-          "/app/saleor/discount",
-          "/app/saleor/giftcard",
-          "/app/saleor/graphql",
-          "/app/saleor/graphql/account",
-          "/app/saleor/graphql/account/bulk_mutations",
-          "/app/saleor/graphql/account/mutations",
-          "/app/saleor/graphql/account/mutations/account",
-          "/app/saleor/graphql/account/mutations/customer_type",
-          "/app/saleor/graphql/account/mutations/permission_group",
-          "/app/saleor/graphql/account/mutations/staff",
-          "/app/saleor/graphql/app",
-          "/app/saleor/graphql/app/mutations",
-          "/app/saleor/graphql/attribute",
-          "/app/saleor/graphql/attribute/mutations",
-          "/app/saleor/graphql/channel",
-          "/app/saleor/graphql/channel/mutations",
-          "/app/saleor/graphql/checkout",
-          "/app/saleor/graphql/checkout/mutations",
-          "/app/saleor/graphql/core",
-          "/app/saleor/graphql/core/federation",
-          "/app/saleor/graphql/core/utils",
-          "/app/saleor/graphql/csv",
-          "/app/saleor/graphql/csv/mutations",
-          "/app/saleor/graphql/discount",
-          "/app/saleor/graphql/discount/mutations",
-          "/app/saleor/graphql/discount/mutations/promotion",
-          "/app/saleor/graphql/discount/mutations/sale",
-          "/app/saleor/graphql/discount/mutations/voucher",
-          "/app/saleor/graphql/giftcard",
-          "/app/saleor/graphql/giftcard/bulk_mutations",
-          "/app/saleor/graphql/giftcard/mutations",
-          "/app/saleor/graphql/invoice",
-          "/app/saleor/graphql/invoice/mutations",
-          "/app/saleor/graphql/menu",
-          "/app/saleor/graphql/menu/bulk_mutations",
-          "/app/saleor/graphql/menu/mutations",
-          "/app/saleor/graphql/meta",
-          "/app/saleor/graphql/meta/mutations",
-          "/app/saleor/graphql/notifications",
-          "/app/saleor/graphql/notifications/mutations",
-          "/app/saleor/graphql/order",
-          "/app/saleor/graphql/order/bulk_mutations",
-          "/app/saleor/graphql/order/mutations",
-          "/app/saleor/graphql/payment",
-          "/app/saleor/graphql/payment/mutations",
-          "/app/saleor/graphql/payment/mutations/payment",
-          "/app/saleor/graphql/payment/mutations/stored_payment_methods",
-          "/app/saleor/graphql/payment/mutations/transaction",
-          "/app/saleor/graphql/product",
-          "/app/saleor/graphql/product/filters",
-          "/app/saleor/graphql/shipping",
-          "/app/saleor/graphql/translations",
-          "/app/saleor/graphql/translations/mutations",
-          "/app/saleor/graphql/utils",
-          "/app/saleor/graphql/webhook",
-          "/app/saleor/invoice",
-          "/app/saleor/page",
-          "/app/saleor/product",
-          "/app/saleor/product/utils",
-          "/app/saleor/shipping",
-          "/app/saleor/thumbnail",
-          "/usr",
-          "/usr/local",
-          "/usr/local/lib",
-          "/usr/local/lib/python3.12",
-          "/usr/local/lib/python3.12/multiprocessing"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "aleor/graphql/account/mutations/account\n/app/saleor/graphql/account/mutations/customer_type\n/app/saleor/graphql/account/mutations/permission_group\n/app/saleor/graphql/account/mutations/staff\n/app/saleor/graphql/app\n/app/saleor/graphql/app/mutations\n/app/saleor/graphql/attribute\n/app/saleor/graphql/attribute/mutations\n/app/saleor/graphql/channel\n/app/saleor/graphql/channel/mutations\n/app/saleor/graphql/checkout\n/app/saleor/graphql/checkout/mutations\n/app/saleor/graphql/core\n/app/saleor/graphql/core/federation\n/app/saleor/graphql/core/utils\n/app/saleor/graphql/csv\n/app/saleor/graphql/csv/mutations\n/app/saleor/graphql/discount\n/app/saleor/graphql/discount/mutations\n/app/saleor/graphql/discount/mutations/promotion\n/app/saleor/graphql/discount/mutations/sale\n/app/saleor/graphql/discount/mutations/voucher\n/app/saleor/graphql/giftcard\n/app/saleor/graphql/giftcard/bulk_mutations\n/app/saleor/graphql/giftcard/mutations\n/app/saleor/graphql/invoice\n/app/saleor/graphql/invoice/mutations\n/app/saleor/graphql/menu\n/app/saleor/graphql/menu/bulk_mutations\n/app/saleor/graphql/menu/mutations\n/app/saleor/graphql/meta\n/app/saleor/graphql/meta/mutations\n/app/saleor/graphql/notifications\n/app/saleor/graphql/notifications/mutations\n/app/saleor/graphql/order\n/app/saleor/graphql/order/bulk_mutations\n/app/saleor/graphql/order/mutations\n/app/saleor/graphql/payment\n/app/saleor/graphql/payment/mutations\n/app/saleor/graphql/payment/mutations/payment\n/app/saleor/graphql/payment/mutations/stored_payment_methods\n/app/saleor/graphql/payment/mutations/transaction\n/app/saleor/graphql/product\n/app/saleor/graphql/product/filters\n/app/saleor/graphql/shipping\n/app/saleor/graphql/translations\n/app/saleor/graphql/translations/mutations\n/app/saleor/graphql/utils\n/app/saleor/graphql/webhook\n/app/saleor/invoice\n/app/saleor/page\n/app/saleor/product\n/app/saleor/product/utils\n/app/saleor/shipping\n/app/saleor/thumbnail\n/usr\n/usr/local\n/usr/local/lib\n/usr/local/lib/python3.12\n/usr/local/lib/python3.12/multiprocessing"
+            "text": "no local writes"
           }
         ]
       },
@@ -357,13 +280,13 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 76.845,
-        "setA": 975.085,
-        "sizes": 948.086
+        "build": 100.995,
+        "setA": 986.795,
+        "sizes": 952.155
       }
     },
     {
-      "startedAt": "2026-10-16T22:46:22.486Z",
+      "startedAt": "2026-10-17T14:41:01.860Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -404,7 +327,7 @@
           {
             "kind": "log",
             "source": "web#1",
-            "text": "ainThread]\nINFO:     Waiting for child process [92]\nINFO:     Child process [92] died\n2026-10-16 22:58:42,037 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:112:MainThread]\nINFO:     Waiting for child process [102]\nINFO:     Child process [102] died\n2026-10-16 22:59:41,336 WARNING saleor.core.jwt_manager RSA_PRIVATE_KEY is missing. Using temporary key for local development with DEBUG mode. [PID:112:MainThread]\n2026-10-16 22:59:47,033 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:122:MainThread]\nINFO:     Waiting for child process [112]\nINFO:     Child process [112] died\n2026-10-16 23:00:46,537 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:133:MainThread]\nINFO:     Waiting for child process [122]\nINFO:     Child process [122] died\n2026-10-16 23:01:47,103 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:143:MainThread]\nINFO:     Waiting for child process [133]\nINFO:     Child process [133] died\n2026-10-16 23:02:47,717 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:153:MainThread]\nINFO:     Waiting for child process [143]\nINFO:     Child process [143] died\n"
+            "text": "cess [159] died\nINFO:     Waiting for child process [162]\nINFO:     Child process [162] died\nINFO:     Waiting for child process [165]\nINFO:     Child process [165] died\nINFO:     Waiting for child process [168]\nINFO:     Child process [168] died\nINFO:     Waiting for child process [171]\nINFO:     Child process [171] died\nINFO:     Waiting for child process [174]\nINFO:     Child process [174] died\nINFO:     Waiting for child process [177]\nINFO:     Child process [177] died\n2026-10-17 14:55:15,284 WARNING saleor.core.jwt_manager RSA_PRIVATE_KEY is missing. Using temporary key for local development with DEBUG mode. [PID:140:MainThread]\nINFO:     Waiting for child process [140]\nINFO:     Child process [140] died\nINFO:     Waiting for child process [184]\nINFO:     Child process [184] died\n2026-10-17 14:55:30,863 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:180:MainThread]\n2026-10-17 14:56:43,276 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:187:MainThread]\nINFO:     Waiting for child process [180]\nINFO:     Child process [180] died\n2026-10-17 14:58:01,240 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\nIt will be compatible before version 2.0.0.\n  from authlib.jose import JsonWebKey\n [PID:203:MainThread]\nINFO:     Waiting for child process [187]\nINFO:     Child process [187] died\nINFO:     Waiting for child process [213]\nINFO:     Child process [213] died\nINFO:     Waiting for child process [216]\nINFO:     Child process [216] died\nINFO:     Waiting for child process [219]\nINFO:     Child process [219] died\n"
           }
         ]
       },
@@ -412,7 +335,7 @@
         "status": "observed",
         "value": [
           {
-            "port": 34781,
+            "port": 33205,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -422,7 +345,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "34781 loopback reachable=false"
+            "text": "33205 loopback reachable=false"
           }
         ]
       },
@@ -532,69 +455,13 @@
       },
       "localDiskWrites": {
         "status": "observed",
-        "value": [
-          "/app",
-          "/app/saleor",
-          "/app/saleor/app",
-          "/app/saleor/asgi",
-          "/app/saleor/core",
-          "/app/saleor/core/notification",
-          "/app/saleor/core/utils",
-          "/app/saleor/discount",
-          "/app/saleor/graphql",
-          "/app/saleor/graphql/account",
-          "/app/saleor/graphql/account/bulk_mutations",
-          "/app/saleor/graphql/account/mutations",
-          "/app/saleor/graphql/account/mutations/account",
-          "/app/saleor/graphql/account/mutations/customer_type",
-          "/app/saleor/graphql/account/mutations/permission_group",
-          "/app/saleor/graphql/account/mutations/staff",
-          "/app/saleor/graphql/app",
-          "/app/saleor/graphql/app/mutations",
-          "/app/saleor/graphql/attribute",
-          "/app/saleor/graphql/attribute/mutations",
-          "/app/saleor/graphql/channel",
-          "/app/saleor/graphql/channel/mutations",
-          "/app/saleor/graphql/checkout",
-          "/app/saleor/graphql/checkout/mutations",
-          "/app/saleor/graphql/core",
-          "/app/saleor/graphql/core/utils",
-          "/app/saleor/graphql/discount",
-          "/app/saleor/graphql/discount/mutations",
-          "/app/saleor/graphql/discount/mutations/promotion",
-          "/app/saleor/graphql/discount/mutations/sale",
-          "/app/saleor/graphql/discount/mutations/voucher",
-          "/app/saleor/graphql/menu",
-          "/app/saleor/graphql/notifications",
-          "/app/saleor/graphql/notifications/mutations",
-          "/app/saleor/graphql/payment",
-          "/app/saleor/graphql/payment/mutations",
-          "/app/saleor/graphql/payment/mutations/payment",
-          "/app/saleor/graphql/payment/mutations/stored_payment_methods",
-          "/app/saleor/graphql/payment/mutations/transaction",
-          "/app/saleor/graphql/product",
-          "/app/saleor/graphql/product/filters",
-          "/app/saleor/graphql/translations",
-          "/app/saleor/graphql/translations/mutations",
-          "/app/saleor/graphql/utils",
-          "/app/saleor/graphql/webhook",
-          "/app/saleor/page",
-          "/app/saleor/product",
-          "/app/saleor/product/utils",
-          "/app/saleor/shipping",
-          "/app/saleor/thumbnail",
-          "/usr",
-          "/usr/local",
-          "/usr/local/lib",
-          "/usr/local/lib/python3.12",
-          "/usr/local/lib/python3.12/multiprocessing"
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/app\n/app/saleor\n/app/saleor/app\n/app/saleor/asgi\n/app/saleor/core\n/app/saleor/core/notification\n/app/saleor/core/utils\n/app/saleor/discount\n/app/saleor/graphql\n/app/saleor/graphql/account\n/app/saleor/graphql/account/bulk_mutations\n/app/saleor/graphql/account/mutations\n/app/saleor/graphql/account/mutations/account\n/app/saleor/graphql/account/mutations/customer_type\n/app/saleor/graphql/account/mutations/permission_group\n/app/saleor/graphql/account/mutations/staff\n/app/saleor/graphql/app\n/app/saleor/graphql/app/mutations\n/app/saleor/graphql/attribute\n/app/saleor/graphql/attribute/mutations\n/app/saleor/graphql/channel\n/app/saleor/graphql/channel/mutations\n/app/saleor/graphql/checkout\n/app/saleor/graphql/checkout/mutations\n/app/saleor/graphql/core\n/app/saleor/graphql/core/utils\n/app/saleor/graphql/discount\n/app/saleor/graphql/discount/mutations\n/app/saleor/graphql/discount/mutations/promotion\n/app/saleor/graphql/discount/mutations/sale\n/app/saleor/graphql/discount/mutations/voucher\n/app/saleor/graphql/menu\n/app/saleor/graphql/notifications\n/app/saleor/graphql/notifications/mutations\n/app/saleor/graphql/payment\n/app/saleor/graphql/payment/mutations\n/app/saleor/graphql/payment/mutations/payment\n/app/saleor/graphql/payment/mutations/stored_payment_methods\n/app/saleor/graphql/payment/mutations/transaction\n/app/saleor/graphql/product\n/app/saleor/graphql/product/filters\n/app/saleor/graphql/translations\n/app/saleor/graphql/translations/mutations\n/app/saleor/graphql/utils\n/app/saleor/graphql/webhook\n/app/saleor/page\n/app/saleor/product\n/app/saleor/product/utils\n/app/saleor/shipping\n/app/saleor/thumbnail\n/usr\n/usr/local\n/usr/local/lib\n/usr/local/lib/python3.12\n/usr/local/lib/python3.12/multiprocessing"
+            "text": "no local writes"
           }
         ]
       },
@@ -691,9 +558,9 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 74.4,
-        "setA": 969.604,
-        "sizes": 957.585
+        "build": 86.552,
+        "setA": 987.087,
+        "sizes": 937.897
       }
     }
   ],

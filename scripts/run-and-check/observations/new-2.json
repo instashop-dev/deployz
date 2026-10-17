@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-17T01:28:25.692Z",
+      "startedAt": "2026-10-17T06:40:41.154Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -49,7 +49,7 @@
           {
             "kind": "log",
             "source": "web#1",
-            "text": "er/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"size\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n[2026-10-17T01:45:47.679660+00:00] deprecation.INFO: User Deprecated: Since twig/twig 3.29: Not passing a value for the \"type\" argument of macro \"link_button\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \"@Tabler/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"type\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n[2026-10-17T01:45:47.681139+00:00] deprecation.INFO: User Deprecated: Since twig/twig 3.29: Not passing a value for the \"size\" argument of macro \"link_button\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \"@Tabler/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"size\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n"
+            "text": "er/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"size\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n[2026-10-17T06:59:14.021858+00:00] deprecation.INFO: User Deprecated: Since twig/twig 3.29: Not passing a value for the \"type\" argument of macro \"link_button\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \"@Tabler/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"type\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n[2026-10-17T06:59:14.022826+00:00] deprecation.INFO: User Deprecated: Since twig/twig 3.29: Not passing a value for the \"size\" argument of macro \"link_button\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \"@Tabler/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"size\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n"
           }
         ]
       },
@@ -62,7 +62,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 34393,
+            "port": 42435,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -72,7 +72,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "8001 all reachable=true\n34393 loopback reachable=false"
+            "text": "8001 all reachable=true\n42435 loopback reachable=false"
           }
         ]
       },
@@ -153,7 +153,7 @@
         "status": "observed",
         "value": {
           "engine": "mysql",
-          "connections": 39,
+          "connections": 11,
           "tablesAfterStart": [
             "kimai2_access_token",
             "kimai2_activities",
@@ -203,7 +203,7 @@
           {
             "kind": "command",
             "source": "mysql",
-            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 49, baseline 9, harness sessions 1: 39 application connections; tables in deployz: kimai2_access_token, kimai2_activities, kimai2_activities_meta, kimai2_activities_rates, kimai2_activities_teams, kimai2_bookmarks, kimai2_configuration, kimai2_customers, kimai2_customers_comments, kimai2_customers_meta, kimai2_customers_rates, kimai2_customers_teams, kimai2_export_templates, kimai2_invoice_templates, kimai2_invoice_templates_meta, kimai2_invoices, kimai2_invoices_meta, kimai2_projects, kimai2_projects_comments, kimai2_projects_meta, kimai2_projects_rates, kimai2_projects_teams, kimai2_roles, kimai2_roles_permissions, kimai2_sessions, kimai2_tags, kimai2_teams, kimai2_timesheet, kimai2_timesheet_meta, kimai2_timesheet_tags, kimai2_user_preferences, kimai2_users, kimai2_users_teams, kimai2_working_times, migration_versions"
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 21, baseline 9, harness sessions 1: 11 application connections; tables in deployz: kimai2_access_token, kimai2_activities, kimai2_activities_meta, kimai2_activities_rates, kimai2_activities_teams, kimai2_bookmarks, kimai2_configuration, kimai2_customers, kimai2_customers_comments, kimai2_customers_meta, kimai2_customers_rates, kimai2_customers_teams, kimai2_export_templates, kimai2_invoice_templates, kimai2_invoice_templates_meta, kimai2_invoices, kimai2_invoices_meta, kimai2_projects, kimai2_projects_comments, kimai2_projects_meta, kimai2_projects_rates, kimai2_projects_teams, kimai2_roles, kimai2_roles_permissions, kimai2_sessions, kimai2_tags, kimai2_teams, kimai2_timesheet, kimai2_timesheet_meta, kimai2_timesheet_tags, kimai2_user_preferences, kimai2_users, kimai2_users_teams, kimai2_working_times, migration_versions"
           },
           {
             "kind": "command",
@@ -265,15 +265,7 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/opt",
-          "/opt/kimai",
-          "/opt/kimai/config",
-          "/opt/kimai/config/packages",
           "/opt/kimai/config/packages/monolog.yaml",
-          "/usr",
-          "/usr/local",
-          "/usr/local/etc",
-          "/usr/local/etc/php",
           "/usr/local/etc/php/php.ini"
         ],
         "arch": "amd64-ci-build",
@@ -281,7 +273,7 @@
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/opt\n/opt/kimai\n/opt/kimai/config\n/opt/kimai/config/packages\n/opt/kimai/config/packages/monolog.yaml\n/usr\n/usr/local\n/usr/local/etc\n/usr/local/etc/php\n/usr/local/etc/php/php.ini"
+            "text": "/opt/kimai/config/packages/monolog.yaml\n/usr/local/etc/php/php.ini"
           }
         ]
       },
@@ -357,12 +349,12 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 70.481,
-        "setA": 981.994
+        "build": 132.923,
+        "setA": 999.236
       }
     },
     {
-      "startedAt": "2026-10-17T01:45:58.182Z",
+      "startedAt": "2026-10-17T06:59:33.330Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -403,7 +395,7 @@
           {
             "kind": "log",
             "source": "web#1",
-            "text": "er/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"size\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n[2026-10-17T02:03:01.918316+00:00] deprecation.INFO: User Deprecated: Since twig/twig 3.29: Not passing a value for the \"type\" argument of macro \"link_button\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \"@Tabler/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"type\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n[2026-10-17T02:03:01.921291+00:00] deprecation.INFO: User Deprecated: Since twig/twig 3.29: Not passing a value for the \"size\" argument of macro \"link_button\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \"@Tabler/error.html.twig\" at line 52). {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Since twig/twig 3.29: Not passing a value for the \\\"size\\\" argument of macro \\\"link_button\\\" is deprecated and the argument will be required in Twig 4.0; give it a default value in the macro definition or pass a value when calling it (in \\\"@Tabler/error.html.twig\\\" at line 52). at /opt/kimai/vendor/twig/twig/src/TwigMacro.php:183)\"} {\"channel\":\"deprecation\"}\n"
+            "text": "Testing DB:Connection established\nGroup already exists\nUser already exists\n Start installation ...\n Creating database ...\n[notice] Migrating up to DoctrineMigrations\\Version20260917080000\n[notice] finished in 145881.2ms, used 100.5M memory, 80 migrations executed, 272 sql queries\n\n [OK] Successfully migrated to version: DoctrineMigrations\\Version20260917080000\n\n\n Rebuilding cache ...\n\n // Clearing the cache for the prod environment with debug false                \n\n [OK] Cache for the \"prod\" environment (debug=false) was successfully cleared.  \n\n\n // Warming up the cache for the prod environment with debug false              \n\n [OK] Cache for the \"prod\" environment (debug=false) was successfully warmed.   \n\n\n [OK] Successfully installed Kimai version 2.70.0 🎉                            \n\nKimai is ready\n Validating config file syntax ...\n\n [OK] All 26 YAML files contain valid syntax.                                   \n\n\n\n [OK] All 616 XLIFF files contain valid syntax.                                 \n\n\n Rebuilding your cache, please be patient ...\n\n // Clearing the cache for the prod environment with debug false                \n\n[2026-10-17T07:14:37.914531+00:00] deprecation.INFO: User Deprecated: Enabling the controller resolver automapping feature has been deprecated. Symfony Mapped Route Parameters should be used as replacement. (DoctrineExtension.php:943 called by DoctrineExtension.php:544, https://github.com/doctrine/DoctrineBundle/pull/1804, package doctrine/doctrine-bundle) {\"exception\":\"[object] (ErrorException(code: 0): User Deprecated: Enabling the controller resolver automapping feature has been deprecated. Symfony Mapped Route Parameters should be used as replacement. (DoctrineExtension.php:943 called by DoctrineExtension.php:544, https://github.com/doctrine/DoctrineBundle/pull/1804, package doctrine/doctrine-bundle) at /opt/kimai/vendor/doctrine/deprecations/src/Deprecation.php:208)\"} {\"channel\":\"deprecation\"}\n"
           }
         ]
       },
@@ -411,12 +403,7 @@
         "status": "observed",
         "value": [
           {
-            "port": 8001,
-            "bind": "all",
-            "reachableFromProbe": true
-          },
-          {
-            "port": 39075,
+            "port": 38807,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -426,65 +413,19 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "8001 all reachable=true\n39075 loopback reachable=false"
+            "text": "38807 loopback reachable=false"
           }
         ]
       },
       "httpPaths": {
         "status": "observed",
-        "value": [
-          {
-            "port": 8001,
-            "path": "/",
-            "status": 302
-          },
-          {
-            "port": 8001,
-            "path": "/health",
-            "status": 404
-          },
-          {
-            "port": 8001,
-            "path": "/healthz",
-            "status": 404
-          },
-          {
-            "port": 8001,
-            "path": "/up",
-            "status": 404
-          },
-          {
-            "port": 8001,
-            "path": "/api/health",
-            "status": 404
-          },
-          {
-            "port": 8001,
-            "path": "/status",
-            "status": 404
-          },
-          {
-            "port": 8001,
-            "path": "/ping",
-            "status": 404
-          },
-          {
-            "port": 8001,
-            "path": "/_health",
-            "status": 404
-          },
-          {
-            "port": 8001,
-            "path": "/actuator/health",
-            "status": 404
-          }
-        ],
+        "value": [],
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "http",
             "source": "web#1",
-            "text": "8001/ 302\n8001/health 404\n8001/healthz 404\n8001/up 404\n8001/api/health 404\n8001/status 404\n8001/ping 404\n8001/_health 404\n8001/actuator/health 404"
+            "text": "no reachable port"
           }
         ]
       },
@@ -492,14 +433,14 @@
         "status": "observed",
         "value": {
           "path": "/",
-          "status": 302
+          "status": null
         },
         "arch": "amd64-ci-build",
         "evidence": [
           {
             "kind": "http",
             "source": "web#1",
-            "text": "GET 8001/ 302"
+            "text": "GET 18080/ none"
           }
         ]
       },
@@ -507,7 +448,7 @@
         "status": "observed",
         "value": {
           "engine": "mysql",
-          "connections": 39,
+          "connections": 3,
           "tablesAfterStart": [
             "kimai2_access_token",
             "kimai2_activities",
@@ -557,7 +498,7 @@
           {
             "kind": "command",
             "source": "mysql",
-            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 49, baseline 9, harness sessions 1: 39 application connections; tables in deployz: kimai2_access_token, kimai2_activities, kimai2_activities_meta, kimai2_activities_rates, kimai2_activities_teams, kimai2_bookmarks, kimai2_configuration, kimai2_customers, kimai2_customers_comments, kimai2_customers_meta, kimai2_customers_rates, kimai2_customers_teams, kimai2_export_templates, kimai2_invoice_templates, kimai2_invoice_templates_meta, kimai2_invoices, kimai2_invoices_meta, kimai2_projects, kimai2_projects_comments, kimai2_projects_meta, kimai2_projects_rates, kimai2_projects_teams, kimai2_roles, kimai2_roles_permissions, kimai2_sessions, kimai2_tags, kimai2_teams, kimai2_timesheet, kimai2_timesheet_meta, kimai2_timesheet_tags, kimai2_user_preferences, kimai2_users, kimai2_users_teams, kimai2_working_times, migration_versions"
+            "text": "SHOW GLOBAL STATUS LIKE 'Connections' = 13, baseline 9, harness sessions 1: 3 application connections; tables in deployz: kimai2_access_token, kimai2_activities, kimai2_activities_meta, kimai2_activities_rates, kimai2_activities_teams, kimai2_bookmarks, kimai2_configuration, kimai2_customers, kimai2_customers_comments, kimai2_customers_meta, kimai2_customers_rates, kimai2_customers_teams, kimai2_export_templates, kimai2_invoice_templates, kimai2_invoice_templates_meta, kimai2_invoices, kimai2_invoices_meta, kimai2_projects, kimai2_projects_comments, kimai2_projects_meta, kimai2_projects_rates, kimai2_projects_teams, kimai2_roles, kimai2_roles_permissions, kimai2_sessions, kimai2_tags, kimai2_teams, kimai2_timesheet, kimai2_timesheet_meta, kimai2_timesheet_tags, kimai2_user_preferences, kimai2_users, kimai2_users_teams, kimai2_working_times, migration_versions"
           },
           {
             "kind": "command",
@@ -619,15 +560,7 @@
       "localDiskWrites": {
         "status": "observed",
         "value": [
-          "/opt",
-          "/opt/kimai",
-          "/opt/kimai/config",
-          "/opt/kimai/config/packages",
           "/opt/kimai/config/packages/monolog.yaml",
-          "/usr",
-          "/usr/local",
-          "/usr/local/etc",
-          "/usr/local/etc/php",
           "/usr/local/etc/php/php.ini"
         ],
         "arch": "amd64-ci-build",
@@ -635,7 +568,7 @@
           {
             "kind": "diff",
             "source": "web#1",
-            "text": "/opt\n/opt/kimai\n/opt/kimai/config\n/opt/kimai/config/packages\n/opt/kimai/config/packages/monolog.yaml\n/usr\n/usr/local\n/usr/local/etc\n/usr/local/etc/php\n/usr/local/etc/php/php.ini"
+            "text": "/opt/kimai/config/packages/monolog.yaml\n/usr/local/etc/php/php.ini"
           }
         ]
       },
@@ -711,11 +644,15 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 72.031,
-        "setA": 976.113
+        "build": 137.552,
+        "setA": 1014.801
       }
     }
   ],
-  "unstable": [],
+  "unstable": [
+    "listeningPorts",
+    "httpPaths",
+    "smoke"
+  ],
   "complete": true
 }

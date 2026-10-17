@@ -8,7 +8,7 @@
   "imageDigest": null,
   "runs": [
     {
-      "startedAt": "2026-10-16T18:09:15.512Z",
+      "startedAt": "2026-10-17T10:30:34.594Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -44,12 +44,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=14.41\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=22.326\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-16T18:09:53.234Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-16T18:09:53.489Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
+            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-17T10:31:41.002Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-17T10:31:42.194Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
           }
         ]
       },
@@ -62,7 +62,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 34695,
+            "port": 40809,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -72,7 +72,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "5230 all reachable=true\n34695 loopback reachable=false"
+            "text": "5230 all reachable=true\n40809 loopback reachable=false"
           }
         ]
       },
@@ -278,7 +278,7 @@
           {
             "kind": "log",
             "source": "web without MEMOS_DRIVER",
-            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-16T18:12:55.365Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: unable to open database file (14)\"\n"
+            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-17T10:34:45.800Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: unable to open database file (14)\"\n"
           }
         ]
       },
@@ -295,17 +295,17 @@
           {
             "kind": "log",
             "source": "web#1",
-            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-16T18:11:48.984Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-16T18:11:51.095Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to execute SQL file migration/postgres/LATEST.sql, err failed to execute statement: pq: duplicate key value violates unique constraint \\\"pg_type_typname_nsp_index\\\" (23505)\"\n"
+            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-17T10:33:21.967Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-17T10:33:22.287Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to execute SQL file migration/postgres/LATEST.sql, err failed to execute statement: pq: duplicate key value violates unique constraint \\\"pg_type_typname_nsp_index\\\" (23505)\"\n"
           },
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=29.589\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=28.576\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#2",
-            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-16T18:11:48.541Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-16T18:11:50.874Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
+            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-17T10:33:21.915Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-17T10:33:22.272Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
           }
         ]
       },
@@ -317,7 +317,7 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=24.699\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=12.39\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -334,7 +334,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 14.41,
+            "startSeconds": 22.326,
             "oomKilled": false
           }
         ],
@@ -373,14 +373,14 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 6.501,
-        "setA": 87.272,
-        "twoCopies": 85.47,
-        "requiredVariables": 57.683
+        "build": 1.45,
+        "setA": 110.34,
+        "twoCopies": 92.983,
+        "requiredVariables": 70.505
       }
     },
     {
-      "startedAt": "2026-10-16T18:13:12.441Z",
+      "startedAt": "2026-10-17T10:35:09.881Z",
       "harnessVersion": "1",
       "build": {
         "status": "observed",
@@ -416,12 +416,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=24.636\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=31.062\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-16T18:13:41.189Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-16T18:13:41.754Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
+            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-17T10:36:04.411Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-17T10:36:05.471Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
           }
         ]
       },
@@ -434,7 +434,7 @@
             "reachableFromProbe": true
           },
           {
-            "port": 40987,
+            "port": 44415,
             "bind": "loopback",
             "reachableFromProbe": false
           }
@@ -444,7 +444,7 @@
           {
             "kind": "inspect",
             "source": "web#1",
-            "text": "5230 all reachable=true\n40987 loopback reachable=false"
+            "text": "5230 all reachable=true\n44415 loopback reachable=false"
           }
         ]
       },
@@ -650,7 +650,7 @@
           {
             "kind": "log",
             "source": "web without MEMOS_DRIVER",
-            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-16T18:16:21.690Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: unable to open database file (14)\"\n"
+            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-17T10:40:43.159Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: unable to open database file (14)\"\n"
           }
         ]
       },
@@ -662,12 +662,12 @@
           {
             "kind": "http",
             "source": "web#1",
-            "text": "healthy=true exited=false oomKilled=false seconds=20.815\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=37.542\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
             "source": "web#1",
-            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-16T18:15:19.576Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-16T18:15:20.528Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
+            "text": "memos: starting as UID:GID 10001:10001\nMemos dev started successfully!\nData directory: /var/opt/memos\nDatabase driver: postgres\nServer running on port 5230\nAccess your memos at: http://localhost:5230\nAccess mode: private\ntime=2026-10-17T10:38:57.640Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-17T10:38:59.275Z level=INFO msg=\"database initialized successfully\" schemaVersion=0.31.6\n"
           },
           {
             "kind": "http",
@@ -677,7 +677,7 @@
           {
             "kind": "log",
             "source": "web#2",
-            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-16T18:15:19.641Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-16T18:15:20.530Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to execute SQL file migration/postgres/LATEST.sql, err failed to execute statement: pq: duplicate key value violates unique constraint \\\"pg_type_typname_nsp_index\\\" (23505)\"\n"
+            "text": "memos: starting as UID:GID 10001:10001\ntime=2026-10-17T10:38:57.681Z level=INFO msg=\"initializing new database with latest schema\" file=migration/postgres/LATEST.sql\ntime=2026-10-17T10:38:59.287Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to execute SQL file migration/postgres/LATEST.sql, err failed to execute statement: pq: duplicate key value violates unique constraint \\\"pg_type_typname_nsp_index\\\" (23505)\"\n"
           }
         ]
       },
@@ -689,7 +689,7 @@
           {
             "kind": "http",
             "source": "web#2",
-            "text": "healthy=true exited=false oomKilled=false seconds=15.256\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
+            "text": "healthy=true exited=false oomKilled=false seconds=32.526\n18080/ none\n18080/healthz none\n18080/health none\n18080/up none\n18080/api/health none\n18080/status none\n18080/ping none\n18080/_health none\n18080/actuator/health none\n5230/ 200\n5230/healthz 200\n5230/health 200\n5230/up 200\n5230/api/health 404\n5230/status 200\n5230/ping 200\n5230/_health 200\n5230/actuator/health 200\n8080/ none\n8080/healthz none\n8080/health none\n8080/up none\n8080/api/health none\n8080/status none\n8080/ping none\n8080/_health none\n8080/actuator/health none\n3000/ none\n3000/healthz none\n3000/health none\n3000/up none\n3000/api/health none\n3000/status none\n3000/ping none\n3000/_health none\n3000/actuator/health none\n80/ none\n80/healthz none\n80/health none\n80/up none\n80/api/health none\n80/status none\n80/ping none\n80/_health none\n80/actuator/health none"
           },
           {
             "kind": "log",
@@ -706,7 +706,7 @@
             "memoryMiB": 512,
             "cpus": 1,
             "healthy": true,
-            "startSeconds": 24.636,
+            "startSeconds": 31.062,
             "oomKilled": false
           }
         ],
@@ -745,10 +745,10 @@
       },
       "infrastructureFailures": [],
       "timings": {
-        "build": 1.417,
-        "setA": 80.838,
-        "twoCopies": 66.194,
-        "requiredVariables": 58.965
+        "build": 6.782,
+        "setA": 134.171,
+        "twoCopies": 128.63,
+        "requiredVariables": 81.27
       }
     }
   ],
