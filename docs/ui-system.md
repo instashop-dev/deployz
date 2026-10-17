@@ -263,6 +263,45 @@ happening now.
   guessed at.
 - Billing notices do not belong on this page.
 
+## Overview (Home)
+
+The homepage (`app/dashboard/page.tsx`) is titled "Overview"; the sidebar
+item stays "Home". Its state comes from `lib/home-state.ts`
+(`deriveHomeState`), which reads only the applications and deployments
+lists. There is no deployment table, activity feed, chart or banner on it.
+
+- **Onboarding** (no customer deployment yet): one checklist, Add
+  application → Review configuration → Create deployment. A step is complete
+  only when the data says so (configuration is complete only when the
+  analysis is COMPLETE and READY). Only the current step shows a detail line
+  and its one action; no header action competes with it. A ready application
+  makes the current step "Create deployment"
+  (`/dashboard/deployments/new?applicationId=…`).
+- **Overview** (at least one deployment): the header carries "Create
+  deployment". One compact summary card: Live · Need attention · Deploying ·
+  Awaiting customer, each a count above a short label and a link to
+  `/dashboard/deployments?status=healthy|attention|in-progress|waiting`. Each
+  count is one status group of `lib/deployment-status-groups`, so it equals
+  the rows of its filtered view. Only a nonzero Need attention count is red.
+- **Next steps**: at most three rows, each one title and one link, most
+  urgent first. Attention is one grouped row ("6 deployments need attention"
+  → Review deployments). Customers that have not installed are one row,
+  counted by customer ("1 customer hasn't completed setup" → View pending
+  setups). An application task shows only when no application can be
+  deployed and none is being analysed. Zero counts and normal in-progress
+  deployments are never tasks.
+- With no next steps, "Nothing needs your attention." "All deployments
+  healthy" shows above it only when every deployment is live and reports
+  HEALTHY; a live deployment without a health report is named as such,
+  never called healthy. Attention counts current state only: a later
+  successful attempt clears an earlier failure.
+- Loading is a skeleton of the same layout under the real title; a failed
+  load is the error state with Try again, never zero counts. When updates
+  fail after a load, the last known state stays with "Updates unavailable",
+  and the all-clear message is hidden.
+- Refresh reuses `useStatusPoll`: 5 s only while an analysis runs or the
+  organization's only deployment is being set up, otherwise 60 s.
+
 ## List views (Customers, Deployments)
 
 The two lists answer different questions. Customers answers "which
@@ -277,6 +316,11 @@ relationships need attention?" with one row per customer. Deployments answers
   never a stored status.
 - A state that the app does not know shows as "Unknown status" and counts as
   "Needs attention". It never shows a raw enum value.
+- The "Live" status filter (`status=healthy`) also keeps live deployments that
+  have an update available: their badge reads Live, and Overview counts them
+  as Live. "Update available" stays a separate filter for that subset.
+- The Deployments header action is "Create deployment". Invitation wording
+  stays on the invitation itself (the create page and its submit button).
 - Search, filters, and sort live in the URL query (`q`, `status` or `state`,
   `application`, `region`, `sort`, `dir`). Use `useListParams`. A default value
   leaves no trace in the URL. Back from a detail page restores the view.
